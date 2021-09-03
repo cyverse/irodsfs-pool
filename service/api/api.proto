@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+option go_package = "/api";
+
+package api;
+
+message Empty {
+}
+
+message Account{
+	string authentication_scheme = 1;
+	bool client_server_negotiation = 2;
+	string cs_negotiation_policy = 3;
+	string host = 4;
+	int32 port = 5;
+	string client_user = 6;
+	string client_zone = 7;
+	string proxy_user = 8;
+	string proxy_zone = 9;
+	string server_dn = 10;
+	string password = 11;
+	string ticket = 12;
+	int32 pam_ttl = 13;
+}
+
+message ConnectRequest{
+	Account account = 1;
+	string application_name = 2;
+}
+
+message ConnectResponse{
+	string connection_id = 1;
+	string error = 2;
+}
+
+message DisconnectRequest{
+	string connection_id = 1;
+}
+
+message ListRequest {
+	string connection_id = 1;
+    string path = 2;
+}
+
+message Entry {
+	int64 id = 1;
+	string type = 2; // "file" or "directory"
+	string name = 3;
+	string path = 4;
+	string owner = 5;
+	int64 size = 6;
+	string create_time = 7; // RFC3339 format
+	string modify_time = 8; // RFC3339 format
+	string checksum = 9;
+}
+
+message ListResponse {
+	repeated Entry entries = 1;
+	string error = 2;
+}
+
+service ProxyAPI {
+	rpc Connect(ConnectRequest) returns (ConnectResponse) {}
+	rpc Disconnect(DisconnectRequest) returns (Empty) {}
+	rpc List(ListRequest) returns (ListResponse) {}
+}

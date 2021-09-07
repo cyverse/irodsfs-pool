@@ -2,12 +2,11 @@ package client
 
 import (
 	"context"
-	"fmt"
-	"time"
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodsfs_clienttype "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/irodsfs-proxy/service/api"
+	"github.com/cyverse/irodsfs-proxy/utils"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
@@ -19,7 +18,7 @@ type ProxyServiceClient struct {
 	APIClient  api.ProxyAPIClient
 }
 
-type ProxyServiceConnection struct {
+type ProxyServiceSession struct {
 	ID              string
 	Account         *irodsfs_clienttype.IRODSAccount
 	ApplicationName string
@@ -64,13 +63,13 @@ func (client *ProxyServiceClient) Disconnect() {
 }
 
 // Login logins to iRODS service using account info
-func (client *ProxyServiceClient) Login(account *irodsfs_clienttype.IRODSAccount, applicationName string) (*ProxyServiceConnection, error) {
+func (client *ProxyServiceClient) Login(account *irodsfs_clienttype.IRODSAccount, applicationName string) (*ProxyServiceSession, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"function": "ProxyServiceClient.Login",
 	})
 
-	request := &api.ConnectRequest{
+	request := &api.LoginRequest{
 		Account: &api.Account{
 			AuthenticationScheme:    string(account.AuthenticationScheme),
 			ClientServerNegotiation: account.ClientServerNegotiation,
@@ -89,36 +88,31 @@ func (client *ProxyServiceClient) Login(account *irodsfs_clienttype.IRODSAccount
 		ApplicationName: applicationName,
 	}
 
-	response, err := client.APIClient.Connect(context.Background(), request)
+	response, err := client.APIClient.Login(context.Background(), request)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	if len(response.Error) > 0 {
-		logger.Errorf(response.Error)
-		return nil, fmt.Errorf(response.Error)
-	}
-
-	return &ProxyServiceConnection{
-		ID:              response.ConnectionId,
+	return &ProxyServiceSession{
+		ID:              response.SessionId,
 		Account:         account,
 		ApplicationName: applicationName,
 	}, nil
 }
 
 // Logout logouts from iRODS service
-func (client *ProxyServiceClient) Logout(connection *ProxyServiceConnection) error {
+func (client *ProxyServiceClient) Logout(session *ProxyServiceSession) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"function": "ProxyServiceClient.Logout",
 	})
 
-	request := &api.DisconnectRequest{
-		ConnectionId: connection.ID,
+	request := &api.LogoutRequest{
+		SessionId: session.ID,
 	}
 
-	_, err := client.APIClient.Disconnect(context.Background(), request)
+	_, err := client.APIClient.Logout(context.Background(), request)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -128,15 +122,15 @@ func (client *ProxyServiceClient) Logout(connection *ProxyServiceConnection) err
 }
 
 // List lists iRODS collection entries
-func (client *ProxyServiceClient) List(connection *ProxyServiceConnection, path string) ([]*irodsfs.Entry, error) {
+func (client *ProxyServiceClient) List(session *ProxyServiceSession, path string) ([]*irodsfs.Entry, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"function": "ProxyServiceClient.List",
 	})
 
 	request := &api.ListRequest{
-		ConnectionId: connection.ID,
-		Path:         path,
+		SessionId: session.ID,
+		Path:      path,
 	}
 
 	response, err := client.APIClient.List(context.Background(), request)
@@ -145,21 +139,16 @@ func (client *ProxyServiceClient) List(connection *ProxyServiceConnection, path 
 		return nil, err
 	}
 
-	if len(response.Error) > 0 {
-		logger.Errorf(response.Error)
-		return nil, fmt.Errorf(response.Error)
-	}
-
 	irodsEntries := []*irodsfs.Entry{}
 
 	for _, entry := range response.Entries {
-		createTime, err := time.Parse(time.RFC3339, entry.CreateTime)
+		createTime, err := utils.PrseTime(entry.CreateTime)
 		if err != nil {
 			logger.Error(err)
 			return nil, err
 		}
 
-		modifyTime, err := time.Parse(time.RFC3339, entry.ModifyTime)
+		modifyTime, err := utils.PrseTime(entry.ModifyTime)
 		if err != nil {
 			logger.Error(err)
 			return nil, err

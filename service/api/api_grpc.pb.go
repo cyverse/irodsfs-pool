@@ -18,8 +18,8 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ProxyAPIClient interface {
-	Connect(ctx context.Context, in *ConnectRequest, opts ...grpc.CallOption) (*ConnectResponse, error)
-	Disconnect(ctx context.Context, in *DisconnectRequest, opts ...grpc.CallOption) (*Empty, error)
+	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
+	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*Empty, error)
 	List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (*ListResponse, error)
 }
 
@@ -31,18 +31,18 @@ func NewProxyAPIClient(cc grpc.ClientConnInterface) ProxyAPIClient {
 	return &proxyAPIClient{cc}
 }
 
-func (c *proxyAPIClient) Connect(ctx context.Context, in *ConnectRequest, opts ...grpc.CallOption) (*ConnectResponse, error) {
-	out := new(ConnectResponse)
-	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Connect", in, out, opts...)
+func (c *proxyAPIClient) Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error) {
+	out := new(LoginResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Login", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *proxyAPIClient) Disconnect(ctx context.Context, in *DisconnectRequest, opts ...grpc.CallOption) (*Empty, error) {
+func (c *proxyAPIClient) Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*Empty, error) {
 	out := new(Empty)
-	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Disconnect", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Logout", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -62,8 +62,8 @@ func (c *proxyAPIClient) List(ctx context.Context, in *ListRequest, opts ...grpc
 // All implementations must embed UnimplementedProxyAPIServer
 // for forward compatibility
 type ProxyAPIServer interface {
-	Connect(context.Context, *ConnectRequest) (*ConnectResponse, error)
-	Disconnect(context.Context, *DisconnectRequest) (*Empty, error)
+	Login(context.Context, *LoginRequest) (*LoginResponse, error)
+	Logout(context.Context, *LogoutRequest) (*Empty, error)
 	List(context.Context, *ListRequest) (*ListResponse, error)
 	mustEmbedUnimplementedProxyAPIServer()
 }
@@ -72,11 +72,11 @@ type ProxyAPIServer interface {
 type UnimplementedProxyAPIServer struct {
 }
 
-func (UnimplementedProxyAPIServer) Connect(context.Context, *ConnectRequest) (*ConnectResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Connect not implemented")
+func (UnimplementedProxyAPIServer) Login(context.Context, *LoginRequest) (*LoginResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Login not implemented")
 }
-func (UnimplementedProxyAPIServer) Disconnect(context.Context, *DisconnectRequest) (*Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Disconnect not implemented")
+func (UnimplementedProxyAPIServer) Logout(context.Context, *LogoutRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Logout not implemented")
 }
 func (UnimplementedProxyAPIServer) List(context.Context, *ListRequest) (*ListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method List not implemented")
@@ -94,38 +94,38 @@ func RegisterProxyAPIServer(s grpc.ServiceRegistrar, srv ProxyAPIServer) {
 	s.RegisterService(&ProxyAPI_ServiceDesc, srv)
 }
 
-func _ProxyAPI_Connect_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ConnectRequest)
+func _ProxyAPI_Login_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LoginRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ProxyAPIServer).Connect(ctx, in)
+		return srv.(ProxyAPIServer).Login(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/api.ProxyAPI/Connect",
+		FullMethod: "/api.ProxyAPI/Login",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ProxyAPIServer).Connect(ctx, req.(*ConnectRequest))
+		return srv.(ProxyAPIServer).Login(ctx, req.(*LoginRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ProxyAPI_Disconnect_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DisconnectRequest)
+func _ProxyAPI_Logout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LogoutRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ProxyAPIServer).Disconnect(ctx, in)
+		return srv.(ProxyAPIServer).Logout(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/api.ProxyAPI/Disconnect",
+		FullMethod: "/api.ProxyAPI/Logout",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ProxyAPIServer).Disconnect(ctx, req.(*DisconnectRequest))
+		return srv.(ProxyAPIServer).Logout(ctx, req.(*LogoutRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -156,12 +156,12 @@ var ProxyAPI_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*ProxyAPIServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "Connect",
-			Handler:    _ProxyAPI_Connect_Handler,
+			MethodName: "Login",
+			Handler:    _ProxyAPI_Login_Handler,
 		},
 		{
-			MethodName: "Disconnect",
-			Handler:    _ProxyAPI_Disconnect_Handler,
+			MethodName: "Logout",
+			Handler:    _ProxyAPI_Logout_Handler,
 		},
 		{
 			MethodName: "List",

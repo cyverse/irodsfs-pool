@@ -23,22 +23,21 @@ message Account{
 	int32 pam_ttl = 13;
 }
 
-message ConnectRequest{
+message LoginRequest{
 	Account account = 1;
 	string application_name = 2;
 }
 
-message ConnectResponse{
-	string connection_id = 1;
-	string error = 2;
+message LoginResponse{
+	string session_id = 1;
 }
 
-message DisconnectRequest{
-	string connection_id = 1;
+message LogoutRequest{
+	string session_id = 1;
 }
 
 message ListRequest {
-	string connection_id = 1;
+	string session_id = 1;
     string path = 2;
 }
 
@@ -56,11 +55,10 @@ message Entry {
 
 message ListResponse {
 	repeated Entry entries = 1;
-	string error = 2;
 }
 
 service ProxyAPI {
-	rpc Connect(ConnectRequest) returns (ConnectResponse) {}
-	rpc Disconnect(DisconnectRequest) returns (Empty) {}
+	rpc Login(LoginRequest) returns (LoginResponse) {}
+	rpc Logout(LogoutRequest) returns (Empty) {}
 	rpc List(ListRequest) returns (ListResponse) {}
 }

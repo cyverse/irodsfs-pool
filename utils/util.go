@@ -2,7 +2,7 @@ package utils
 
 import "time"
 
-func PrseTime(t string) (time.Time, error) {
+func ParseTime(t string) (time.Time, error) {
 	return time.Parse(time.RFC3339, t)
 }
 

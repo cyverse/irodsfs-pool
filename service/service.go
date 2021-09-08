@@ -19,7 +19,8 @@ type ProxyService struct {
 // NewProxyService creates a new proxy service
 func NewProxyService(config *Config) *ProxyService {
 	apiServer := &api.Server{
-		Sessions: map[string]*api.Session{},
+		Sessions:    map[string]*api.Session{},
+		FileHandles: map[string]map[string]*api.FileHandle{},
 	}
 
 	grpcServer := grpc.NewServer()

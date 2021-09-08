@@ -23,6 +23,38 @@ message Account{
 	int32 pam_ttl = 13;
 }
 
+message Entry {
+	int64 id = 1;
+	string type = 2; // "file" or "directory"
+	string name = 3;
+	string path = 4;
+	string owner = 5;
+	int64 size = 6;
+	string create_time = 7; // RFC3339 format
+	string modify_time = 8; // RFC3339 format
+	string checksum = 9;
+}
+
+
+message Access {
+	string path = 1;
+	string user_name = 2;
+	string user_zone = 3;
+	string user_type = 4;
+	string access_level = 5;
+}
+
+enum ErrorType {
+	NONE = 0;
+	GENERAL = 1;
+	FILENOTFOUND = 2;
+}
+
+message SoftError {
+	ErrorType type = 1;
+	string message = 2;
+}
+
 message LoginRequest{
 	Account account = 1;
 	string application_name = 2;
@@ -41,24 +73,147 @@ message ListRequest {
     string path = 2;
 }
 
-message Entry {
-	int64 id = 1;
-	string type = 2; // "file" or "directory"
-	string name = 3;
-	string path = 4;
-	string owner = 5;
-	int64 size = 6;
-	string create_time = 7; // RFC3339 format
-	string modify_time = 8; // RFC3339 format
-	string checksum = 9;
-}
-
 message ListResponse {
 	repeated Entry entries = 1;
+}
+
+message StatRequest {
+	string session_id = 1;
+    string path = 2;
+}
+
+message StatResponse {
+	Entry entry = 1;
+	SoftError error = 2;
+}
+
+message ListDirACLsWithGroupUsersRequest {
+	string session_id = 1;
+    string path = 2;
+}
+
+message ListDirACLsWithGroupUsersResponse {
+	repeated Access accesses = 1;
+}
+
+message ListFileACLsWithGroupUsersRequest {
+	string session_id = 1;
+    string path = 2;
+}
+
+message ListFileACLsWithGroupUsersResponse {
+	repeated Access accesses = 1;
+}
+
+message RemoveFileRequest {
+	string session_id = 1;
+	string path = 2;
+	bool force = 3;
+}
+
+message RemoveDirRequest {
+	string session_id = 1;
+	string path = 2;
+	bool recurse = 3;
+	bool force = 4;
+}
+
+message MakeDirRequest {
+	string session_id = 1;
+	string path = 2;
+	bool recurse = 3;
+}
+
+message RenameDirToDirRequest {
+	string session_id = 1;
+	string source_path = 2;
+	string destination_path = 3;
+}
+
+message RenameFileToFileRequest {
+	string session_id = 1;
+	string source_path = 2;
+	string destination_path = 3;
+}
+
+message CreateFileRequest {
+	string session_id = 1;
+	string path = 2;
+	string resource = 3;
+}
+
+message CreateFileResponse {
+	string file_handle_id = 1;
+}
+
+message OpenFileRequest {
+	string session_id = 1;
+	string path = 2;
+	string resource = 3;
+	string mode = 4;
+}
+
+message OpenFileResponse {
+	string file_handle_id = 1;
+}
+
+message TruncateFileRequest {
+	string session_id = 1;
+	string path = 2;
+	int64 size = 3;
+}
+
+message SeekRequest {
+	string session_id = 1;
+	string file_handle_id = 2;
+	int64 offset = 3;
+	int32 whence = 4;
+}
+
+message SeekResponse {
+	int64 offset = 1;
+}
+
+message ReadRequest {
+	string session_id = 1;
+	string file_handle_id = 2;
+	int32 length = 3;
+}
+
+message ReadResponse {
+	bytes data = 1;
+}
+
+message WriteRequest {
+	string session_id = 1;
+	string file_handle_id = 2;
+	bytes data = 3;
+}
+
+message CloseRequest {
+	string session_id = 1;
+	string file_handle_id = 2;
 }
 
 service ProxyAPI {
 	rpc Login(LoginRequest) returns (LoginResponse) {}
 	rpc Logout(LogoutRequest) returns (Empty) {}
 	rpc List(ListRequest) returns (ListResponse) {}
+	rpc Stat(StatRequest) returns (StatResponse) {}
+	rpc ListDirACLsWithGroupUsers(ListDirACLsWithGroupUsersRequest) returns (ListDirACLsWithGroupUsersResponse) {}
+	rpc ListFileACLsWithGroupUsers(ListFileACLsWithGroupUsersRequest) returns (ListFileACLsWithGroupUsersResponse) {}
+	rpc RemoveFile(RemoveFileRequest) returns (Empty) {}
+	rpc RemoveDir(RemoveDirRequest) returns (Empty) {}
+	rpc MakeDir(MakeDirRequest) returns (Empty) {}
+	rpc RenameDirToDir(RenameDirToDirRequest) returns (Empty) {}
+	rpc RenameFileToFile(RenameFileToFileRequest) returns (Empty) {}
+	rpc CreateFile(CreateFileRequest) returns (CreateFileResponse) {}
+	rpc OpenFile(OpenFileRequest) returns (OpenFileResponse) {}
+	rpc TruncateFile(TruncateFileRequest) returns (Empty) {}
+	
+	// file 
+	rpc Seek(SeekRequest) returns (SeekResponse) {}
+	rpc Read(ReadRequest) returns (ReadResponse) {}
+	rpc Write(WriteRequest) returns (Empty) {}
+	rpc Close(CloseRequest) returns (Empty) {}
 }

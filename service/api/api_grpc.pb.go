@@ -21,6 +21,22 @@ type ProxyAPIClient interface {
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*Empty, error)
 	List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (*ListResponse, error)
+	Stat(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
+	ListDirACLsWithGroupUsers(ctx context.Context, in *ListDirACLsWithGroupUsersRequest, opts ...grpc.CallOption) (*ListDirACLsWithGroupUsersResponse, error)
+	ListFileACLsWithGroupUsers(ctx context.Context, in *ListFileACLsWithGroupUsersRequest, opts ...grpc.CallOption) (*ListFileACLsWithGroupUsersResponse, error)
+	RemoveFile(ctx context.Context, in *RemoveFileRequest, opts ...grpc.CallOption) (*Empty, error)
+	RemoveDir(ctx context.Context, in *RemoveDirRequest, opts ...grpc.CallOption) (*Empty, error)
+	MakeDir(ctx context.Context, in *MakeDirRequest, opts ...grpc.CallOption) (*Empty, error)
+	RenameDirToDir(ctx context.Context, in *RenameDirToDirRequest, opts ...grpc.CallOption) (*Empty, error)
+	RenameFileToFile(ctx context.Context, in *RenameFileToFileRequest, opts ...grpc.CallOption) (*Empty, error)
+	CreateFile(ctx context.Context, in *CreateFileRequest, opts ...grpc.CallOption) (*CreateFileResponse, error)
+	OpenFile(ctx context.Context, in *OpenFileRequest, opts ...grpc.CallOption) (*OpenFileResponse, error)
+	TruncateFile(ctx context.Context, in *TruncateFileRequest, opts ...grpc.CallOption) (*Empty, error)
+	// file
+	Seek(ctx context.Context, in *SeekRequest, opts ...grpc.CallOption) (*SeekResponse, error)
+	Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadResponse, error)
+	Write(ctx context.Context, in *WriteRequest, opts ...grpc.CallOption) (*Empty, error)
+	Close(ctx context.Context, in *CloseRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type proxyAPIClient struct {
@@ -58,6 +74,141 @@ func (c *proxyAPIClient) List(ctx context.Context, in *ListRequest, opts ...grpc
 	return out, nil
 }
 
+func (c *proxyAPIClient) Stat(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error) {
+	out := new(StatResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Stat", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) ListDirACLsWithGroupUsers(ctx context.Context, in *ListDirACLsWithGroupUsersRequest, opts ...grpc.CallOption) (*ListDirACLsWithGroupUsersResponse, error) {
+	out := new(ListDirACLsWithGroupUsersResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/ListDirACLsWithGroupUsers", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) ListFileACLsWithGroupUsers(ctx context.Context, in *ListFileACLsWithGroupUsersRequest, opts ...grpc.CallOption) (*ListFileACLsWithGroupUsersResponse, error) {
+	out := new(ListFileACLsWithGroupUsersResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/ListFileACLsWithGroupUsers", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) RemoveFile(ctx context.Context, in *RemoveFileRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/RemoveFile", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) RemoveDir(ctx context.Context, in *RemoveDirRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/RemoveDir", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) MakeDir(ctx context.Context, in *MakeDirRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/MakeDir", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) RenameDirToDir(ctx context.Context, in *RenameDirToDirRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/RenameDirToDir", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) RenameFileToFile(ctx context.Context, in *RenameFileToFileRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/RenameFileToFile", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) CreateFile(ctx context.Context, in *CreateFileRequest, opts ...grpc.CallOption) (*CreateFileResponse, error) {
+	out := new(CreateFileResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/CreateFile", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) OpenFile(ctx context.Context, in *OpenFileRequest, opts ...grpc.CallOption) (*OpenFileResponse, error) {
+	out := new(OpenFileResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/OpenFile", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) TruncateFile(ctx context.Context, in *TruncateFileRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/TruncateFile", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) Seek(ctx context.Context, in *SeekRequest, opts ...grpc.CallOption) (*SeekResponse, error) {
+	out := new(SeekResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Seek", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadResponse, error) {
+	out := new(ReadResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Read", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) Write(ctx context.Context, in *WriteRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Write", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) Close(ctx context.Context, in *CloseRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Close", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProxyAPIServer is the server API for ProxyAPI service.
 // All implementations must embed UnimplementedProxyAPIServer
 // for forward compatibility
@@ -65,6 +216,22 @@ type ProxyAPIServer interface {
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	Logout(context.Context, *LogoutRequest) (*Empty, error)
 	List(context.Context, *ListRequest) (*ListResponse, error)
+	Stat(context.Context, *StatRequest) (*StatResponse, error)
+	ListDirACLsWithGroupUsers(context.Context, *ListDirACLsWithGroupUsersRequest) (*ListDirACLsWithGroupUsersResponse, error)
+	ListFileACLsWithGroupUsers(context.Context, *ListFileACLsWithGroupUsersRequest) (*ListFileACLsWithGroupUsersResponse, error)
+	RemoveFile(context.Context, *RemoveFileRequest) (*Empty, error)
+	RemoveDir(context.Context, *RemoveDirRequest) (*Empty, error)
+	MakeDir(context.Context, *MakeDirRequest) (*Empty, error)
+	RenameDirToDir(context.Context, *RenameDirToDirRequest) (*Empty, error)
+	RenameFileToFile(context.Context, *RenameFileToFileRequest) (*Empty, error)
+	CreateFile(context.Context, *CreateFileRequest) (*CreateFileResponse, error)
+	OpenFile(context.Context, *OpenFileRequest) (*OpenFileResponse, error)
+	TruncateFile(context.Context, *TruncateFileRequest) (*Empty, error)
+	// file
+	Seek(context.Context, *SeekRequest) (*SeekResponse, error)
+	Read(context.Context, *ReadRequest) (*ReadResponse, error)
+	Write(context.Context, *WriteRequest) (*Empty, error)
+	Close(context.Context, *CloseRequest) (*Empty, error)
 	mustEmbedUnimplementedProxyAPIServer()
 }
 
@@ -80,6 +247,51 @@ func (UnimplementedProxyAPIServer) Logout(context.Context, *LogoutRequest) (*Emp
 }
 func (UnimplementedProxyAPIServer) List(context.Context, *ListRequest) (*ListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method List not implemented")
+}
+func (UnimplementedProxyAPIServer) Stat(context.Context, *StatRequest) (*StatResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Stat not implemented")
+}
+func (UnimplementedProxyAPIServer) ListDirACLsWithGroupUsers(context.Context, *ListDirACLsWithGroupUsersRequest) (*ListDirACLsWithGroupUsersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDirACLsWithGroupUsers not implemented")
+}
+func (UnimplementedProxyAPIServer) ListFileACLsWithGroupUsers(context.Context, *ListFileACLsWithGroupUsersRequest) (*ListFileACLsWithGroupUsersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListFileACLsWithGroupUsers not implemented")
+}
+func (UnimplementedProxyAPIServer) RemoveFile(context.Context, *RemoveFileRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveFile not implemented")
+}
+func (UnimplementedProxyAPIServer) RemoveDir(context.Context, *RemoveDirRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveDir not implemented")
+}
+func (UnimplementedProxyAPIServer) MakeDir(context.Context, *MakeDirRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MakeDir not implemented")
+}
+func (UnimplementedProxyAPIServer) RenameDirToDir(context.Context, *RenameDirToDirRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RenameDirToDir not implemented")
+}
+func (UnimplementedProxyAPIServer) RenameFileToFile(context.Context, *RenameFileToFileRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RenameFileToFile not implemented")
+}
+func (UnimplementedProxyAPIServer) CreateFile(context.Context, *CreateFileRequest) (*CreateFileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateFile not implemented")
+}
+func (UnimplementedProxyAPIServer) OpenFile(context.Context, *OpenFileRequest) (*OpenFileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method OpenFile not implemented")
+}
+func (UnimplementedProxyAPIServer) TruncateFile(context.Context, *TruncateFileRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TruncateFile not implemented")
+}
+func (UnimplementedProxyAPIServer) Seek(context.Context, *SeekRequest) (*SeekResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Seek not implemented")
+}
+func (UnimplementedProxyAPIServer) Read(context.Context, *ReadRequest) (*ReadResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Read not implemented")
+}
+func (UnimplementedProxyAPIServer) Write(context.Context, *WriteRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Write not implemented")
+}
+func (UnimplementedProxyAPIServer) Close(context.Context, *CloseRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Close not implemented")
 }
 func (UnimplementedProxyAPIServer) mustEmbedUnimplementedProxyAPIServer() {}
 
@@ -148,6 +360,276 @@ func _ProxyAPI_List_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProxyAPI_Stat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StatRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).Stat(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/Stat",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).Stat(ctx, req.(*StatRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_ListDirACLsWithGroupUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDirACLsWithGroupUsersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).ListDirACLsWithGroupUsers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/ListDirACLsWithGroupUsers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).ListDirACLsWithGroupUsers(ctx, req.(*ListDirACLsWithGroupUsersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_ListFileACLsWithGroupUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFileACLsWithGroupUsersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).ListFileACLsWithGroupUsers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/ListFileACLsWithGroupUsers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).ListFileACLsWithGroupUsers(ctx, req.(*ListFileACLsWithGroupUsersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_RemoveFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).RemoveFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/RemoveFile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).RemoveFile(ctx, req.(*RemoveFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_RemoveDir_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveDirRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).RemoveDir(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/RemoveDir",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).RemoveDir(ctx, req.(*RemoveDirRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_MakeDir_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MakeDirRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).MakeDir(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/MakeDir",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).MakeDir(ctx, req.(*MakeDirRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_RenameDirToDir_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenameDirToDirRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).RenameDirToDir(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/RenameDirToDir",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).RenameDirToDir(ctx, req.(*RenameDirToDirRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_RenameFileToFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenameFileToFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).RenameFileToFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/RenameFileToFile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).RenameFileToFile(ctx, req.(*RenameFileToFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_CreateFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).CreateFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/CreateFile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).CreateFile(ctx, req.(*CreateFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_OpenFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OpenFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).OpenFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/OpenFile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).OpenFile(ctx, req.(*OpenFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_TruncateFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TruncateFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).TruncateFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/TruncateFile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).TruncateFile(ctx, req.(*TruncateFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_Seek_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SeekRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).Seek(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/Seek",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).Seek(ctx, req.(*SeekRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_Read_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).Read(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/Read",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).Read(ctx, req.(*ReadRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_Write_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WriteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).Write(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/Write",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).Write(ctx, req.(*WriteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_Close_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CloseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).Close(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/Close",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).Close(ctx, req.(*CloseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProxyAPI_ServiceDesc is the grpc.ServiceDesc for ProxyAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -166,6 +648,66 @@ var ProxyAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "List",
 			Handler:    _ProxyAPI_List_Handler,
+		},
+		{
+			MethodName: "Stat",
+			Handler:    _ProxyAPI_Stat_Handler,
+		},
+		{
+			MethodName: "ListDirACLsWithGroupUsers",
+			Handler:    _ProxyAPI_ListDirACLsWithGroupUsers_Handler,
+		},
+		{
+			MethodName: "ListFileACLsWithGroupUsers",
+			Handler:    _ProxyAPI_ListFileACLsWithGroupUsers_Handler,
+		},
+		{
+			MethodName: "RemoveFile",
+			Handler:    _ProxyAPI_RemoveFile_Handler,
+		},
+		{
+			MethodName: "RemoveDir",
+			Handler:    _ProxyAPI_RemoveDir_Handler,
+		},
+		{
+			MethodName: "MakeDir",
+			Handler:    _ProxyAPI_MakeDir_Handler,
+		},
+		{
+			MethodName: "RenameDirToDir",
+			Handler:    _ProxyAPI_RenameDirToDir_Handler,
+		},
+		{
+			MethodName: "RenameFileToFile",
+			Handler:    _ProxyAPI_RenameFileToFile_Handler,
+		},
+		{
+			MethodName: "CreateFile",
+			Handler:    _ProxyAPI_CreateFile_Handler,
+		},
+		{
+			MethodName: "OpenFile",
+			Handler:    _ProxyAPI_OpenFile_Handler,
+		},
+		{
+			MethodName: "TruncateFile",
+			Handler:    _ProxyAPI_TruncateFile_Handler,
+		},
+		{
+			MethodName: "Seek",
+			Handler:    _ProxyAPI_Seek_Handler,
+		},
+		{
+			MethodName: "Read",
+			Handler:    _ProxyAPI_Read_Handler,
+		},
+		{
+			MethodName: "Write",
+			Handler:    _ProxyAPI_Write_Handler,
+		},
+		{
+			MethodName: "Close",
+			Handler:    _ProxyAPI_Close_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

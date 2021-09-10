@@ -22,6 +22,8 @@ type ProxyAPIClient interface {
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*Empty, error)
 	List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (*ListResponse, error)
 	Stat(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
+	ExistsDir(ctx context.Context, in *ExistsDirRequest, opts ...grpc.CallOption) (*ExistsDirResponse, error)
+	ExistsFile(ctx context.Context, in *ExistsFileRequest, opts ...grpc.CallOption) (*ExistsFileResponse, error)
 	ListDirACLsWithGroupUsers(ctx context.Context, in *ListDirACLsWithGroupUsersRequest, opts ...grpc.CallOption) (*ListDirACLsWithGroupUsersResponse, error)
 	ListFileACLsWithGroupUsers(ctx context.Context, in *ListFileACLsWithGroupUsersRequest, opts ...grpc.CallOption) (*ListFileACLsWithGroupUsersResponse, error)
 	RemoveFile(ctx context.Context, in *RemoveFileRequest, opts ...grpc.CallOption) (*Empty, error)
@@ -33,9 +35,9 @@ type ProxyAPIClient interface {
 	OpenFile(ctx context.Context, in *OpenFileRequest, opts ...grpc.CallOption) (*OpenFileResponse, error)
 	TruncateFile(ctx context.Context, in *TruncateFileRequest, opts ...grpc.CallOption) (*Empty, error)
 	// file
-	Seek(ctx context.Context, in *SeekRequest, opts ...grpc.CallOption) (*SeekResponse, error)
-	Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadResponse, error)
-	Write(ctx context.Context, in *WriteRequest, opts ...grpc.CallOption) (*Empty, error)
+	GetOffset(ctx context.Context, in *GetOffsetRequest, opts ...grpc.CallOption) (*GetOffsetResponse, error)
+	ReadAt(ctx context.Context, in *ReadAtRequest, opts ...grpc.CallOption) (*ReadAtResponse, error)
+	WriteAt(ctx context.Context, in *WriteAtRequest, opts ...grpc.CallOption) (*Empty, error)
 	Close(ctx context.Context, in *CloseRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
@@ -77,6 +79,24 @@ func (c *proxyAPIClient) List(ctx context.Context, in *ListRequest, opts ...grpc
 func (c *proxyAPIClient) Stat(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error) {
 	out := new(StatResponse)
 	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Stat", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) ExistsDir(ctx context.Context, in *ExistsDirRequest, opts ...grpc.CallOption) (*ExistsDirResponse, error) {
+	out := new(ExistsDirResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/ExistsDir", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyAPIClient) ExistsFile(ctx context.Context, in *ExistsFileRequest, opts ...grpc.CallOption) (*ExistsFileResponse, error) {
+	out := new(ExistsFileResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/ExistsFile", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -173,27 +193,27 @@ func (c *proxyAPIClient) TruncateFile(ctx context.Context, in *TruncateFileReque
 	return out, nil
 }
 
-func (c *proxyAPIClient) Seek(ctx context.Context, in *SeekRequest, opts ...grpc.CallOption) (*SeekResponse, error) {
-	out := new(SeekResponse)
-	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Seek", in, out, opts...)
+func (c *proxyAPIClient) GetOffset(ctx context.Context, in *GetOffsetRequest, opts ...grpc.CallOption) (*GetOffsetResponse, error) {
+	out := new(GetOffsetResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/GetOffset", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *proxyAPIClient) Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadResponse, error) {
-	out := new(ReadResponse)
-	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Read", in, out, opts...)
+func (c *proxyAPIClient) ReadAt(ctx context.Context, in *ReadAtRequest, opts ...grpc.CallOption) (*ReadAtResponse, error) {
+	out := new(ReadAtResponse)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/ReadAt", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *proxyAPIClient) Write(ctx context.Context, in *WriteRequest, opts ...grpc.CallOption) (*Empty, error) {
+func (c *proxyAPIClient) WriteAt(ctx context.Context, in *WriteAtRequest, opts ...grpc.CallOption) (*Empty, error) {
 	out := new(Empty)
-	err := c.cc.Invoke(ctx, "/api.ProxyAPI/Write", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/api.ProxyAPI/WriteAt", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +237,8 @@ type ProxyAPIServer interface {
 	Logout(context.Context, *LogoutRequest) (*Empty, error)
 	List(context.Context, *ListRequest) (*ListResponse, error)
 	Stat(context.Context, *StatRequest) (*StatResponse, error)
+	ExistsDir(context.Context, *ExistsDirRequest) (*ExistsDirResponse, error)
+	ExistsFile(context.Context, *ExistsFileRequest) (*ExistsFileResponse, error)
 	ListDirACLsWithGroupUsers(context.Context, *ListDirACLsWithGroupUsersRequest) (*ListDirACLsWithGroupUsersResponse, error)
 	ListFileACLsWithGroupUsers(context.Context, *ListFileACLsWithGroupUsersRequest) (*ListFileACLsWithGroupUsersResponse, error)
 	RemoveFile(context.Context, *RemoveFileRequest) (*Empty, error)
@@ -228,9 +250,9 @@ type ProxyAPIServer interface {
 	OpenFile(context.Context, *OpenFileRequest) (*OpenFileResponse, error)
 	TruncateFile(context.Context, *TruncateFileRequest) (*Empty, error)
 	// file
-	Seek(context.Context, *SeekRequest) (*SeekResponse, error)
-	Read(context.Context, *ReadRequest) (*ReadResponse, error)
-	Write(context.Context, *WriteRequest) (*Empty, error)
+	GetOffset(context.Context, *GetOffsetRequest) (*GetOffsetResponse, error)
+	ReadAt(context.Context, *ReadAtRequest) (*ReadAtResponse, error)
+	WriteAt(context.Context, *WriteAtRequest) (*Empty, error)
 	Close(context.Context, *CloseRequest) (*Empty, error)
 	mustEmbedUnimplementedProxyAPIServer()
 }
@@ -250,6 +272,12 @@ func (UnimplementedProxyAPIServer) List(context.Context, *ListRequest) (*ListRes
 }
 func (UnimplementedProxyAPIServer) Stat(context.Context, *StatRequest) (*StatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Stat not implemented")
+}
+func (UnimplementedProxyAPIServer) ExistsDir(context.Context, *ExistsDirRequest) (*ExistsDirResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExistsDir not implemented")
+}
+func (UnimplementedProxyAPIServer) ExistsFile(context.Context, *ExistsFileRequest) (*ExistsFileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExistsFile not implemented")
 }
 func (UnimplementedProxyAPIServer) ListDirACLsWithGroupUsers(context.Context, *ListDirACLsWithGroupUsersRequest) (*ListDirACLsWithGroupUsersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListDirACLsWithGroupUsers not implemented")
@@ -281,14 +309,14 @@ func (UnimplementedProxyAPIServer) OpenFile(context.Context, *OpenFileRequest) (
 func (UnimplementedProxyAPIServer) TruncateFile(context.Context, *TruncateFileRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TruncateFile not implemented")
 }
-func (UnimplementedProxyAPIServer) Seek(context.Context, *SeekRequest) (*SeekResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Seek not implemented")
+func (UnimplementedProxyAPIServer) GetOffset(context.Context, *GetOffsetRequest) (*GetOffsetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetOffset not implemented")
 }
-func (UnimplementedProxyAPIServer) Read(context.Context, *ReadRequest) (*ReadResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Read not implemented")
+func (UnimplementedProxyAPIServer) ReadAt(context.Context, *ReadAtRequest) (*ReadAtResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReadAt not implemented")
 }
-func (UnimplementedProxyAPIServer) Write(context.Context, *WriteRequest) (*Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Write not implemented")
+func (UnimplementedProxyAPIServer) WriteAt(context.Context, *WriteAtRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WriteAt not implemented")
 }
 func (UnimplementedProxyAPIServer) Close(context.Context, *CloseRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Close not implemented")
@@ -374,6 +402,42 @@ func _ProxyAPI_Stat_Handler(srv interface{}, ctx context.Context, dec func(inter
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ProxyAPIServer).Stat(ctx, req.(*StatRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_ExistsDir_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExistsDirRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).ExistsDir(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/ExistsDir",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).ExistsDir(ctx, req.(*ExistsDirRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyAPI_ExistsFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExistsFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyAPIServer).ExistsFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.ProxyAPI/ExistsFile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyAPIServer).ExistsFile(ctx, req.(*ExistsFileRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -558,56 +622,56 @@ func _ProxyAPI_TruncateFile_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ProxyAPI_Seek_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SeekRequest)
+func _ProxyAPI_GetOffset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetOffsetRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ProxyAPIServer).Seek(ctx, in)
+		return srv.(ProxyAPIServer).GetOffset(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/api.ProxyAPI/Seek",
+		FullMethod: "/api.ProxyAPI/GetOffset",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ProxyAPIServer).Seek(ctx, req.(*SeekRequest))
+		return srv.(ProxyAPIServer).GetOffset(ctx, req.(*GetOffsetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ProxyAPI_Read_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReadRequest)
+func _ProxyAPI_ReadAt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReadAtRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ProxyAPIServer).Read(ctx, in)
+		return srv.(ProxyAPIServer).ReadAt(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/api.ProxyAPI/Read",
+		FullMethod: "/api.ProxyAPI/ReadAt",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ProxyAPIServer).Read(ctx, req.(*ReadRequest))
+		return srv.(ProxyAPIServer).ReadAt(ctx, req.(*ReadAtRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ProxyAPI_Write_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(WriteRequest)
+func _ProxyAPI_WriteAt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WriteAtRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ProxyAPIServer).Write(ctx, in)
+		return srv.(ProxyAPIServer).WriteAt(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/api.ProxyAPI/Write",
+		FullMethod: "/api.ProxyAPI/WriteAt",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ProxyAPIServer).Write(ctx, req.(*WriteRequest))
+		return srv.(ProxyAPIServer).WriteAt(ctx, req.(*WriteAtRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -654,6 +718,14 @@ var ProxyAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ProxyAPI_Stat_Handler,
 		},
 		{
+			MethodName: "ExistsDir",
+			Handler:    _ProxyAPI_ExistsDir_Handler,
+		},
+		{
+			MethodName: "ExistsFile",
+			Handler:    _ProxyAPI_ExistsFile_Handler,
+		},
+		{
 			MethodName: "ListDirACLsWithGroupUsers",
 			Handler:    _ProxyAPI_ListDirACLsWithGroupUsers_Handler,
 		},
@@ -694,16 +766,16 @@ var ProxyAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ProxyAPI_TruncateFile_Handler,
 		},
 		{
-			MethodName: "Seek",
-			Handler:    _ProxyAPI_Seek_Handler,
+			MethodName: "GetOffset",
+			Handler:    _ProxyAPI_GetOffset_Handler,
 		},
 		{
-			MethodName: "Read",
-			Handler:    _ProxyAPI_Read_Handler,
+			MethodName: "ReadAt",
+			Handler:    _ProxyAPI_ReadAt_Handler,
 		},
 		{
-			MethodName: "Write",
-			Handler:    _ProxyAPI_Write_Handler,
+			MethodName: "WriteAt",
+			Handler:    _ProxyAPI_WriteAt_Handler,
 		},
 		{
 			MethodName: "Close",

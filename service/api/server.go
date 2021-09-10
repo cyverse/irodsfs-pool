@@ -33,7 +33,8 @@ type FileHandle struct {
 func (server *Server) Login(context context.Context, request *LoginRequest) (*LoginResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.Login",
+		"struct":   "Server",
+		"function": "Login",
 	})
 
 	logger.Infof("Login request from client: %s - %s", request.Account.Host, request.Account.ClientUser)
@@ -78,7 +79,8 @@ func (server *Server) Login(context context.Context, request *LoginRequest) (*Lo
 func (server *Server) Logout(context context.Context, request *LogoutRequest) (*Empty, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.Logout",
+		"struct":   "Server",
+		"function": "Logout",
 	})
 
 	logger.Infof("Logout request from client: %s", request.SessionId)
@@ -109,7 +111,8 @@ func (server *Server) Logout(context context.Context, request *LogoutRequest) (*
 func (server *Server) List(context context.Context, request *ListRequest) (*ListResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.List",
+		"struct":   "Server",
+		"function": "List",
 	})
 
 	logger.Infof("List request from client %s: %s", request.SessionId, request.Path)
@@ -153,7 +156,8 @@ func (server *Server) List(context context.Context, request *ListRequest) (*List
 func (server *Server) Stat(context context.Context, request *StatRequest) (*StatResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.Stat",
+		"struct":   "Server",
+		"function": "Stat",
 	})
 
 	logger.Infof("Stat request from client %s: %s", request.SessionId, request.Path)
@@ -200,10 +204,55 @@ func (server *Server) Stat(context context.Context, request *StatRequest) (*Stat
 	return response, nil
 }
 
+func (server *Server) ExistsDir(context context.Context, request *ExistsDirRequest) (*ExistsDirResponse, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "api",
+		"struct":   "Server",
+		"function": "ExistsDir",
+	})
+
+	logger.Infof("ExistsDir request from client %s: %s", request.SessionId, request.Path)
+
+	session, ok := server.Sessions[request.SessionId]
+	if !ok {
+		err := fmt.Errorf("cannot find session %s", request.SessionId)
+		logger.Error(err)
+		return nil, err
+	}
+
+	exist := session.FS.ExistsDir(request.Path)
+	return &ExistsDirResponse{
+		Exist: exist,
+	}, nil
+}
+
+func (server *Server) ExistsFile(context context.Context, request *ExistsFileRequest) (*ExistsFileResponse, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "api",
+		"struct":   "Server",
+		"function": "ExistsFile",
+	})
+
+	logger.Infof("ExistsFile request from client %s: %s", request.SessionId, request.Path)
+
+	session, ok := server.Sessions[request.SessionId]
+	if !ok {
+		err := fmt.Errorf("cannot find session %s", request.SessionId)
+		logger.Error(err)
+		return nil, err
+	}
+
+	exist := session.FS.ExistsFile(request.Path)
+	return &ExistsFileResponse{
+		Exist: exist,
+	}, nil
+}
+
 func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request *ListDirACLsWithGroupUsersRequest) (*ListDirACLsWithGroupUsersResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.ListDirACLsWithGroupUsers",
+		"struct":   "Server",
+		"function": "ListDirACLsWithGroupUsers",
 	})
 
 	logger.Infof("ListDirACLsWithGroupUsers request from client %s: %s", request.SessionId, request.Path)
@@ -243,7 +292,8 @@ func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request
 func (server *Server) ListFileACLsWithGroupUsers(context context.Context, request *ListFileACLsWithGroupUsersRequest) (*ListFileACLsWithGroupUsersResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.ListFileACLsWithGroupUsers",
+		"struct":   "Server",
+		"function": "ListFileACLsWithGroupUsers",
 	})
 
 	logger.Infof("ListFileACLsWithGroupUsers request from client %s: %s", request.SessionId, request.Path)
@@ -283,7 +333,8 @@ func (server *Server) ListFileACLsWithGroupUsers(context context.Context, reques
 func (server *Server) RemoveFile(context context.Context, request *RemoveFileRequest) (*Empty, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.RemoveFile",
+		"struct":   "Server",
+		"function": "RemoveFile",
 	})
 
 	logger.Infof("RemoveFile request from client %s: %s", request.SessionId, request.Path)
@@ -307,7 +358,8 @@ func (server *Server) RemoveFile(context context.Context, request *RemoveFileReq
 func (server *Server) RemoveDir(context context.Context, request *RemoveDirRequest) (*Empty, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.RemoveDir",
+		"struct":   "Server",
+		"function": "RemoveDir",
 	})
 
 	logger.Infof("RemoveDir request from client %s: %s", request.SessionId, request.Path)
@@ -331,7 +383,8 @@ func (server *Server) RemoveDir(context context.Context, request *RemoveDirReque
 func (server *Server) MakeDir(context context.Context, request *MakeDirRequest) (*Empty, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.MakeDir",
+		"struct":   "Server",
+		"function": "MakeDir",
 	})
 
 	logger.Infof("MakeDir request from client %s: %s", request.SessionId, request.Path)
@@ -355,7 +408,8 @@ func (server *Server) MakeDir(context context.Context, request *MakeDirRequest) 
 func (server *Server) RenameDirToDir(context context.Context, request *RenameDirToDirRequest) (*Empty, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.RenameDirToDir",
+		"struct":   "Server",
+		"function": "RenameDirToDir",
 	})
 
 	logger.Infof("RenameDirToDir request from client %s: %s -> %s", request.SessionId, request.SourcePath, request.DestinationPath)
@@ -379,7 +433,8 @@ func (server *Server) RenameDirToDir(context context.Context, request *RenameDir
 func (server *Server) RenameFileToFile(context context.Context, request *RenameFileToFileRequest) (*Empty, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.RenameFileToFile",
+		"struct":   "Server",
+		"function": "RenameFileToFile",
 	})
 
 	logger.Infof("RenameFileToFile request from client %s: %s -> %s", request.SessionId, request.SourcePath, request.DestinationPath)
@@ -403,7 +458,8 @@ func (server *Server) RenameFileToFile(context context.Context, request *RenameF
 func (server *Server) CreateFile(context context.Context, request *CreateFileRequest) (*CreateFileResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.CreateFile",
+		"struct":   "Server",
+		"function": "CreateFile",
 	})
 
 	logger.Infof("CreateFile request from client %s: %s", request.SessionId, request.Path)
@@ -439,8 +495,21 @@ func (server *Server) CreateFile(context context.Context, request *CreateFileReq
 		handles[fileHandleID] = fileHandle
 	}
 
+	responseEntry := &Entry{
+		Id:         handle.Entry.ID,
+		Type:       string(handle.Entry.Type),
+		Name:       handle.Entry.Name,
+		Path:       handle.Entry.Path,
+		Owner:      handle.Entry.Owner,
+		Size:       handle.Entry.Size,
+		CreateTime: utils.MakeTimeToString(handle.Entry.CreateTime),
+		ModifyTime: utils.MakeTimeToString(handle.Entry.ModifyTime),
+		Checksum:   handle.Entry.CheckSum,
+	}
+
 	response := &CreateFileResponse{
 		FileHandleId: fileHandleID,
+		Entry:        responseEntry,
 	}
 
 	return response, nil
@@ -449,7 +518,8 @@ func (server *Server) CreateFile(context context.Context, request *CreateFileReq
 func (server *Server) OpenFile(context context.Context, request *OpenFileRequest) (*OpenFileResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.OpenFile",
+		"struct":   "Server",
+		"function": "OpenFile",
 	})
 
 	logger.Infof("OpenFile request from client %s: %s", request.SessionId, request.Path)
@@ -485,8 +555,21 @@ func (server *Server) OpenFile(context context.Context, request *OpenFileRequest
 		handles[fileHandleID] = fileHandle
 	}
 
+	responseEntry := &Entry{
+		Id:         handle.Entry.ID,
+		Type:       string(handle.Entry.Type),
+		Name:       handle.Entry.Name,
+		Path:       handle.Entry.Path,
+		Owner:      handle.Entry.Owner,
+		Size:       handle.Entry.Size,
+		CreateTime: utils.MakeTimeToString(handle.Entry.CreateTime),
+		ModifyTime: utils.MakeTimeToString(handle.Entry.ModifyTime),
+		Checksum:   handle.Entry.CheckSum,
+	}
+
 	response := &OpenFileResponse{
 		FileHandleId: fileHandleID,
+		Entry:        responseEntry,
 	}
 
 	return response, nil
@@ -495,7 +578,8 @@ func (server *Server) OpenFile(context context.Context, request *OpenFileRequest
 func (server *Server) TruncateFile(context context.Context, request *TruncateFileRequest) (*Empty, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.TruncateFile",
+		"struct":   "Server",
+		"function": "TruncateFile",
 	})
 
 	logger.Infof("TruncateFile request from client %s: %s", request.SessionId, request.Path)
@@ -516,13 +600,14 @@ func (server *Server) TruncateFile(context context.Context, request *TruncateFil
 	return &Empty{}, nil
 }
 
-func (server *Server) Seek(context context.Context, request *SeekRequest) (*SeekResponse, error) {
+func (server *Server) GetOffset(context context.Context, request *GetOffsetRequest) (*GetOffsetResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.Seek",
+		"struct":   "Server",
+		"function": "GetOffset",
 	})
 
-	logger.Infof("Seek request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+	logger.Infof("GetOffset request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
 
 	fileHandles, ok := server.FileHandles[request.SessionId]
 	if !ok {
@@ -538,26 +623,22 @@ func (server *Server) Seek(context context.Context, request *SeekRequest) (*Seek
 		return nil, err
 	}
 
-	newOffset, err := fileHandle.IRODSHandle.Seek(request.Offset, irodsfs_clienttype.Whence(request.Whence))
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-
-	response := &SeekResponse{
-		Offset: newOffset,
+	offset := fileHandle.IRODSHandle.GetOffset()
+	response := &GetOffsetResponse{
+		Offset: offset,
 	}
 
 	return response, nil
 }
 
-func (server *Server) Read(context context.Context, request *ReadRequest) (*ReadResponse, error) {
+func (server *Server) ReadAt(context context.Context, request *ReadAtRequest) (*ReadAtResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.Read",
+		"struct":   "Server",
+		"function": "ReadAt",
 	})
 
-	logger.Infof("Read request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+	logger.Infof("ReadAt request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
 
 	fileHandles, ok := server.FileHandles[request.SessionId]
 	if !ok {
@@ -573,26 +654,27 @@ func (server *Server) Read(context context.Context, request *ReadRequest) (*Read
 		return nil, err
 	}
 
-	data, err := fileHandle.IRODSHandle.Read(int(request.Length))
+	data, err := fileHandle.IRODSHandle.ReadAt(request.Offset, int(request.Length))
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	response := &ReadResponse{
+	response := &ReadAtResponse{
 		Data: data,
 	}
 
 	return response, nil
 }
 
-func (server *Server) Write(context context.Context, request *WriteRequest) (*Empty, error) {
+func (server *Server) WriteAt(context context.Context, request *WriteAtRequest) (*Empty, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.Write",
+		"struct":   "Server",
+		"function": "WriteAt",
 	})
 
-	logger.Infof("Write request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+	logger.Infof("WriteAt request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
 
 	fileHandles, ok := server.FileHandles[request.SessionId]
 	if !ok {
@@ -608,7 +690,7 @@ func (server *Server) Write(context context.Context, request *WriteRequest) (*Em
 		return nil, err
 	}
 
-	err := fileHandle.IRODSHandle.Write(request.Data)
+	err := fileHandle.IRODSHandle.WriteAt(request.Offset, request.Data)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -620,7 +702,8 @@ func (server *Server) Write(context context.Context, request *WriteRequest) (*Em
 func (server *Server) Close(context context.Context, request *CloseRequest) (*Empty, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "api",
-		"function": "Server.Close",
+		"struct":   "Server",
+		"function": "Close",
 	})
 
 	logger.Infof("Close request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)

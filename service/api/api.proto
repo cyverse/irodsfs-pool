@@ -87,6 +87,24 @@ message StatResponse {
 	SoftError error = 2;
 }
 
+message ExistsDirRequest {
+	string session_id = 1;
+    string path = 2;
+}
+
+message ExistsDirResponse {
+	bool exist = 1;
+}
+
+message ExistsFileRequest {
+	string session_id = 1;
+    string path = 2;
+}
+
+message ExistsFileResponse {
+	bool exist = 1;
+}
+
 message ListDirACLsWithGroupUsersRequest {
 	string session_id = 1;
     string path = 2;
@@ -144,6 +162,7 @@ message CreateFileRequest {
 
 message CreateFileResponse {
 	string file_handle_id = 1;
+	Entry entry = 2;
 }
 
 message OpenFileRequest {
@@ -155,6 +174,7 @@ message OpenFileRequest {
 
 message OpenFileResponse {
 	string file_handle_id = 1;
+	Entry entry = 2;
 }
 
 message TruncateFileRequest {
@@ -163,31 +183,31 @@ message TruncateFileRequest {
 	int64 size = 3;
 }
 
-message SeekRequest {
+message GetOffsetRequest {
 	string session_id = 1;
 	string file_handle_id = 2;
-	int64 offset = 3;
-	int32 whence = 4;
 }
 
-message SeekResponse {
+message GetOffsetResponse {
 	int64 offset = 1;
 }
 
-message ReadRequest {
+message ReadAtRequest {
 	string session_id = 1;
 	string file_handle_id = 2;
-	int32 length = 3;
+	int64 offset = 3;
+	int32 length = 4;
 }
 
-message ReadResponse {
+message ReadAtResponse {
 	bytes data = 1;
 }
 
-message WriteRequest {
+message WriteAtRequest {
 	string session_id = 1;
 	string file_handle_id = 2;
-	bytes data = 3;
+	int64 offset = 3;
+	bytes data = 4;
 }
 
 message CloseRequest {
@@ -200,6 +220,9 @@ service ProxyAPI {
 	rpc Logout(LogoutRequest) returns (Empty) {}
 	rpc List(ListRequest) returns (ListResponse) {}
 	rpc Stat(StatRequest) returns (StatResponse) {}
+	rpc ExistsDir(ExistsDirRequest) returns (ExistsDirResponse) {}
+	rpc ExistsFile(ExistsFileRequest) returns (ExistsFileResponse) {}
+
 	rpc ListDirACLsWithGroupUsers(ListDirACLsWithGroupUsersRequest) returns (ListDirACLsWithGroupUsersResponse) {}
 	rpc ListFileACLsWithGroupUsers(ListFileACLsWithGroupUsersRequest) returns (ListFileACLsWithGroupUsersResponse) {}
 	rpc RemoveFile(RemoveFileRequest) returns (Empty) {}
@@ -212,8 +235,8 @@ service ProxyAPI {
 	rpc TruncateFile(TruncateFileRequest) returns (Empty) {}
 	
 	// file 
-	rpc Seek(SeekRequest) returns (SeekResponse) {}
-	rpc Read(ReadRequest) returns (ReadResponse) {}
-	rpc Write(WriteRequest) returns (Empty) {}
+	rpc GetOffset(GetOffsetRequest) returns (GetOffsetResponse) {}
+	rpc ReadAt(ReadAtRequest) returns (ReadAtResponse) {}
+	rpc WriteAt(WriteAtRequest) returns (Empty) {}
 	rpc Close(CloseRequest) returns (Empty) {}
 }

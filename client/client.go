@@ -27,7 +27,7 @@ type ProxyServiceSession struct {
 
 type ProxyServiceFileHandle struct {
 	SessionID    string
-	Path         string
+	Entry        *irodsfs.Entry
 	FileHandleID string
 }
 
@@ -43,7 +43,8 @@ func NewProxyServiceClient(proxyHost string) *ProxyServiceClient {
 func (client *ProxyServiceClient) Connect() error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.Connect",
+		"struct":   "ProxyServiceClient",
+		"function": "Connect",
 	})
 
 	conn, err := grpc.Dial(client.Host, grpc.WithInsecure())
@@ -73,7 +74,8 @@ func (client *ProxyServiceClient) Disconnect() {
 func (client *ProxyServiceClient) Login(account *irodsfs_clienttype.IRODSAccount, applicationName string) (*ProxyServiceSession, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.Login",
+		"struct":   "ProxyServiceClient",
+		"function": "Login",
 	})
 
 	request := &api.LoginRequest{
@@ -112,7 +114,8 @@ func (client *ProxyServiceClient) Login(account *irodsfs_clienttype.IRODSAccount
 func (client *ProxyServiceClient) Logout(session *ProxyServiceSession) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.Logout",
+		"struct":   "ProxyServiceClient",
+		"function": "Logout",
 	})
 
 	request := &api.LogoutRequest{
@@ -132,7 +135,8 @@ func (client *ProxyServiceClient) Logout(session *ProxyServiceSession) error {
 func (client *ProxyServiceClient) List(session *ProxyServiceSession, path string) ([]*irodsfs.Entry, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.List",
+		"struct":   "ProxyServiceClient",
+		"function": "List",
 	})
 
 	request := &api.ListRequest{
@@ -183,7 +187,8 @@ func (client *ProxyServiceClient) List(session *ProxyServiceSession, path string
 func (client *ProxyServiceClient) Stat(session *ProxyServiceSession, path string) (*irodsfs.Entry, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.Stat",
+		"struct":   "ProxyServiceClient",
+		"function": "Stat",
 	})
 
 	request := &api.StatRequest{
@@ -233,11 +238,56 @@ func (client *ProxyServiceClient) Stat(session *ProxyServiceSession, path string
 	return irodsEntry, nil
 }
 
+// ExistsDir checks existence of Dir
+func (client *ProxyServiceClient) ExistsDir(session *ProxyServiceSession, path string) bool {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "ProxyServiceClient",
+		"function": "ExistsDir",
+	})
+
+	request := &api.ExistsDirRequest{
+		SessionId: session.ID,
+		Path:      path,
+	}
+
+	response, err := client.APIClient.ExistsDir(context.Background(), request)
+	if err != nil {
+		logger.Error(err)
+		return false
+	}
+
+	return response.Exist
+}
+
+// ExistsFile checks existence of File
+func (client *ProxyServiceClient) ExistsFile(session *ProxyServiceSession, path string) bool {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "ProxyServiceClient",
+		"function": "ExistsFile",
+	})
+
+	request := &api.ExistsFileRequest{
+		SessionId: session.ID,
+		Path:      path,
+	}
+
+	response, err := client.APIClient.ExistsFile(context.Background(), request)
+	if err != nil {
+		logger.Error(err)
+		return false
+	}
+
+	return response.Exist
+}
+
 // ListDirACLsWithGroupUsers lists iRODS collection ACLs with group users
 func (client *ProxyServiceClient) ListDirACLsWithGroupUsers(session *ProxyServiceSession, path string) ([]*irodsfs_clienttype.IRODSAccess, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.ListDirACLsWithGroupUsers",
+		"struct":   "ProxyServiceClient",
+		"function": "ListDirACLsWithGroupUsers",
 	})
 
 	request := &api.ListDirACLsWithGroupUsersRequest{
@@ -272,7 +322,8 @@ func (client *ProxyServiceClient) ListDirACLsWithGroupUsers(session *ProxyServic
 func (client *ProxyServiceClient) ListFileACLsWithGroupUsers(session *ProxyServiceSession, path string) ([]*irodsfs_clienttype.IRODSAccess, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.ListFileACLsWithGroupUsers",
+		"struct":   "ProxyServiceClient",
+		"function": "ListFileACLsWithGroupUsers",
 	})
 
 	request := &api.ListFileACLsWithGroupUsersRequest{
@@ -307,7 +358,8 @@ func (client *ProxyServiceClient) ListFileACLsWithGroupUsers(session *ProxyServi
 func (client *ProxyServiceClient) RemoveFile(session *ProxyServiceSession, path string, force bool) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.RemoveFile",
+		"struct":   "ProxyServiceClient",
+		"function": "RemoveFile",
 	})
 
 	request := &api.RemoveFileRequest{
@@ -329,7 +381,8 @@ func (client *ProxyServiceClient) RemoveFile(session *ProxyServiceSession, path 
 func (client *ProxyServiceClient) RemoveDir(session *ProxyServiceSession, path string, recurse bool, force bool) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.RemoveDir",
+		"struct":   "ProxyServiceClient",
+		"function": "RemoveDir",
 	})
 
 	request := &api.RemoveDirRequest{
@@ -352,7 +405,8 @@ func (client *ProxyServiceClient) RemoveDir(session *ProxyServiceSession, path s
 func (client *ProxyServiceClient) MakeDir(session *ProxyServiceSession, path string, recurse bool) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.MakeDir",
+		"struct":   "ProxyServiceClient",
+		"function": "MakeDir",
 	})
 
 	request := &api.MakeDirRequest{
@@ -374,7 +428,8 @@ func (client *ProxyServiceClient) MakeDir(session *ProxyServiceSession, path str
 func (client *ProxyServiceClient) RenameDirToDir(session *ProxyServiceSession, srcPath string, destPath string) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.RenameDirToDir",
+		"struct":   "ProxyServiceClient",
+		"function": "RenameDirToDir",
 	})
 
 	request := &api.RenameDirToDirRequest{
@@ -396,7 +451,8 @@ func (client *ProxyServiceClient) RenameDirToDir(session *ProxyServiceSession, s
 func (client *ProxyServiceClient) RenameFileToFile(session *ProxyServiceSession, srcPath string, destPath string) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.RenameFileToFile",
+		"struct":   "ProxyServiceClient",
+		"function": "RenameFileToFile",
 	})
 
 	request := &api.RenameFileToFileRequest{
@@ -418,7 +474,8 @@ func (client *ProxyServiceClient) RenameFileToFile(session *ProxyServiceSession,
 func (client *ProxyServiceClient) CreateFile(session *ProxyServiceSession, path string, resource string) (*ProxyServiceFileHandle, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.CreateFile",
+		"struct":   "ProxyServiceClient",
+		"function": "CreateFile",
 	})
 
 	request := &api.CreateFileRequest{
@@ -433,9 +490,33 @@ func (client *ProxyServiceClient) CreateFile(session *ProxyServiceSession, path 
 		return nil, err
 	}
 
+	createTime, err := utils.ParseTime(response.Entry.CreateTime)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	modifyTime, err := utils.ParseTime(response.Entry.ModifyTime)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	irodsEntry := &irodsfs.Entry{
+		ID:         response.Entry.Id,
+		Type:       irodsfs.EntryType(response.Entry.Type),
+		Name:       response.Entry.Name,
+		Path:       response.Entry.Path,
+		Owner:      response.Entry.Owner,
+		Size:       response.Entry.Size,
+		CreateTime: createTime,
+		ModifyTime: modifyTime,
+		CheckSum:   response.Entry.Checksum,
+	}
+
 	return &ProxyServiceFileHandle{
 		SessionID:    session.ID,
-		Path:         path,
+		Entry:        irodsEntry,
 		FileHandleID: response.FileHandleId,
 	}, nil
 }
@@ -444,7 +525,8 @@ func (client *ProxyServiceClient) CreateFile(session *ProxyServiceSession, path 
 func (client *ProxyServiceClient) OpenFile(session *ProxyServiceSession, path string, resource string, mode string) (*ProxyServiceFileHandle, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.OpenFile",
+		"struct":   "ProxyServiceClient",
+		"function": "OpenFile",
 	})
 
 	request := &api.OpenFileRequest{
@@ -460,9 +542,33 @@ func (client *ProxyServiceClient) OpenFile(session *ProxyServiceSession, path st
 		return nil, err
 	}
 
+	createTime, err := utils.ParseTime(response.Entry.CreateTime)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	modifyTime, err := utils.ParseTime(response.Entry.ModifyTime)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	irodsEntry := &irodsfs.Entry{
+		ID:         response.Entry.Id,
+		Type:       irodsfs.EntryType(response.Entry.Type),
+		Name:       response.Entry.Name,
+		Path:       response.Entry.Path,
+		Owner:      response.Entry.Owner,
+		Size:       response.Entry.Size,
+		CreateTime: createTime,
+		ModifyTime: modifyTime,
+		CheckSum:   response.Entry.Checksum,
+	}
+
 	return &ProxyServiceFileHandle{
 		SessionID:    session.ID,
-		Path:         path,
+		Entry:        irodsEntry,
 		FileHandleID: response.FileHandleId,
 	}, nil
 }
@@ -471,7 +577,8 @@ func (client *ProxyServiceClient) OpenFile(session *ProxyServiceSession, path st
 func (client *ProxyServiceClient) TruncateFile(session *ProxyServiceSession, path string, size int64) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.TruncateFile",
+		"struct":   "ProxyServiceClient",
+		"function": "TruncateFile",
 	})
 
 	request := &api.TruncateFileRequest{
@@ -489,43 +596,44 @@ func (client *ProxyServiceClient) TruncateFile(session *ProxyServiceSession, pat
 	return nil
 }
 
-// Seek seeks iRODS data object
-func (client *ProxyServiceClient) Seek(handle *ProxyServiceFileHandle, offset int64, whence irodsfs_clienttype.Whence) (int64, error) {
+// GetOffset returns current offset
+func (client *ProxyServiceClient) GetOffset(handle *ProxyServiceFileHandle) int64 {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.Seek",
+		"struct":   "ProxyServiceClient",
+		"function": "GetOffset",
 	})
 
-	request := &api.SeekRequest{
+	request := &api.GetOffsetRequest{
+		SessionId:    handle.SessionID,
+		FileHandleId: handle.FileHandleID,
+	}
+
+	response, err := client.APIClient.GetOffset(context.Background(), request)
+	if err != nil {
+		logger.Error(err)
+		return -1
+	}
+
+	return response.Offset
+}
+
+// ReadAt reads iRODS data object
+func (client *ProxyServiceClient) ReadAt(handle *ProxyServiceFileHandle, offset int64, length int32) ([]byte, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "ProxyServiceClient",
+		"function": "ReadAt",
+	})
+
+	request := &api.ReadAtRequest{
 		SessionId:    handle.SessionID,
 		FileHandleId: handle.FileHandleID,
 		Offset:       offset,
-		Whence:       int32(whence),
-	}
-
-	response, err := client.APIClient.Seek(context.Background(), request)
-	if err != nil {
-		logger.Error(err)
-		return 0, err
-	}
-
-	return response.Offset, nil
-}
-
-// Read reads iRODS data object
-func (client *ProxyServiceClient) Read(handle *ProxyServiceFileHandle, length int32) ([]byte, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"function": "ProxyServiceClient.Read",
-	})
-
-	request := &api.ReadRequest{
-		SessionId:    handle.SessionID,
-		FileHandleId: handle.FileHandleID,
 		Length:       length,
 	}
 
-	response, err := client.APIClient.Read(context.Background(), request)
+	response, err := client.APIClient.ReadAt(context.Background(), request)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -534,20 +642,22 @@ func (client *ProxyServiceClient) Read(handle *ProxyServiceFileHandle, length in
 	return response.Data, nil
 }
 
-// Write writes iRODS data object
-func (client *ProxyServiceClient) Write(handle *ProxyServiceFileHandle, data []byte) error {
+// WriteAt writes iRODS data object
+func (client *ProxyServiceClient) WriteAt(handle *ProxyServiceFileHandle, offset int64, data []byte) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.Write",
+		"struct":   "ProxyServiceClient",
+		"function": "WriteAt",
 	})
 
-	request := &api.WriteRequest{
+	request := &api.WriteAtRequest{
 		SessionId:    handle.SessionID,
 		FileHandleId: handle.FileHandleID,
+		Offset:       offset,
 		Data:         data,
 	}
 
-	_, err := client.APIClient.Write(context.Background(), request)
+	_, err := client.APIClient.WriteAt(context.Background(), request)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -560,7 +670,8 @@ func (client *ProxyServiceClient) Write(handle *ProxyServiceFileHandle, data []b
 func (client *ProxyServiceClient) Close(handle *ProxyServiceFileHandle) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"function": "ProxyServiceClient.Close",
+		"struct":   "ProxyServiceClient",
+		"function": "Close",
 	})
 
 	request := &api.CloseRequest{

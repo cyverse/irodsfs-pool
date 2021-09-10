@@ -28,6 +28,7 @@ type ProxyServiceSession struct {
 type ProxyServiceFileHandle struct {
 	SessionID    string
 	Entry        *irodsfs.Entry
+	OpenMode     string
 	FileHandleID string
 }
 
@@ -517,6 +518,7 @@ func (client *ProxyServiceClient) CreateFile(session *ProxyServiceSession, path 
 	return &ProxyServiceFileHandle{
 		SessionID:    session.ID,
 		Entry:        irodsEntry,
+		OpenMode:     string(irodsfs_clienttype.FileOpenModeWriteOnly),
 		FileHandleID: response.FileHandleId,
 	}, nil
 }
@@ -569,6 +571,7 @@ func (client *ProxyServiceClient) OpenFile(session *ProxyServiceSession, path st
 	return &ProxyServiceFileHandle{
 		SessionID:    session.ID,
 		Entry:        irodsEntry,
+		OpenMode:     mode,
 		FileHandleID: response.FileHandleId,
 	}, nil
 }

@@ -32,6 +32,16 @@ type ProxyServiceFileHandle struct {
 	FileHandleID string
 }
 
+// IsReadMode returns true if file is opened with read mode
+func (handle *ProxyServiceFileHandle) IsReadMode() bool {
+	return irodsfs_clienttype.IsFileOpenFlagRead(irodsfs_clienttype.FileOpenMode(handle.OpenMode))
+}
+
+// IsWriteMode returns true if file is opened with write mode
+func (handle *ProxyServiceFileHandle) IsWriteMode() bool {
+	return irodsfs_clienttype.IsFileOpenFlagWrite(irodsfs_clienttype.FileOpenMode(handle.OpenMode))
+}
+
 // NewProxyServiceClient creates a new proxy service client
 func NewProxyServiceClient(proxyHost string) *ProxyServiceClient {
 	return &ProxyServiceClient{

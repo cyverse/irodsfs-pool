@@ -12,6 +12,10 @@ import (
 	"google.golang.org/grpc"
 )
 
+const (
+	FileRWLengthMax int32 = 1024 * 1024 * 2 // 2MB
+)
+
 // ProxyServiceClient is a struct that holds connection information
 type ProxyServiceClient struct {
 	Host       string // host:port
@@ -639,20 +643,43 @@ func (client *ProxyServiceClient) ReadAt(handle *ProxyServiceFileHandle, offset 
 		"function": "ReadAt",
 	})
 
-	request := &api.ReadAtRequest{
-		SessionId:    handle.SessionID,
-		FileHandleId: handle.FileHandleID,
-		Offset:       offset,
-		Length:       length,
+	remainLength := length
+	curOffset := offset
+	outputData := make([]byte, length)
+	totalReadLength := 0
+
+	for remainLength > 0 {
+		curLength := remainLength
+		if remainLength > FileRWLengthMax {
+			curLength = FileRWLengthMax
+		}
+
+		request := &api.ReadAtRequest{
+			SessionId:    handle.SessionID,
+			FileHandleId: handle.FileHandleID,
+			Offset:       curOffset,
+			Length:       curLength,
+		}
+
+		response, err := client.APIClient.ReadAt(context.Background(), request)
+		if err != nil {
+			logger.Error(err)
+			return nil, err
+		}
+
+		copy(outputData[totalReadLength:], response.Data)
+
+		remainLength -= int32(len(response.Data))
+		curOffset += int64(len(response.Data))
+		totalReadLength += len(response.Data)
+
+		if len(response.Data) == 0 || len(response.Data) != int(curLength) {
+			// EOF
+			break
+		}
 	}
 
-	response, err := client.APIClient.ReadAt(context.Background(), request)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-
-	return response.Data, nil
+	return outputData[:totalReadLength], nil
 }
 
 // WriteAt writes iRODS data object
@@ -663,17 +690,32 @@ func (client *ProxyServiceClient) WriteAt(handle *ProxyServiceFileHandle, offset
 		"function": "WriteAt",
 	})
 
-	request := &api.WriteAtRequest{
-		SessionId:    handle.SessionID,
-		FileHandleId: handle.FileHandleID,
-		Offset:       offset,
-		Data:         data,
-	}
+	remainLength := int32(len(data))
+	curOffset := offset
+	totalWriteLength := 0
 
-	_, err := client.APIClient.WriteAt(context.Background(), request)
-	if err != nil {
-		logger.Error(err)
-		return err
+	for remainLength > 0 {
+		curLength := remainLength
+		if remainLength > FileRWLengthMax {
+			curLength = FileRWLengthMax
+		}
+
+		request := &api.WriteAtRequest{
+			SessionId:    handle.SessionID,
+			FileHandleId: handle.FileHandleID,
+			Offset:       curOffset,
+			Data:         data[totalWriteLength:curLength],
+		}
+
+		_, err := client.APIClient.WriteAt(context.Background(), request)
+		if err != nil {
+			logger.Error(err)
+			return err
+		}
+
+		remainLength -= curLength
+		curOffset += int64(curLength)
+		totalWriteLength += int(curLength)
 	}
 
 	return nil

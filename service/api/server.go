@@ -2,7 +2,11 @@ package api
 
 import (
 	context "context"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
+	"sync"
+	"time"
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodsfs_clienttype "github.com/cyverse/go-irodsclient/irods/types"
@@ -13,21 +17,44 @@ import (
 
 type Server struct {
 	UnimplementedProxyAPIServer
+	Mutex    sync.RWMutex // mutex to access Sessions
 	Sessions map[string]*Session
-
-	FileHandles map[string]map[string]*FileHandle // key = sessionID, second key = handleID
 }
 
 type Session struct {
-	ID      string
-	Account *irodsfs_clienttype.IRODSAccount
-	FS      *irodsfs.FileSystem
+	ID               string
+	Account          *irodsfs_clienttype.IRODSAccount
+	IRODSFS          *irodsfs.FileSystem
+	ReferenceCount   int
+	LastActivityTime time.Time
+	FileHandles      map[string]*FileHandle
+	Mutex            sync.Mutex // mutex to access FileHandles, ReferenceCount and LastActivityTime
 }
 
 type FileHandle struct {
 	ID          string
 	SessionID   string
 	IRODSHandle *irodsfs.FileHandle
+}
+
+func NewServer() *Server {
+	return &Server{
+		Sessions: map[string]*Session{},
+	}
+}
+
+func (server *Server) generateSessionID(account *Account) string {
+	hash := sha1.New()
+	hash.Write([]byte(account.Host))
+	hash.Write([]byte(fmt.Sprintf("%d", account.Port)))
+	hash.Write([]byte(account.ClientUser))
+	hash.Write([]byte(account.ClientZone))
+	hash.Write([]byte(account.ProxyUser))
+	hash.Write([]byte(account.ProxyZone))
+	hash.Write([]byte(account.ServerDn))
+	hash.Write([]byte(account.Password))
+	hash.Write([]byte(account.Ticket))
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func (server *Server) Login(context context.Context, request *LoginRequest) (*LoginResponse, error) {
@@ -39,36 +66,62 @@ func (server *Server) Login(context context.Context, request *LoginRequest) (*Lo
 
 	logger.Infof("Login request from client: %s - %s", request.Account.Host, request.Account.ClientUser)
 
-	account := &irodsfs_clienttype.IRODSAccount{
-		AuthenticationScheme:    irodsfs_clienttype.AuthScheme(request.Account.AuthenticationScheme),
-		ClientServerNegotiation: request.Account.ClientServerNegotiation,
-		CSNegotiationPolicy:     irodsfs_clienttype.CSNegotiationRequire(request.Account.CsNegotiationPolicy),
-		Host:                    request.Account.Host,
-		Port:                    int(request.Account.Port),
-		ClientUser:              request.Account.ClientUser,
-		ClientZone:              request.Account.ClientZone,
-		ProxyUser:               request.Account.ProxyUser,
-		ProxyZone:               request.Account.ProxyZone,
-		ServerDN:                request.Account.ServerDn,
-		Password:                request.Account.Password,
-		Ticket:                  request.Account.Ticket,
-		PamTTL:                  int(request.Account.PamTtl),
+	sessionID := server.generateSessionID(request.Account)
+
+	server.Mutex.Lock()
+	defer server.Mutex.Unlock()
+
+	if session, ok := server.Sessions[sessionID]; ok {
+		logger.Infof("Reusing existing session: %s", sessionID)
+
+		session.Mutex.Lock()
+		defer session.Mutex.Unlock()
+
+		session.ReferenceCount++
+		session.LastActivityTime = time.Now()
+	} else {
+		logger.Infof("Creating a new session: %s", sessionID)
+
+		// new session
+		account := &irodsfs_clienttype.IRODSAccount{
+			AuthenticationScheme:    irodsfs_clienttype.AuthScheme(request.Account.AuthenticationScheme),
+			ClientServerNegotiation: request.Account.ClientServerNegotiation,
+			CSNegotiationPolicy:     irodsfs_clienttype.CSNegotiationRequire(request.Account.CsNegotiationPolicy),
+			Host:                    request.Account.Host,
+			Port:                    int(request.Account.Port),
+			ClientUser:              request.Account.ClientUser,
+			ClientZone:              request.Account.ClientZone,
+			ProxyUser:               request.Account.ProxyUser,
+			ProxyZone:               request.Account.ProxyZone,
+			ServerDN:                request.Account.ServerDn,
+			Password:                request.Account.Password,
+			Ticket:                  request.Account.Ticket,
+			PamTTL:                  int(request.Account.PamTtl),
+		}
+
+		session = &Session{
+			ID:               sessionID,
+			Account:          account,
+			IRODSFS:          nil, // placeholder
+			ReferenceCount:   1,
+			LastActivityTime: time.Now(),
+			FileHandles:      map[string]*FileHandle{},
+		}
+
+		session.Mutex.Lock()
+		defer session.Mutex.Unlock()
+
+		server.Sessions[sessionID] = session
+
+		fs, err := irodsfs.NewFileSystemWithDefault(account, request.ApplicationName)
+		if err != nil {
+			logger.Error(err)
+			return nil, err
+		}
+
+		session.IRODSFS = fs
 	}
 
-	fs, err := irodsfs.NewFileSystemWithDefault(account, request.ApplicationName)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-
-	sessionID := xid.New().String()
-	session := &Session{
-		ID:      sessionID,
-		Account: account,
-		FS:      fs,
-	}
-
-	server.Sessions[sessionID] = session
 	response := &LoginResponse{
 		SessionId: sessionID,
 	}
@@ -85,6 +138,9 @@ func (server *Server) Logout(context context.Context, request *LogoutRequest) (*
 
 	logger.Infof("Logout request from client: %s", request.SessionId)
 
+	server.Mutex.Lock()
+	defer server.Mutex.Unlock()
+
 	session, ok := server.Sessions[request.SessionId]
 	if !ok {
 		err := fmt.Errorf("cannot find session %s", request.SessionId)
@@ -92,20 +148,87 @@ func (server *Server) Logout(context context.Context, request *LogoutRequest) (*
 		return nil, err
 	}
 
-	// find opened file handles
-	if handles, ok := server.FileHandles[request.SessionId]; ok {
-		for _, handle := range handles {
+	session.Mutex.Lock()
+	defer session.Mutex.Unlock()
+
+	session.ReferenceCount--
+	session.LastActivityTime = time.Now()
+
+	if session.ReferenceCount <= 0 {
+		logger.Infof("Deleting session: %s", session.ID)
+		// find opened file handles
+		for _, handle := range session.FileHandles {
 			if handle.IRODSHandle != nil {
 				handle.IRODSHandle.Close()
 			}
 		}
-		delete(server.FileHandles, request.SessionId)
+
+		// empty
+		session.FileHandles = map[string]*FileHandle{}
+
+		delete(server.Sessions, request.SessionId)
+
+		if session.IRODSFS != nil {
+			session.IRODSFS.Release()
+			session.IRODSFS = nil
+		}
 	}
 
-	delete(server.Sessions, request.SessionId)
-
-	session.FS.Release()
 	return &Empty{}, nil
+}
+
+func (server *Server) getSession(sessionID string) (*Session, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "api",
+		"struct":   "Server",
+		"function": "getSession",
+	})
+
+	server.Mutex.RLock()
+	defer server.Mutex.RUnlock()
+
+	session, ok := server.Sessions[sessionID]
+	if !ok {
+		err := fmt.Errorf("cannot find session %s", sessionID)
+		logger.Error(err)
+		return nil, err
+	}
+
+	if session.IRODSFS == nil {
+		err := fmt.Errorf("session not logged in %s", sessionID)
+		logger.Error(err)
+		return nil, err
+	}
+
+	return session, nil
+}
+
+func (server *Server) getFileHandle(sessionID string, fileHandleID string) (*FileHandle, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "api",
+		"struct":   "Server",
+		"function": "getFileHandle",
+	})
+
+	session, err := server.getSession(sessionID)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	session.Mutex.Lock()
+	defer session.Mutex.Unlock()
+
+	session.LastActivityTime = time.Now()
+
+	fileHandle, ok := session.FileHandles[fileHandleID]
+	if !ok {
+		err := fmt.Errorf("cannot find file handle %s", fileHandleID)
+		logger.Error(err)
+		return nil, err
+	}
+
+	return fileHandle, nil
 }
 
 func (server *Server) List(context context.Context, request *ListRequest) (*ListResponse, error) {
@@ -117,14 +240,17 @@ func (server *Server) List(context context.Context, request *ListRequest) (*List
 
 	logger.Infof("List request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	entries, err := session.FS.List(request.Path)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	entries, err := session.IRODSFS.List(request.Path)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -162,14 +288,17 @@ func (server *Server) Stat(context context.Context, request *StatRequest) (*Stat
 
 	logger.Infof("Stat request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	entry, err := session.FS.Stat(request.Path)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	entry, err := session.IRODSFS.Stat(request.Path)
 	if err != nil {
 		if irodsfs_clienttype.IsFileNotFoundError(err) {
 			return &StatResponse{
@@ -213,14 +342,17 @@ func (server *Server) ExistsDir(context context.Context, request *ExistsDirReque
 
 	logger.Infof("ExistsDir request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	exist := session.FS.ExistsDir(request.Path)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	exist := session.IRODSFS.ExistsDir(request.Path)
 	return &ExistsDirResponse{
 		Exist: exist,
 	}, nil
@@ -235,14 +367,17 @@ func (server *Server) ExistsFile(context context.Context, request *ExistsFileReq
 
 	logger.Infof("ExistsFile request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	exist := session.FS.ExistsFile(request.Path)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	exist := session.IRODSFS.ExistsFile(request.Path)
 	return &ExistsFileResponse{
 		Exist: exist,
 	}, nil
@@ -257,14 +392,17 @@ func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request
 
 	logger.Infof("ListDirACLsWithGroupUsers request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	accesses, err := session.FS.ListDirACLsWithGroupUsers(request.Path)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	accesses, err := session.IRODSFS.ListDirACLsWithGroupUsers(request.Path)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -298,14 +436,17 @@ func (server *Server) ListFileACLsWithGroupUsers(context context.Context, reques
 
 	logger.Infof("ListFileACLsWithGroupUsers request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	accesses, err := session.FS.ListFileACLsWithGroupUsers(request.Path)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	accesses, err := session.IRODSFS.ListFileACLsWithGroupUsers(request.Path)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -339,14 +480,17 @@ func (server *Server) RemoveFile(context context.Context, request *RemoveFileReq
 
 	logger.Infof("RemoveFile request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	err := session.FS.RemoveFile(request.Path, request.Force)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	err = session.IRODSFS.RemoveFile(request.Path, request.Force)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -364,14 +508,17 @@ func (server *Server) RemoveDir(context context.Context, request *RemoveDirReque
 
 	logger.Infof("RemoveDir request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	err := session.FS.RemoveDir(request.Path, request.Recurse, request.Force)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	err = session.IRODSFS.RemoveDir(request.Path, request.Recurse, request.Force)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -389,14 +536,17 @@ func (server *Server) MakeDir(context context.Context, request *MakeDirRequest) 
 
 	logger.Infof("MakeDir request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	err := session.FS.MakeDir(request.Path, request.Recurse)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	err = session.IRODSFS.MakeDir(request.Path, request.Recurse)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -414,14 +564,17 @@ func (server *Server) RenameDirToDir(context context.Context, request *RenameDir
 
 	logger.Infof("RenameDirToDir request from client %s: %s -> %s", request.SessionId, request.SourcePath, request.DestinationPath)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	err := session.FS.RenameDirToDir(request.SourcePath, request.DestinationPath)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	err = session.IRODSFS.RenameDirToDir(request.SourcePath, request.DestinationPath)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -439,14 +592,17 @@ func (server *Server) RenameFileToFile(context context.Context, request *RenameF
 
 	logger.Infof("RenameFileToFile request from client %s: %s -> %s", request.SessionId, request.SourcePath, request.DestinationPath)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	err := session.FS.RenameFileToFile(request.SourcePath, request.DestinationPath)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	err = session.IRODSFS.RenameFileToFile(request.SourcePath, request.DestinationPath)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -464,14 +620,13 @@ func (server *Server) CreateFile(context context.Context, request *CreateFileReq
 
 	logger.Infof("CreateFile request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	handle, err := session.FS.CreateFile(request.Path, request.Resource)
+	handle, err := session.IRODSFS.CreateFile(request.Path, request.Resource)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -484,16 +639,12 @@ func (server *Server) CreateFile(context context.Context, request *CreateFileReq
 		IRODSHandle: handle,
 	}
 
-	if handles, ok := server.FileHandles[request.SessionId]; ok {
-		// add
-		handles[fileHandleID] = fileHandle
-	} else {
-		// create
-		handles = map[string]*FileHandle{}
-		server.FileHandles[request.SessionId] = handles
-		// add
-		handles[fileHandleID] = fileHandle
-	}
+	session.Mutex.Lock()
+	defer session.Mutex.Unlock()
+
+	// add
+	session.FileHandles[fileHandleID] = fileHandle
+	session.LastActivityTime = time.Now()
 
 	responseEntry := &Entry{
 		Id:         handle.Entry.ID,
@@ -524,14 +675,13 @@ func (server *Server) OpenFile(context context.Context, request *OpenFileRequest
 
 	logger.Infof("OpenFile request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	handle, err := session.FS.OpenFile(request.Path, request.Resource, request.Mode)
+	handle, err := session.IRODSFS.OpenFile(request.Path, request.Resource, request.Mode)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -544,16 +694,12 @@ func (server *Server) OpenFile(context context.Context, request *OpenFileRequest
 		IRODSHandle: handle,
 	}
 
-	if handles, ok := server.FileHandles[request.SessionId]; ok {
-		// add
-		handles[fileHandleID] = fileHandle
-	} else {
-		// create
-		handles = map[string]*FileHandle{}
-		server.FileHandles[request.SessionId] = handles
-		// add
-		handles[fileHandleID] = fileHandle
-	}
+	session.Mutex.Lock()
+	defer session.Mutex.Unlock()
+
+	// add
+	session.FileHandles[fileHandleID] = fileHandle
+	session.LastActivityTime = time.Now()
 
 	responseEntry := &Entry{
 		Id:         handle.Entry.ID,
@@ -584,14 +730,17 @@ func (server *Server) TruncateFile(context context.Context, request *TruncateFil
 
 	logger.Infof("TruncateFile request from client %s: %s", request.SessionId, request.Path)
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	err := session.FS.TruncateFile(request.Path, request.Size)
+	session.Mutex.Lock()
+	session.LastActivityTime = time.Now()
+	session.Mutex.Unlock()
+
+	err = session.IRODSFS.TruncateFile(request.Path, request.Size)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -609,16 +758,8 @@ func (server *Server) GetOffset(context context.Context, request *GetOffsetReque
 
 	logger.Infof("GetOffset request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
 
-	fileHandles, ok := server.FileHandles[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find handles for session %s", request.SessionId)
-		logger.Error(err)
-		return nil, err
-	}
-
-	fileHandle, ok := fileHandles[request.FileHandleId]
-	if !ok {
-		err := fmt.Errorf("cannot find file handle %s", request.FileHandleId)
+	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
@@ -640,16 +781,8 @@ func (server *Server) ReadAt(context context.Context, request *ReadAtRequest) (*
 
 	logger.Infof("ReadAt request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
 
-	fileHandles, ok := server.FileHandles[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find handles for session %s", request.SessionId)
-		logger.Error(err)
-		return nil, err
-	}
-
-	fileHandle, ok := fileHandles[request.FileHandleId]
-	if !ok {
-		err := fmt.Errorf("cannot find file handle %s", request.FileHandleId)
+	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
@@ -676,21 +809,13 @@ func (server *Server) WriteAt(context context.Context, request *WriteAtRequest) 
 
 	logger.Infof("WriteAt request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
 
-	fileHandles, ok := server.FileHandles[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find handles for session %s", request.SessionId)
+	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	fileHandle, ok := fileHandles[request.FileHandleId]
-	if !ok {
-		err := fmt.Errorf("cannot find file handle %s", request.FileHandleId)
-		logger.Error(err)
-		return nil, err
-	}
-
-	err := fileHandle.IRODSHandle.WriteAt(request.Offset, request.Data)
+	err = fileHandle.IRODSHandle.WriteAt(request.Offset, request.Data)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -708,23 +833,27 @@ func (server *Server) Close(context context.Context, request *CloseRequest) (*Em
 
 	logger.Infof("Close request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
 
-	fileHandles, ok := server.FileHandles[request.SessionId]
-	if !ok {
-		err := fmt.Errorf("cannot find handles for session %s", request.SessionId)
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	fileHandle, ok := fileHandles[request.FileHandleId]
+	session.Mutex.Lock()
+	defer session.Mutex.Unlock()
+
+	session.LastActivityTime = time.Now()
+
+	fileHandle, ok := session.FileHandles[request.FileHandleId]
 	if !ok {
 		err := fmt.Errorf("cannot find file handle %s", request.FileHandleId)
 		logger.Error(err)
 		return nil, err
 	}
 
-	delete(fileHandles, request.FileHandleId)
+	delete(session.FileHandles, request.FileHandleId)
 
-	err := fileHandle.IRODSHandle.Close()
+	err = fileHandle.IRODSHandle.Close()
 	if err != nil {
 		logger.Error(err)
 		return nil, err

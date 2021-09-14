@@ -690,21 +690,21 @@ func (client *ProxyServiceClient) WriteAt(handle *ProxyServiceFileHandle, offset
 		"function": "WriteAt",
 	})
 
-	remainLength := int32(len(data))
+	remainLength := len(data)
 	curOffset := offset
 	totalWriteLength := 0
 
 	for remainLength > 0 {
 		curLength := remainLength
-		if remainLength > FileRWLengthMax {
-			curLength = FileRWLengthMax
+		if remainLength > int(FileRWLengthMax) {
+			curLength = int(FileRWLengthMax)
 		}
 
 		request := &api.WriteAtRequest{
 			SessionId:    handle.SessionID,
 			FileHandleId: handle.FileHandleID,
 			Offset:       curOffset,
-			Data:         data[totalWriteLength:curLength],
+			Data:         data[totalWriteLength : totalWriteLength+curLength],
 		}
 
 		_, err := client.APIClient.WriteAt(context.Background(), request)

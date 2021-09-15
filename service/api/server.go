@@ -143,9 +143,12 @@ func (server *Server) Logout(context context.Context, request *LogoutRequest) (*
 
 	session, ok := server.Sessions[request.SessionId]
 	if !ok {
-		err := fmt.Errorf("cannot find session %s", request.SessionId)
-		logger.Error(err)
-		return nil, err
+		//err := fmt.Errorf("cannot find session %s", request.SessionId)
+		//logger.Error(err)
+		//return nil, err
+
+		// no problem, session might be already closed due to timeout
+		return &Empty{}, nil
 	}
 
 	session.Mutex.Lock()
@@ -175,6 +178,46 @@ func (server *Server) Logout(context context.Context, request *LogoutRequest) (*
 	}
 
 	return &Empty{}, nil
+}
+
+func (server *Server) LogoutAll() {
+	logger := log.WithFields(log.Fields{
+		"package":  "api",
+		"struct":   "Server",
+		"function": "LogoutAll",
+	})
+
+	logger.Info("Logout All")
+
+	server.Mutex.Lock()
+	defer server.Mutex.Unlock()
+
+	for _, session := range server.Sessions {
+		session.Mutex.Lock()
+
+		session.ReferenceCount = 0
+		session.LastActivityTime = time.Now()
+
+		logger.Infof("Deleting session: %s", session.ID)
+		// find opened file handles
+		for _, handle := range session.FileHandles {
+			if handle.IRODSHandle != nil {
+				handle.IRODSHandle.Close()
+			}
+		}
+
+		// empty
+		session.FileHandles = map[string]*FileHandle{}
+
+		if session.IRODSFS != nil {
+			session.IRODSFS.Release()
+			session.IRODSFS = nil
+		}
+
+		session.Mutex.Unlock()
+	}
+
+	server.Sessions = map[string]*Session{}
 }
 
 func (server *Server) getSession(sessionID string) (*Session, error) {

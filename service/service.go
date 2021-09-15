@@ -1,12 +1,15 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/cyverse/irodsfs-proxy/service/api"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/stats"
 )
 
 // ProxyService is a service object
@@ -16,11 +19,51 @@ type ProxyService struct {
 	GrpcServer *grpc.Server
 }
 
+type ProxyServiceStatHandler struct {
+	APIServer       *api.Server
+	LiveConnections int
+	Mutex           sync.Mutex
+}
+
+func (handler *ProxyServiceStatHandler) TagRPC(context.Context, *stats.RPCTagInfo) context.Context {
+	return context.Background()
+}
+
+// HandleRPC processes the RPC stats.
+func (handler *ProxyServiceStatHandler) HandleRPC(context.Context, stats.RPCStats) {
+}
+
+func (handler *ProxyServiceStatHandler) TagConn(context.Context, *stats.ConnTagInfo) context.Context {
+	handler.Mutex.Lock()
+	defer handler.Mutex.Unlock()
+
+	handler.LiveConnections++
+	return context.Background()
+}
+
+// HandleConn processes the Conn stats.
+func (handler *ProxyServiceStatHandler) HandleConn(c context.Context, s stats.ConnStats) {
+	switch s.(type) {
+	case *stats.ConnEnd:
+		handler.Mutex.Lock()
+		defer handler.Mutex.Unlock()
+
+		handler.LiveConnections--
+		if handler.LiveConnections <= 0 {
+			handler.LiveConnections = 0
+			handler.APIServer.LogoutAll()
+		}
+	}
+}
+
 // NewProxyService creates a new proxy service
 func NewProxyService(config *Config) *ProxyService {
 	apiServer := api.NewServer()
 
-	grpcServer := grpc.NewServer()
+	statHandler := &ProxyServiceStatHandler{
+		APIServer: apiServer,
+	}
+	grpcServer := grpc.NewServer(grpc.StatsHandler(statHandler))
 	api.RegisterProxyAPIServer(grpcServer, apiServer)
 
 	service := &ProxyService{

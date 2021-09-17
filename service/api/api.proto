@@ -215,7 +215,7 @@ message CloseRequest {
 	string file_handle_id = 2;
 }
 
-service ProxyAPI {
+service PoolAPI {
 	rpc Login(LoginRequest) returns (LoginResponse) {}
 	rpc Logout(LogoutRequest) returns (Empty) {}
 	rpc List(ListRequest) returns (ListResponse) {}

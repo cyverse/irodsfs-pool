@@ -1,4 +1,4 @@
-PKG=github.com/cyverse/irodsfs-proxy
+PKG=github.com/cyverse/irodsfs-pool
 GO111MODULE=on
 GOPROXY=direct
 GOPATH=$(shell go env GOPATH)
@@ -8,7 +8,7 @@ GOPATH=$(shell go env GOPATH)
 .PHONY: build
 build:
 	mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux go build -o bin/irodsfs-proxy ./cmd/
+	CGO_ENABLED=0 GOOS=linux go build -o bin/irodsfs-pool ./cmd/
 
 .PHONY: protobuf
 protobuf:

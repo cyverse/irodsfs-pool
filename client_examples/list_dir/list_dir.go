@@ -9,7 +9,7 @@ import (
 	"github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/go-irodsclient/irods/util"
-	"github.com/cyverse/irodsfs-proxy/client"
+	"github.com/cyverse/irodsfs-pool/client"
 )
 
 func main() {
@@ -41,23 +41,23 @@ func main() {
 
 	util.LogDebugf("Account : %v", account.MaskSensitiveData())
 
-	proxyClient := client.NewProxyServiceClient(":12020")
-	err = proxyClient.Connect()
+	poolClient := client.NewPoolServiceClient(":12020")
+	err = poolClient.Connect()
 	if err != nil {
 		util.LogErrorf("err - %v", err)
 		panic(err)
 	}
 
-	defer proxyClient.Disconnect()
+	defer poolClient.Disconnect()
 
 	appName := "list_dir"
-	conn, err := proxyClient.Login(account, appName)
+	conn, err := poolClient.Login(account, appName)
 	if err != nil {
 		util.LogErrorf("err - %v", err)
 		panic(err)
 	}
 
-	entries, err := proxyClient.List(conn, inputPath)
+	entries, err := poolClient.List(conn, inputPath)
 	if err != nil {
 		util.LogErrorf("err - %v", err)
 		panic(err)
@@ -77,7 +77,7 @@ func main() {
 		}
 	}
 
-	err = proxyClient.Logout(conn)
+	err = poolClient.Logout(conn)
 	if err != nil {
 		util.LogErrorf("err - %v", err)
 		panic(err)

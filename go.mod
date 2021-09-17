@@ -1,4 +1,4 @@
-module github.com/cyverse/irodsfs-proxy
+module github.com/cyverse/irodsfs-pool
 
 go 1.14
 

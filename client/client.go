@@ -6,8 +6,8 @@ import (
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodsfs_clienttype "github.com/cyverse/go-irodsclient/irods/types"
-	"github.com/cyverse/irodsfs-proxy/service/api"
-	"github.com/cyverse/irodsfs-proxy/utils"
+	"github.com/cyverse/irodsfs-pool/service/api"
+	"github.com/cyverse/irodsfs-pool/utils"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
@@ -16,20 +16,20 @@ const (
 	FileRWLengthMax int32 = 1024 * 1024 * 2 // 2MB
 )
 
-// ProxyServiceClient is a struct that holds connection information
-type ProxyServiceClient struct {
+// PoolServiceClient is a struct that holds connection information
+type PoolServiceClient struct {
 	Host       string // host:port
 	Connection *grpc.ClientConn
-	APIClient  api.ProxyAPIClient
+	APIClient  api.PoolAPIClient
 }
 
-type ProxyServiceSession struct {
+type PoolServiceSession struct {
 	ID              string
 	Account         *irodsfs_clienttype.IRODSAccount
 	ApplicationName string
 }
 
-type ProxyServiceFileHandle struct {
+type PoolServiceFileHandle struct {
 	SessionID    string
 	Entry        *irodsfs.Entry
 	OpenMode     string
@@ -37,28 +37,28 @@ type ProxyServiceFileHandle struct {
 }
 
 // IsReadMode returns true if file is opened with read mode
-func (handle *ProxyServiceFileHandle) IsReadMode() bool {
+func (handle *PoolServiceFileHandle) IsReadMode() bool {
 	return irodsfs_clienttype.IsFileOpenFlagRead(irodsfs_clienttype.FileOpenMode(handle.OpenMode))
 }
 
 // IsWriteMode returns true if file is opened with write mode
-func (handle *ProxyServiceFileHandle) IsWriteMode() bool {
+func (handle *PoolServiceFileHandle) IsWriteMode() bool {
 	return irodsfs_clienttype.IsFileOpenFlagWrite(irodsfs_clienttype.FileOpenMode(handle.OpenMode))
 }
 
-// NewProxyServiceClient creates a new proxy service client
-func NewProxyServiceClient(proxyHost string) *ProxyServiceClient {
-	return &ProxyServiceClient{
-		Host:       proxyHost,
+// NewPoolServiceClient creates a new pool service client
+func NewPoolServiceClient(poolHost string) *PoolServiceClient {
+	return &PoolServiceClient{
+		Host:       poolHost,
 		Connection: nil,
 	}
 }
 
-// Disconnect connects to proxy service
-func (client *ProxyServiceClient) Connect() error {
+// Disconnect connects to pool service
+func (client *PoolServiceClient) Connect() error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "Connect",
 	})
 
@@ -69,12 +69,12 @@ func (client *ProxyServiceClient) Connect() error {
 	}
 
 	client.Connection = conn
-	client.APIClient = api.NewProxyAPIClient(conn)
+	client.APIClient = api.NewPoolAPIClient(conn)
 	return nil
 }
 
-// Disconnect disconnects connection from proxy service
-func (client *ProxyServiceClient) Disconnect() {
+// Disconnect disconnects connection from pool service
+func (client *PoolServiceClient) Disconnect() {
 	if client.APIClient != nil {
 		client.APIClient = nil
 	}
@@ -86,10 +86,10 @@ func (client *ProxyServiceClient) Disconnect() {
 }
 
 // Login logins to iRODS service using account info
-func (client *ProxyServiceClient) Login(account *irodsfs_clienttype.IRODSAccount, applicationName string) (*ProxyServiceSession, error) {
+func (client *PoolServiceClient) Login(account *irodsfs_clienttype.IRODSAccount, applicationName string) (*PoolServiceSession, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "Login",
 	})
 
@@ -118,7 +118,7 @@ func (client *ProxyServiceClient) Login(account *irodsfs_clienttype.IRODSAccount
 		return nil, err
 	}
 
-	return &ProxyServiceSession{
+	return &PoolServiceSession{
 		ID:              response.SessionId,
 		Account:         account,
 		ApplicationName: applicationName,
@@ -126,10 +126,10 @@ func (client *ProxyServiceClient) Login(account *irodsfs_clienttype.IRODSAccount
 }
 
 // Logout logouts from iRODS service
-func (client *ProxyServiceClient) Logout(session *ProxyServiceSession) error {
+func (client *PoolServiceClient) Logout(session *PoolServiceSession) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "Logout",
 	})
 
@@ -147,10 +147,10 @@ func (client *ProxyServiceClient) Logout(session *ProxyServiceSession) error {
 }
 
 // List lists iRODS collection entries
-func (client *ProxyServiceClient) List(session *ProxyServiceSession, path string) ([]*irodsfs.Entry, error) {
+func (client *PoolServiceClient) List(session *PoolServiceSession, path string) ([]*irodsfs.Entry, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "List",
 	})
 
@@ -199,10 +199,10 @@ func (client *ProxyServiceClient) List(session *ProxyServiceSession, path string
 }
 
 // Stat stats iRODS entry
-func (client *ProxyServiceClient) Stat(session *ProxyServiceSession, path string) (*irodsfs.Entry, error) {
+func (client *PoolServiceClient) Stat(session *PoolServiceSession, path string) (*irodsfs.Entry, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "Stat",
 	})
 
@@ -254,10 +254,10 @@ func (client *ProxyServiceClient) Stat(session *ProxyServiceSession, path string
 }
 
 // ExistsDir checks existence of Dir
-func (client *ProxyServiceClient) ExistsDir(session *ProxyServiceSession, path string) bool {
+func (client *PoolServiceClient) ExistsDir(session *PoolServiceSession, path string) bool {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "ExistsDir",
 	})
 
@@ -276,10 +276,10 @@ func (client *ProxyServiceClient) ExistsDir(session *ProxyServiceSession, path s
 }
 
 // ExistsFile checks existence of File
-func (client *ProxyServiceClient) ExistsFile(session *ProxyServiceSession, path string) bool {
+func (client *PoolServiceClient) ExistsFile(session *PoolServiceSession, path string) bool {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "ExistsFile",
 	})
 
@@ -298,10 +298,10 @@ func (client *ProxyServiceClient) ExistsFile(session *ProxyServiceSession, path 
 }
 
 // ListDirACLsWithGroupUsers lists iRODS collection ACLs with group users
-func (client *ProxyServiceClient) ListDirACLsWithGroupUsers(session *ProxyServiceSession, path string) ([]*irodsfs_clienttype.IRODSAccess, error) {
+func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceSession, path string) ([]*irodsfs_clienttype.IRODSAccess, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "ListDirACLsWithGroupUsers",
 	})
 
@@ -334,10 +334,10 @@ func (client *ProxyServiceClient) ListDirACLsWithGroupUsers(session *ProxyServic
 }
 
 // ListFileACLsWithGroupUsers lists iRODS data object ACLs with group users
-func (client *ProxyServiceClient) ListFileACLsWithGroupUsers(session *ProxyServiceSession, path string) ([]*irodsfs_clienttype.IRODSAccess, error) {
+func (client *PoolServiceClient) ListFileACLsWithGroupUsers(session *PoolServiceSession, path string) ([]*irodsfs_clienttype.IRODSAccess, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "ListFileACLsWithGroupUsers",
 	})
 
@@ -370,10 +370,10 @@ func (client *ProxyServiceClient) ListFileACLsWithGroupUsers(session *ProxyServi
 }
 
 // RemoveFile removes iRODS data object
-func (client *ProxyServiceClient) RemoveFile(session *ProxyServiceSession, path string, force bool) error {
+func (client *PoolServiceClient) RemoveFile(session *PoolServiceSession, path string, force bool) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "RemoveFile",
 	})
 
@@ -393,10 +393,10 @@ func (client *ProxyServiceClient) RemoveFile(session *ProxyServiceSession, path 
 }
 
 // RemoveDir removes iRODS collection
-func (client *ProxyServiceClient) RemoveDir(session *ProxyServiceSession, path string, recurse bool, force bool) error {
+func (client *PoolServiceClient) RemoveDir(session *PoolServiceSession, path string, recurse bool, force bool) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "RemoveDir",
 	})
 
@@ -417,10 +417,10 @@ func (client *ProxyServiceClient) RemoveDir(session *ProxyServiceSession, path s
 }
 
 // MakeDir creates a new iRODS collection
-func (client *ProxyServiceClient) MakeDir(session *ProxyServiceSession, path string, recurse bool) error {
+func (client *PoolServiceClient) MakeDir(session *PoolServiceSession, path string, recurse bool) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "MakeDir",
 	})
 
@@ -440,10 +440,10 @@ func (client *ProxyServiceClient) MakeDir(session *ProxyServiceSession, path str
 }
 
 // RenameDirToDir renames iRODS collection
-func (client *ProxyServiceClient) RenameDirToDir(session *ProxyServiceSession, srcPath string, destPath string) error {
+func (client *PoolServiceClient) RenameDirToDir(session *PoolServiceSession, srcPath string, destPath string) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "RenameDirToDir",
 	})
 
@@ -463,10 +463,10 @@ func (client *ProxyServiceClient) RenameDirToDir(session *ProxyServiceSession, s
 }
 
 // RenameFileToFile renames iRODS data object
-func (client *ProxyServiceClient) RenameFileToFile(session *ProxyServiceSession, srcPath string, destPath string) error {
+func (client *PoolServiceClient) RenameFileToFile(session *PoolServiceSession, srcPath string, destPath string) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "RenameFileToFile",
 	})
 
@@ -486,10 +486,10 @@ func (client *ProxyServiceClient) RenameFileToFile(session *ProxyServiceSession,
 }
 
 // CreateFile creates a new iRODS data object
-func (client *ProxyServiceClient) CreateFile(session *ProxyServiceSession, path string, resource string) (*ProxyServiceFileHandle, error) {
+func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path string, resource string) (*PoolServiceFileHandle, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "CreateFile",
 	})
 
@@ -529,7 +529,7 @@ func (client *ProxyServiceClient) CreateFile(session *ProxyServiceSession, path 
 		CheckSum:   response.Entry.Checksum,
 	}
 
-	return &ProxyServiceFileHandle{
+	return &PoolServiceFileHandle{
 		SessionID:    session.ID,
 		Entry:        irodsEntry,
 		OpenMode:     string(irodsfs_clienttype.FileOpenModeWriteOnly),
@@ -538,10 +538,10 @@ func (client *ProxyServiceClient) CreateFile(session *ProxyServiceSession, path 
 }
 
 // OpenFile opens iRODS data object
-func (client *ProxyServiceClient) OpenFile(session *ProxyServiceSession, path string, resource string, mode string) (*ProxyServiceFileHandle, error) {
+func (client *PoolServiceClient) OpenFile(session *PoolServiceSession, path string, resource string, mode string) (*PoolServiceFileHandle, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "OpenFile",
 	})
 
@@ -582,7 +582,7 @@ func (client *ProxyServiceClient) OpenFile(session *ProxyServiceSession, path st
 		CheckSum:   response.Entry.Checksum,
 	}
 
-	return &ProxyServiceFileHandle{
+	return &PoolServiceFileHandle{
 		SessionID:    session.ID,
 		Entry:        irodsEntry,
 		OpenMode:     mode,
@@ -591,10 +591,10 @@ func (client *ProxyServiceClient) OpenFile(session *ProxyServiceSession, path st
 }
 
 // TruncateFile truncates iRODS data object
-func (client *ProxyServiceClient) TruncateFile(session *ProxyServiceSession, path string, size int64) error {
+func (client *PoolServiceClient) TruncateFile(session *PoolServiceSession, path string, size int64) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "TruncateFile",
 	})
 
@@ -614,10 +614,10 @@ func (client *ProxyServiceClient) TruncateFile(session *ProxyServiceSession, pat
 }
 
 // GetOffset returns current offset
-func (client *ProxyServiceClient) GetOffset(handle *ProxyServiceFileHandle) int64 {
+func (client *PoolServiceClient) GetOffset(handle *PoolServiceFileHandle) int64 {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "GetOffset",
 	})
 
@@ -636,10 +636,10 @@ func (client *ProxyServiceClient) GetOffset(handle *ProxyServiceFileHandle) int6
 }
 
 // ReadAt reads iRODS data object
-func (client *ProxyServiceClient) ReadAt(handle *ProxyServiceFileHandle, offset int64, length int32) ([]byte, error) {
+func (client *PoolServiceClient) ReadAt(handle *PoolServiceFileHandle, offset int64, length int32) ([]byte, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "ReadAt",
 	})
 
@@ -683,10 +683,10 @@ func (client *ProxyServiceClient) ReadAt(handle *ProxyServiceFileHandle, offset 
 }
 
 // WriteAt writes iRODS data object
-func (client *ProxyServiceClient) WriteAt(handle *ProxyServiceFileHandle, offset int64, data []byte) error {
+func (client *PoolServiceClient) WriteAt(handle *PoolServiceFileHandle, offset int64, data []byte) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "WriteAt",
 	})
 
@@ -722,10 +722,10 @@ func (client *ProxyServiceClient) WriteAt(handle *ProxyServiceFileHandle, offset
 }
 
 // Close cloess iRODS data object handle
-func (client *ProxyServiceClient) Close(handle *ProxyServiceFileHandle) error {
+func (client *PoolServiceClient) Close(handle *PoolServiceFileHandle) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "ProxyServiceClient",
+		"struct":   "PoolServiceClient",
 		"function": "Close",
 	})
 

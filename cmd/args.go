@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	"github.com/cyverse/irodsfs-proxy/service"
+	"github.com/cyverse/irodsfs-pool/service"
 	log "github.com/sirupsen/logrus"
 )
 

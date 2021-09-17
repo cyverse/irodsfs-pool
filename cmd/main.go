@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/cyverse/irodsfs-proxy/service"
+	"github.com/cyverse/irodsfs-pool/service"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -243,7 +243,7 @@ func run(config *service.Config, isChildProcess bool) error {
 	})
 
 	// run a service
-	svc := service.NewProxyService(config)
+	svc := service.NewPoolService(config)
 	err := svc.Init()
 	if err != nil {
 		logger.WithError(err).Error("Could not init the service")

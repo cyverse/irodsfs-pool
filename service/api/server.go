@@ -10,13 +10,13 @@ import (
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodsfs_clienttype "github.com/cyverse/go-irodsclient/irods/types"
-	"github.com/cyverse/irodsfs-proxy/utils"
+	"github.com/cyverse/irodsfs-pool/utils"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 )
 
 type Server struct {
-	UnimplementedProxyAPIServer
+	UnimplementedPoolAPIServer
 	Mutex    sync.RWMutex // mutex to access Sessions
 	Sessions map[string]*Session
 }

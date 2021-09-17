@@ -6,34 +6,34 @@ import (
 	"net"
 	"sync"
 
-	"github.com/cyverse/irodsfs-proxy/service/api"
+	"github.com/cyverse/irodsfs-pool/service/api"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/stats"
 )
 
-// ProxyService is a service object
-type ProxyService struct {
+// PoolService is a service object
+type PoolService struct {
 	Config     *Config
 	APIServer  *api.Server
 	GrpcServer *grpc.Server
 }
 
-type ProxyServiceStatHandler struct {
+type PoolServiceStatHandler struct {
 	APIServer       *api.Server
 	LiveConnections int
 	Mutex           sync.Mutex
 }
 
-func (handler *ProxyServiceStatHandler) TagRPC(context.Context, *stats.RPCTagInfo) context.Context {
+func (handler *PoolServiceStatHandler) TagRPC(context.Context, *stats.RPCTagInfo) context.Context {
 	return context.Background()
 }
 
 // HandleRPC processes the RPC stats.
-func (handler *ProxyServiceStatHandler) HandleRPC(context.Context, stats.RPCStats) {
+func (handler *PoolServiceStatHandler) HandleRPC(context.Context, stats.RPCStats) {
 }
 
-func (handler *ProxyServiceStatHandler) TagConn(context.Context, *stats.ConnTagInfo) context.Context {
+func (handler *PoolServiceStatHandler) TagConn(context.Context, *stats.ConnTagInfo) context.Context {
 	handler.Mutex.Lock()
 	defer handler.Mutex.Unlock()
 
@@ -42,7 +42,7 @@ func (handler *ProxyServiceStatHandler) TagConn(context.Context, *stats.ConnTagI
 }
 
 // HandleConn processes the Conn stats.
-func (handler *ProxyServiceStatHandler) HandleConn(c context.Context, s stats.ConnStats) {
+func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.ConnStats) {
 	switch s.(type) {
 	case *stats.ConnEnd:
 		handler.Mutex.Lock()
@@ -56,17 +56,17 @@ func (handler *ProxyServiceStatHandler) HandleConn(c context.Context, s stats.Co
 	}
 }
 
-// NewProxyService creates a new proxy service
-func NewProxyService(config *Config) *ProxyService {
+// NewPoolService creates a new pool service
+func NewPoolService(config *Config) *PoolService {
 	apiServer := api.NewServer()
 
-	statHandler := &ProxyServiceStatHandler{
+	statHandler := &PoolServiceStatHandler{
 		APIServer: apiServer,
 	}
 	grpcServer := grpc.NewServer(grpc.StatsHandler(statHandler))
-	api.RegisterProxyAPIServer(grpcServer, apiServer)
+	api.RegisterPoolAPIServer(grpcServer, apiServer)
 
-	service := &ProxyService{
+	service := &PoolService{
 		Config:     config,
 		APIServer:  apiServer,
 		GrpcServer: grpcServer,
@@ -76,18 +76,18 @@ func NewProxyService(config *Config) *ProxyService {
 }
 
 // Init initializes the service
-func (svc *ProxyService) Init() error {
+func (svc *PoolService) Init() error {
 	return nil
 }
 
 // Start starts the service
-func (svc *ProxyService) Start() error {
+func (svc *PoolService) Start() error {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
-		"function": "ProxyService.Start",
+		"function": "PoolService.Start",
 	})
 
-	logger.Info("Starting the iRODS FUSE Lite Proxy service")
+	logger.Info("Starting the iRODS FUSE Lite Pool service")
 
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", svc.Config.ServicePort))
 	if err != nil {
@@ -106,13 +106,13 @@ func (svc *ProxyService) Start() error {
 }
 
 // Destroy destroys the service
-func (svc *ProxyService) Destroy() {
+func (svc *PoolService) Destroy() {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
-		"function": "ProxyService.Destroy",
+		"function": "PoolService.Destroy",
 	})
 
-	logger.Info("Destroying the iRODS FUSE Lite Proxy service")
+	logger.Info("Destroying the iRODS FUSE Lite Pool service")
 
 	svc.GrpcServer.Stop()
 }

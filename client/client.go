@@ -721,7 +721,29 @@ func (client *PoolServiceClient) WriteAt(handle *PoolServiceFileHandle, offset i
 	return nil
 }
 
-// Close cloess iRODS data object handle
+// Flush flushes iRODS data object handle
+func (client *PoolServiceClient) Flush(handle *PoolServiceFileHandle) error {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceClient",
+		"function": "Flush",
+	})
+
+	request := &api.FlushRequest{
+		SessionId:    handle.SessionID,
+		FileHandleId: handle.FileHandleID,
+	}
+
+	_, err := client.APIClient.Flush(context.Background(), request)
+	if err != nil {
+		logger.Error(err)
+		return err
+	}
+
+	return nil
+}
+
+// Close closes iRODS data object handle
 func (client *PoolServiceClient) Close(handle *PoolServiceFileHandle) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",

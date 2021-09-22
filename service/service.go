@@ -15,12 +15,12 @@ import (
 // PoolService is a service object
 type PoolService struct {
 	Config     *Config
-	APIServer  *api.Server
+	APIServer  *Server
 	GrpcServer *grpc.Server
 }
 
 type PoolServiceStatHandler struct {
-	APIServer       *api.Server
+	APIServer       *Server
 	LiveConnections int
 	Mutex           sync.Mutex
 }
@@ -58,7 +58,7 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 
 // NewPoolService creates a new pool service
 func NewPoolService(config *Config) *PoolService {
-	apiServer := api.NewServer()
+	apiServer := NewServer(config.BufferSizeMax)
 
 	statHandler := &PoolServiceStatHandler{
 		APIServer: apiServer,

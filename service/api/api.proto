@@ -210,6 +210,11 @@ message WriteAtRequest {
 	bytes data = 4;
 }
 
+message FlushRequest {
+	string session_id = 1;
+	string file_handle_id = 2;
+}
+
 message CloseRequest {
 	string session_id = 1;
 	string file_handle_id = 2;
@@ -238,5 +243,6 @@ service PoolAPI {
 	rpc GetOffset(GetOffsetRequest) returns (GetOffsetResponse) {}
 	rpc ReadAt(ReadAtRequest) returns (ReadAtResponse) {}
 	rpc WriteAt(WriteAtRequest) returns (Empty) {}
+	rpc Flush(FlushRequest) returns (Empty) {}
 	rpc Close(CloseRequest) returns (Empty) {}
 }

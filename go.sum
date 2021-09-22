@@ -13,9 +13,15 @@ github.com/cyverse/go-irodsclient v0.5.4 h1:ZpBUAJuvg/IRl2SxhT/7vT5Aee48Ah9Gda6x
 github.com/cyverse/go-irodsclient v0.5.4/go.mod h1:YcnrabJWsGIcwxI9Ms9zcDimJ1v57fC90CyOvOKKWZM=
 github.com/cyverse/go-irodsclient v0.5.5-0.20210910205101-c02251afdb4d h1:yot/bvCRnzkwTnDUGKGTfQfwaXXgJLO8naOqFYYVjvQ=
 github.com/cyverse/go-irodsclient v0.5.5-0.20210910205101-c02251afdb4d/go.mod h1:PVmKLbP3uBZZw9ihroy1RdnY2vNCkwXGYeDtPgVle30=
+github.com/cyverse/go-irodsclient v0.5.5-0.20210916002403-c18087e326de h1:FGOIGknlc66a6+sSrJs78t6hRhxlxzRAijh9mq2L5v4=
+github.com/cyverse/go-irodsclient v0.5.5-0.20210916002403-c18087e326de/go.mod h1:PVmKLbP3uBZZw9ihroy1RdnY2vNCkwXGYeDtPgVle30=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/eapache/channels v1.1.0 h1:F1taHcn7/F0i8DYqKXJnyhJcVpp2kgFcNePxXtnyu4k=
+github.com/eapache/channels v1.1.0/go.mod h1:jMm2qB5Ubtg9zLd+inMZd2/NUvXgzmWXsDaLyQIGfH0=
+github.com/eapache/queue v1.1.0 h1:YOEu7KNc61ntiQlcEeUIoDTJ2o8mQznoNvUhiigpIqc=
+github.com/eapache/queue v1.1.0/go.mod h1:6eCeP0CKFpHLu8blIFXhExK/dRa7WDZfr6jVFPTqq+I=
 github.com/envoyproxy/go-control-plane v0.9.0/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=
 github.com/envoyproxy/go-control-plane v0.9.1-0.20191026205805-5f8ba28d4473/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=
 github.com/envoyproxy/go-control-plane v0.9.4/go.mod h1:6rpuAdCZL397s3pYoYcLgu1mIlRU8Am5FuJP05cCM98=

@@ -8,12 +8,14 @@ import (
 )
 
 const (
-	ServicePortDefault int = 12020
+	ServicePortDefault   int   = 12020
+	BufferSizeMaxDefault int64 = 1024 * 1024 * 64 // 64MB
 )
 
 // Config holds the parameters list which can be configured
 type Config struct {
-	ServicePort int `envconfig:"SERVICE_PORT" yaml:"service_port"`
+	ServicePort   int   `envconfig:"SERVICE_PORT" yaml:"service_port"`
+	BufferSizeMax int64 `envconfig:"BUFFER_SIZE_MAX" yaml:"buffer_size_max"`
 
 	LogPath string `envconfig:"LOG_PATH" yaml:"log_path,omitempty"`
 
@@ -24,7 +26,8 @@ type Config struct {
 // NewDefaultConfig creates DefaultConfig
 func NewDefaultConfig() *Config {
 	return &Config{
-		ServicePort: ServicePortDefault,
+		ServicePort:   ServicePortDefault,
+		BufferSizeMax: BufferSizeMaxDefault,
 
 		LogPath: "",
 
@@ -36,7 +39,8 @@ func NewDefaultConfig() *Config {
 // NewConfigFromENV creates Config from Environmental Variables
 func NewConfigFromENV() (*Config, error) {
 	config := Config{
-		ServicePort: ServicePortDefault,
+		ServicePort:   ServicePortDefault,
+		BufferSizeMax: BufferSizeMaxDefault,
 	}
 
 	err := envconfig.Process("", &config)
@@ -50,7 +54,8 @@ func NewConfigFromENV() (*Config, error) {
 // NewConfigFromYAML creates Config from YAML
 func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 	config := Config{
-		ServicePort: ServicePortDefault,
+		ServicePort:   ServicePortDefault,
+		BufferSizeMax: BufferSizeMaxDefault,
 	}
 
 	err := yaml.Unmarshal(yamlBytes, &config)

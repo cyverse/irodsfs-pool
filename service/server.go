@@ -1,4 +1,4 @@
-package api
+package service
 
 import (
 	context "context"
@@ -10,15 +10,18 @@ import (
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodsfs_clienttype "github.com/cyverse/go-irodsclient/irods/types"
+	"github.com/cyverse/irodsfs-pool/service/api"
+	"github.com/cyverse/irodsfs-pool/service/asyncwrite"
 	"github.com/cyverse/irodsfs-pool/utils"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 )
 
 type Server struct {
-	UnimplementedPoolAPIServer
+	api.UnimplementedPoolAPIServer
 	Mutex    sync.RWMutex // mutex to access Sessions
 	Sessions map[string]*Session
+	Buffer   asyncwrite.Buffer
 }
 
 type Session struct {
@@ -34,16 +37,24 @@ type Session struct {
 type FileHandle struct {
 	ID          string
 	SessionID   string
+	Writer      asyncwrite.Writer
 	IRODSHandle *irodsfs.FileHandle
+	Mutex       *sync.Mutex // mutex to access IRODSHandle
 }
 
-func NewServer() *Server {
+func NewServer(bufferSizeMax int64) *Server {
+	var ramBuffer asyncwrite.Buffer
+	if bufferSizeMax > 0 {
+		ramBuffer = asyncwrite.NewRAMBuffer(bufferSizeMax)
+	}
+
 	return &Server{
 		Sessions: map[string]*Session{},
+		Buffer:   ramBuffer,
 	}
 }
 
-func (server *Server) generateSessionID(account *Account) string {
+func (server *Server) generateSessionID(account *api.Account) string {
 	hash := sha1.New()
 	hash.Write([]byte(account.Host))
 	hash.Write([]byte(fmt.Sprintf("%d", account.Port)))
@@ -57,9 +68,9 @@ func (server *Server) generateSessionID(account *Account) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func (server *Server) Login(context context.Context, request *LoginRequest) (*LoginResponse, error) {
+func (server *Server) Login(context context.Context, request *api.LoginRequest) (*api.LoginResponse, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "Login",
 	})
@@ -122,16 +133,16 @@ func (server *Server) Login(context context.Context, request *LoginRequest) (*Lo
 		session.IRODSFS = fs
 	}
 
-	response := &LoginResponse{
+	response := &api.LoginResponse{
 		SessionId: sessionID,
 	}
 
 	return response, nil
 }
 
-func (server *Server) Logout(context context.Context, request *LogoutRequest) (*Empty, error) {
+func (server *Server) Logout(context context.Context, request *api.LogoutRequest) (*api.Empty, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "Logout",
 	})
@@ -148,7 +159,7 @@ func (server *Server) Logout(context context.Context, request *LogoutRequest) (*
 		//return nil, err
 
 		// no problem, session might be already closed due to timeout
-		return &Empty{}, nil
+		return &api.Empty{}, nil
 	}
 
 	session.Mutex.Lock()
@@ -177,12 +188,12 @@ func (server *Server) Logout(context context.Context, request *LogoutRequest) (*
 		}
 	}
 
-	return &Empty{}, nil
+	return &api.Empty{}, nil
 }
 
 func (server *Server) LogoutAll() {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "LogoutAll",
 	})
@@ -222,7 +233,7 @@ func (server *Server) LogoutAll() {
 
 func (server *Server) getSession(sessionID string) (*Session, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "getSession",
 	})
@@ -248,7 +259,7 @@ func (server *Server) getSession(sessionID string) (*Session, error) {
 
 func (server *Server) getFileHandle(sessionID string, fileHandleID string) (*FileHandle, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "getFileHandle",
 	})
@@ -274,9 +285,9 @@ func (server *Server) getFileHandle(sessionID string, fileHandleID string) (*Fil
 	return fileHandle, nil
 }
 
-func (server *Server) List(context context.Context, request *ListRequest) (*ListResponse, error) {
+func (server *Server) List(context context.Context, request *api.ListRequest) (*api.ListResponse, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "List",
 	})
@@ -299,9 +310,9 @@ func (server *Server) List(context context.Context, request *ListRequest) (*List
 		return nil, err
 	}
 
-	responseEntries := []*Entry{}
+	responseEntries := []*api.Entry{}
 	for _, entry := range entries {
-		responseEntry := &Entry{
+		responseEntry := &api.Entry{
 			Id:         entry.ID,
 			Type:       string(entry.Type),
 			Name:       entry.Name,
@@ -315,16 +326,16 @@ func (server *Server) List(context context.Context, request *ListRequest) (*List
 		responseEntries = append(responseEntries, responseEntry)
 	}
 
-	response := &ListResponse{
+	response := &api.ListResponse{
 		Entries: responseEntries,
 	}
 
 	return response, nil
 }
 
-func (server *Server) Stat(context context.Context, request *StatRequest) (*StatResponse, error) {
+func (server *Server) Stat(context context.Context, request *api.StatRequest) (*api.StatResponse, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "Stat",
 	})
@@ -344,9 +355,9 @@ func (server *Server) Stat(context context.Context, request *StatRequest) (*Stat
 	entry, err := session.IRODSFS.Stat(request.Path)
 	if err != nil {
 		if irodsfs_clienttype.IsFileNotFoundError(err) {
-			return &StatResponse{
-				Error: &SoftError{
-					Type:    ErrorType_FILENOTFOUND,
+			return &api.StatResponse{
+				Error: &api.SoftError{
+					Type:    api.ErrorType_FILENOTFOUND,
 					Message: err.Error(),
 				},
 			}, nil
@@ -356,7 +367,7 @@ func (server *Server) Stat(context context.Context, request *StatRequest) (*Stat
 		return nil, err
 	}
 
-	responseEntry := &Entry{
+	responseEntry := &api.Entry{
 		Id:         entry.ID,
 		Type:       string(entry.Type),
 		Name:       entry.Name,
@@ -368,7 +379,7 @@ func (server *Server) Stat(context context.Context, request *StatRequest) (*Stat
 		Checksum:   entry.CheckSum,
 	}
 
-	response := &StatResponse{
+	response := &api.StatResponse{
 		Entry: responseEntry,
 		Error: nil,
 	}
@@ -376,9 +387,9 @@ func (server *Server) Stat(context context.Context, request *StatRequest) (*Stat
 	return response, nil
 }
 
-func (server *Server) ExistsDir(context context.Context, request *ExistsDirRequest) (*ExistsDirResponse, error) {
+func (server *Server) ExistsDir(context context.Context, request *api.ExistsDirRequest) (*api.ExistsDirResponse, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "ExistsDir",
 	})
@@ -396,14 +407,14 @@ func (server *Server) ExistsDir(context context.Context, request *ExistsDirReque
 	session.Mutex.Unlock()
 
 	exist := session.IRODSFS.ExistsDir(request.Path)
-	return &ExistsDirResponse{
+	return &api.ExistsDirResponse{
 		Exist: exist,
 	}, nil
 }
 
-func (server *Server) ExistsFile(context context.Context, request *ExistsFileRequest) (*ExistsFileResponse, error) {
+func (server *Server) ExistsFile(context context.Context, request *api.ExistsFileRequest) (*api.ExistsFileResponse, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "ExistsFile",
 	})
@@ -421,14 +432,14 @@ func (server *Server) ExistsFile(context context.Context, request *ExistsFileReq
 	session.Mutex.Unlock()
 
 	exist := session.IRODSFS.ExistsFile(request.Path)
-	return &ExistsFileResponse{
+	return &api.ExistsFileResponse{
 		Exist: exist,
 	}, nil
 }
 
-func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request *ListDirACLsWithGroupUsersRequest) (*ListDirACLsWithGroupUsersResponse, error) {
+func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request *api.ListDirACLsWithGroupUsersRequest) (*api.ListDirACLsWithGroupUsersResponse, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "ListDirACLsWithGroupUsers",
 	})
@@ -451,9 +462,9 @@ func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request
 		return nil, err
 	}
 
-	responseAccesses := []*Access{}
+	responseAccesses := []*api.Access{}
 	for _, access := range accesses {
-		responseAccess := &Access{
+		responseAccess := &api.Access{
 			Path:        access.Path,
 			UserName:    access.UserName,
 			UserZone:    access.UserZone,
@@ -463,16 +474,16 @@ func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request
 		responseAccesses = append(responseAccesses, responseAccess)
 	}
 
-	response := &ListDirACLsWithGroupUsersResponse{
+	response := &api.ListDirACLsWithGroupUsersResponse{
 		Accesses: responseAccesses,
 	}
 
 	return response, nil
 }
 
-func (server *Server) ListFileACLsWithGroupUsers(context context.Context, request *ListFileACLsWithGroupUsersRequest) (*ListFileACLsWithGroupUsersResponse, error) {
+func (server *Server) ListFileACLsWithGroupUsers(context context.Context, request *api.ListFileACLsWithGroupUsersRequest) (*api.ListFileACLsWithGroupUsersResponse, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "ListFileACLsWithGroupUsers",
 	})
@@ -495,9 +506,9 @@ func (server *Server) ListFileACLsWithGroupUsers(context context.Context, reques
 		return nil, err
 	}
 
-	responseAccesses := []*Access{}
+	responseAccesses := []*api.Access{}
 	for _, access := range accesses {
-		responseAccess := &Access{
+		responseAccess := &api.Access{
 			Path:        access.Path,
 			UserName:    access.UserName,
 			UserZone:    access.UserZone,
@@ -507,16 +518,16 @@ func (server *Server) ListFileACLsWithGroupUsers(context context.Context, reques
 		responseAccesses = append(responseAccesses, responseAccess)
 	}
 
-	response := &ListFileACLsWithGroupUsersResponse{
+	response := &api.ListFileACLsWithGroupUsersResponse{
 		Accesses: responseAccesses,
 	}
 
 	return response, nil
 }
 
-func (server *Server) RemoveFile(context context.Context, request *RemoveFileRequest) (*Empty, error) {
+func (server *Server) RemoveFile(context context.Context, request *api.RemoveFileRequest) (*api.Empty, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "RemoveFile",
 	})
@@ -539,12 +550,12 @@ func (server *Server) RemoveFile(context context.Context, request *RemoveFileReq
 		return nil, err
 	}
 
-	return &Empty{}, nil
+	return &api.Empty{}, nil
 }
 
-func (server *Server) RemoveDir(context context.Context, request *RemoveDirRequest) (*Empty, error) {
+func (server *Server) RemoveDir(context context.Context, request *api.RemoveDirRequest) (*api.Empty, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "RemoveDir",
 	})
@@ -567,12 +578,12 @@ func (server *Server) RemoveDir(context context.Context, request *RemoveDirReque
 		return nil, err
 	}
 
-	return &Empty{}, nil
+	return &api.Empty{}, nil
 }
 
-func (server *Server) MakeDir(context context.Context, request *MakeDirRequest) (*Empty, error) {
+func (server *Server) MakeDir(context context.Context, request *api.MakeDirRequest) (*api.Empty, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "MakeDir",
 	})
@@ -595,12 +606,12 @@ func (server *Server) MakeDir(context context.Context, request *MakeDirRequest) 
 		return nil, err
 	}
 
-	return &Empty{}, nil
+	return &api.Empty{}, nil
 }
 
-func (server *Server) RenameDirToDir(context context.Context, request *RenameDirToDirRequest) (*Empty, error) {
+func (server *Server) RenameDirToDir(context context.Context, request *api.RenameDirToDirRequest) (*api.Empty, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "RenameDirToDir",
 	})
@@ -623,12 +634,12 @@ func (server *Server) RenameDirToDir(context context.Context, request *RenameDir
 		return nil, err
 	}
 
-	return &Empty{}, nil
+	return &api.Empty{}, nil
 }
 
-func (server *Server) RenameFileToFile(context context.Context, request *RenameFileToFileRequest) (*Empty, error) {
+func (server *Server) RenameFileToFile(context context.Context, request *api.RenameFileToFileRequest) (*api.Empty, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "RenameFileToFile",
 	})
@@ -651,12 +662,12 @@ func (server *Server) RenameFileToFile(context context.Context, request *RenameF
 		return nil, err
 	}
 
-	return &Empty{}, nil
+	return &api.Empty{}, nil
 }
 
-func (server *Server) CreateFile(context context.Context, request *CreateFileRequest) (*CreateFileResponse, error) {
+func (server *Server) CreateFile(context context.Context, request *api.CreateFileRequest) (*api.CreateFileResponse, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "CreateFile",
 	})
@@ -675,11 +686,25 @@ func (server *Server) CreateFile(context context.Context, request *CreateFileReq
 		return nil, err
 	}
 
+	handleMutex := &sync.Mutex{}
+
+	var writer asyncwrite.Writer
+
+	if server.Buffer != nil {
+		asyncWriter := asyncwrite.NewAsyncWriter(request.Path, handle, handleMutex, server.Buffer)
+		writer = asyncwrite.NewBufferedWriter(request.Path, asyncWriter)
+	} else {
+		syncWriter := asyncwrite.NewSyncWriter(request.Path, handle, handleMutex)
+		writer = asyncwrite.NewBufferedWriter(request.Path, syncWriter)
+	}
+
 	fileHandleID := xid.New().String()
 	fileHandle := &FileHandle{
 		ID:          fileHandleID,
 		SessionID:   request.SessionId,
+		Writer:      writer,
 		IRODSHandle: handle,
+		Mutex:       handleMutex,
 	}
 
 	session.Mutex.Lock()
@@ -689,7 +714,7 @@ func (server *Server) CreateFile(context context.Context, request *CreateFileReq
 	session.FileHandles[fileHandleID] = fileHandle
 	session.LastActivityTime = time.Now()
 
-	responseEntry := &Entry{
+	responseEntry := &api.Entry{
 		Id:         handle.Entry.ID,
 		Type:       string(handle.Entry.Type),
 		Name:       handle.Entry.Name,
@@ -701,7 +726,7 @@ func (server *Server) CreateFile(context context.Context, request *CreateFileReq
 		Checksum:   handle.Entry.CheckSum,
 	}
 
-	response := &CreateFileResponse{
+	response := &api.CreateFileResponse{
 		FileHandleId: fileHandleID,
 		Entry:        responseEntry,
 	}
@@ -709,9 +734,9 @@ func (server *Server) CreateFile(context context.Context, request *CreateFileReq
 	return response, nil
 }
 
-func (server *Server) OpenFile(context context.Context, request *OpenFileRequest) (*OpenFileResponse, error) {
+func (server *Server) OpenFile(context context.Context, request *api.OpenFileRequest) (*api.OpenFileResponse, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "OpenFile",
 	})
@@ -730,11 +755,18 @@ func (server *Server) OpenFile(context context.Context, request *OpenFileRequest
 		return nil, err
 	}
 
+	handleMutex := &sync.Mutex{}
+
+	asyncWriter := asyncwrite.NewAsyncWriter(request.Path, handle, handleMutex, server.Buffer)
+	writer := asyncwrite.NewBufferedWriter(request.Path, asyncWriter)
+
 	fileHandleID := xid.New().String()
 	fileHandle := &FileHandle{
 		ID:          fileHandleID,
 		SessionID:   request.SessionId,
+		Writer:      writer,
 		IRODSHandle: handle,
+		Mutex:       handleMutex,
 	}
 
 	session.Mutex.Lock()
@@ -744,7 +776,7 @@ func (server *Server) OpenFile(context context.Context, request *OpenFileRequest
 	session.FileHandles[fileHandleID] = fileHandle
 	session.LastActivityTime = time.Now()
 
-	responseEntry := &Entry{
+	responseEntry := &api.Entry{
 		Id:         handle.Entry.ID,
 		Type:       string(handle.Entry.Type),
 		Name:       handle.Entry.Name,
@@ -756,7 +788,7 @@ func (server *Server) OpenFile(context context.Context, request *OpenFileRequest
 		Checksum:   handle.Entry.CheckSum,
 	}
 
-	response := &OpenFileResponse{
+	response := &api.OpenFileResponse{
 		FileHandleId: fileHandleID,
 		Entry:        responseEntry,
 	}
@@ -764,9 +796,9 @@ func (server *Server) OpenFile(context context.Context, request *OpenFileRequest
 	return response, nil
 }
 
-func (server *Server) TruncateFile(context context.Context, request *TruncateFileRequest) (*Empty, error) {
+func (server *Server) TruncateFile(context context.Context, request *api.TruncateFileRequest) (*api.Empty, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "TruncateFile",
 	})
@@ -789,12 +821,12 @@ func (server *Server) TruncateFile(context context.Context, request *TruncateFil
 		return nil, err
 	}
 
-	return &Empty{}, nil
+	return &api.Empty{}, nil
 }
 
-func (server *Server) GetOffset(context context.Context, request *GetOffsetRequest) (*GetOffsetResponse, error) {
+func (server *Server) GetOffset(context context.Context, request *api.GetOffsetRequest) (*api.GetOffsetResponse, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "GetOffset",
 	})
@@ -807,17 +839,26 @@ func (server *Server) GetOffset(context context.Context, request *GetOffsetReque
 		return nil, err
 	}
 
+	err = fileHandle.Writer.Flush()
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	fileHandle.Mutex.Lock()
+	defer fileHandle.Mutex.Unlock()
+
 	offset := fileHandle.IRODSHandle.GetOffset()
-	response := &GetOffsetResponse{
+	response := &api.GetOffsetResponse{
 		Offset: offset,
 	}
 
 	return response, nil
 }
 
-func (server *Server) ReadAt(context context.Context, request *ReadAtRequest) (*ReadAtResponse, error) {
+func (server *Server) ReadAt(context context.Context, request *api.ReadAtRequest) (*api.ReadAtResponse, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "ReadAt",
 	})
@@ -830,22 +871,25 @@ func (server *Server) ReadAt(context context.Context, request *ReadAtRequest) (*
 		return nil, err
 	}
 
+	fileHandle.Mutex.Lock()
+	defer fileHandle.Mutex.Unlock()
+
 	data, err := fileHandle.IRODSHandle.ReadAt(request.Offset, int(request.Length))
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	response := &ReadAtResponse{
+	response := &api.ReadAtResponse{
 		Data: data,
 	}
 
 	return response, nil
 }
 
-func (server *Server) WriteAt(context context.Context, request *WriteAtRequest) (*Empty, error) {
+func (server *Server) WriteAt(context context.Context, request *api.WriteAtRequest) (*api.Empty, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
 		"struct":   "Server",
 		"function": "WriteAt",
 	})
@@ -858,18 +902,55 @@ func (server *Server) WriteAt(context context.Context, request *WriteAtRequest) 
 		return nil, err
 	}
 
-	err = fileHandle.IRODSHandle.WriteAt(request.Offset, request.Data)
+	err = fileHandle.Writer.WriteAt(request.Offset, request.Data)
+	//err = fileHandle.IRODSHandle.WriteAt(request.Offset, request.Data)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	return &Empty{}, nil
+	return &api.Empty{}, nil
 }
 
-func (server *Server) Close(context context.Context, request *CloseRequest) (*Empty, error) {
+func (server *Server) Flush(context context.Context, request *api.FlushRequest) (*api.Empty, error) {
 	logger := log.WithFields(log.Fields{
-		"package":  "api",
+		"package":  "service",
+		"struct":   "Server",
+		"function": "Flush",
+	})
+
+	logger.Infof("Flush request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+
+	session, err := server.getSession(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	session.Mutex.Lock()
+	defer session.Mutex.Unlock()
+
+	session.LastActivityTime = time.Now()
+
+	fileHandle, ok := session.FileHandles[request.FileHandleId]
+	if !ok {
+		err := fmt.Errorf("cannot find file handle %s", request.FileHandleId)
+		logger.Error(err)
+		return nil, err
+	}
+
+	err = fileHandle.Writer.Flush()
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	return &api.Empty{}, nil
+}
+
+func (server *Server) Close(context context.Context, request *api.CloseRequest) (*api.Empty, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
 		"struct":   "Server",
 		"function": "Close",
 	})
@@ -896,11 +977,25 @@ func (server *Server) Close(context context.Context, request *CloseRequest) (*Em
 
 	delete(session.FileHandles, request.FileHandleId)
 
+	if fileHandle.Writer != nil {
+		// wait until all queued tasks complete
+		fileHandle.Writer.Release()
+
+		err := fileHandle.Writer.GetPendingError()
+		if err != nil {
+			logger.WithError(err)
+			return nil, err
+		}
+	}
+
+	fileHandle.Mutex.Lock()
+	defer fileHandle.Mutex.Unlock()
+
 	err = fileHandle.IRODSHandle.Close()
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	return &Empty{}, nil
+	return &api.Empty{}, nil
 }

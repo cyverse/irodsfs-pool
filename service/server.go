@@ -9,7 +9,6 @@ import (
 	"time"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
-	irodsclient_session "github.com/cyverse/go-irodsclient/irods/session"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	"github.com/cyverse/irodsfs-pool/service/asyncwrite"
@@ -111,17 +110,7 @@ func (server *Server) Login(context context.Context, request *api.LoginRequest) 
 			PamTTL:                  int(request.Account.PamTtl),
 		}
 
-		sessConfig := &irodsclient_session.IRODSSessionConfig{
-			ApplicationName:      request.ApplicationName,
-			OperationTimeout:     5 * time.Minute,
-			IdleTimeout:          5 * time.Minute,
-			ConnectionMax:        10,
-			ConnectionInitNumber: 1,
-			ConnectionMaxIdle:    0,
-			StartNewTransaction:  true,
-		}
-
-		fs, err := irodsclient_fs.NewFileSystemWithSessionConfig(account, sessConfig)
+		fs, err := irodsclient_fs.NewFileSystemWithDefault(account, request.ApplicationName)
 		if err != nil {
 			logger.Error(err)
 			return nil, err
@@ -238,6 +227,25 @@ func (server *Server) LogoutAll() {
 	}
 
 	server.Sessions = map[string]*Session{}
+}
+
+func (server *Server) Connections() int {
+	connections := 0
+
+	server.Mutex.Lock()
+	defer server.Mutex.Unlock()
+
+	for _, session := range server.Sessions {
+		session.Mutex.Lock()
+
+		if session.IRODSFS != nil {
+			connections += session.IRODSFS.Connections()
+		}
+
+		session.Mutex.Unlock()
+	}
+
+	return connections
 }
 
 func (server *Server) getSession(sessionID string) (*Session, error) {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	irodsfs "github.com/cyverse/go-irodsclient/fs"
-	irodsfs_clienttype "github.com/cyverse/go-irodsclient/irods/types"
+	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
+	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	"github.com/cyverse/irodsfs-pool/utils"
 	log "github.com/sirupsen/logrus"
@@ -25,25 +25,25 @@ type PoolServiceClient struct {
 
 type PoolServiceSession struct {
 	ID              string
-	Account         *irodsfs_clienttype.IRODSAccount
+	Account         *irodsclient_types.IRODSAccount
 	ApplicationName string
 }
 
 type PoolServiceFileHandle struct {
 	SessionID    string
-	Entry        *irodsfs.Entry
+	Entry        *irodsclient_fs.Entry
 	OpenMode     string
 	FileHandleID string
 }
 
 // IsReadMode returns true if file is opened with read mode
 func (handle *PoolServiceFileHandle) IsReadMode() bool {
-	return irodsfs_clienttype.IsFileOpenFlagRead(irodsfs_clienttype.FileOpenMode(handle.OpenMode))
+	return irodsclient_types.IsFileOpenFlagRead(irodsclient_types.FileOpenMode(handle.OpenMode))
 }
 
 // IsWriteMode returns true if file is opened with write mode
 func (handle *PoolServiceFileHandle) IsWriteMode() bool {
-	return irodsfs_clienttype.IsFileOpenFlagWrite(irodsfs_clienttype.FileOpenMode(handle.OpenMode))
+	return irodsclient_types.IsFileOpenFlagWrite(irodsclient_types.FileOpenMode(handle.OpenMode))
 }
 
 // NewPoolServiceClient creates a new pool service client
@@ -86,7 +86,7 @@ func (client *PoolServiceClient) Disconnect() {
 }
 
 // Login logins to iRODS service using account info
-func (client *PoolServiceClient) Login(account *irodsfs_clienttype.IRODSAccount, applicationName string) (*PoolServiceSession, error) {
+func (client *PoolServiceClient) Login(account *irodsclient_types.IRODSAccount, applicationName string) (*PoolServiceSession, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"struct":   "PoolServiceClient",
@@ -147,7 +147,7 @@ func (client *PoolServiceClient) Logout(session *PoolServiceSession) error {
 }
 
 // List lists iRODS collection entries
-func (client *PoolServiceClient) List(session *PoolServiceSession, path string) ([]*irodsfs.Entry, error) {
+func (client *PoolServiceClient) List(session *PoolServiceSession, path string) ([]*irodsclient_fs.Entry, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"struct":   "PoolServiceClient",
@@ -165,7 +165,7 @@ func (client *PoolServiceClient) List(session *PoolServiceSession, path string) 
 		return nil, err
 	}
 
-	irodsEntries := []*irodsfs.Entry{}
+	irodsEntries := []*irodsclient_fs.Entry{}
 
 	for _, entry := range response.Entries {
 		createTime, err := utils.ParseTime(entry.CreateTime)
@@ -180,9 +180,9 @@ func (client *PoolServiceClient) List(session *PoolServiceSession, path string) 
 			return nil, err
 		}
 
-		irodsEntry := &irodsfs.Entry{
+		irodsEntry := &irodsclient_fs.Entry{
 			ID:         entry.Id,
-			Type:       irodsfs.EntryType(entry.Type),
+			Type:       irodsclient_fs.EntryType(entry.Type),
 			Name:       entry.Name,
 			Path:       entry.Path,
 			Owner:      entry.Owner,
@@ -199,7 +199,7 @@ func (client *PoolServiceClient) List(session *PoolServiceSession, path string) 
 }
 
 // Stat stats iRODS entry
-func (client *PoolServiceClient) Stat(session *PoolServiceSession, path string) (*irodsfs.Entry, error) {
+func (client *PoolServiceClient) Stat(session *PoolServiceSession, path string) (*irodsclient_fs.Entry, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"struct":   "PoolServiceClient",
@@ -221,7 +221,7 @@ func (client *PoolServiceClient) Stat(session *PoolServiceSession, path string) 
 		// has soft error
 		if response.Error.Type == api.ErrorType_FILENOTFOUND {
 			// file not found
-			return nil, irodsfs_clienttype.NewFileNotFoundError(response.Error.Message)
+			return nil, irodsclient_types.NewFileNotFoundError(response.Error.Message)
 		}
 		return nil, fmt.Errorf(response.Error.Message)
 	}
@@ -238,9 +238,9 @@ func (client *PoolServiceClient) Stat(session *PoolServiceSession, path string) 
 		return nil, err
 	}
 
-	irodsEntry := &irodsfs.Entry{
+	irodsEntry := &irodsclient_fs.Entry{
 		ID:         response.Entry.Id,
-		Type:       irodsfs.EntryType(response.Entry.Type),
+		Type:       irodsclient_fs.EntryType(response.Entry.Type),
 		Name:       response.Entry.Name,
 		Path:       response.Entry.Path,
 		Owner:      response.Entry.Owner,
@@ -298,7 +298,7 @@ func (client *PoolServiceClient) ExistsFile(session *PoolServiceSession, path st
 }
 
 // ListDirACLsWithGroupUsers lists iRODS collection ACLs with group users
-func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceSession, path string) ([]*irodsfs_clienttype.IRODSAccess, error) {
+func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceSession, path string) ([]*irodsclient_types.IRODSAccess, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"struct":   "PoolServiceClient",
@@ -316,15 +316,15 @@ func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceS
 		return nil, err
 	}
 
-	irodsAccesses := []*irodsfs_clienttype.IRODSAccess{}
+	irodsAccesses := []*irodsclient_types.IRODSAccess{}
 
 	for _, access := range response.Accesses {
-		irodsAccess := &irodsfs_clienttype.IRODSAccess{
+		irodsAccess := &irodsclient_types.IRODSAccess{
 			Path:        access.Path,
 			UserName:    access.UserName,
 			UserZone:    access.UserZone,
-			UserType:    irodsfs_clienttype.IRODSUserType(access.UserType),
-			AccessLevel: irodsfs_clienttype.IRODSAccessLevelType(access.AccessLevel),
+			UserType:    irodsclient_types.IRODSUserType(access.UserType),
+			AccessLevel: irodsclient_types.IRODSAccessLevelType(access.AccessLevel),
 		}
 
 		irodsAccesses = append(irodsAccesses, irodsAccess)
@@ -334,7 +334,7 @@ func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceS
 }
 
 // ListFileACLsWithGroupUsers lists iRODS data object ACLs with group users
-func (client *PoolServiceClient) ListFileACLsWithGroupUsers(session *PoolServiceSession, path string) ([]*irodsfs_clienttype.IRODSAccess, error) {
+func (client *PoolServiceClient) ListFileACLsWithGroupUsers(session *PoolServiceSession, path string) ([]*irodsclient_types.IRODSAccess, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"struct":   "PoolServiceClient",
@@ -352,15 +352,15 @@ func (client *PoolServiceClient) ListFileACLsWithGroupUsers(session *PoolService
 		return nil, err
 	}
 
-	irodsAccesses := []*irodsfs_clienttype.IRODSAccess{}
+	irodsAccesses := []*irodsclient_types.IRODSAccess{}
 
 	for _, access := range response.Accesses {
-		irodsAccess := &irodsfs_clienttype.IRODSAccess{
+		irodsAccess := &irodsclient_types.IRODSAccess{
 			Path:        access.Path,
 			UserName:    access.UserName,
 			UserZone:    access.UserZone,
-			UserType:    irodsfs_clienttype.IRODSUserType(access.UserType),
-			AccessLevel: irodsfs_clienttype.IRODSAccessLevelType(access.AccessLevel),
+			UserType:    irodsclient_types.IRODSUserType(access.UserType),
+			AccessLevel: irodsclient_types.IRODSAccessLevelType(access.AccessLevel),
 		}
 
 		irodsAccesses = append(irodsAccesses, irodsAccess)
@@ -517,9 +517,9 @@ func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path st
 		return nil, err
 	}
 
-	irodsEntry := &irodsfs.Entry{
+	irodsEntry := &irodsclient_fs.Entry{
 		ID:         response.Entry.Id,
-		Type:       irodsfs.EntryType(response.Entry.Type),
+		Type:       irodsclient_fs.EntryType(response.Entry.Type),
 		Name:       response.Entry.Name,
 		Path:       response.Entry.Path,
 		Owner:      response.Entry.Owner,
@@ -532,7 +532,7 @@ func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path st
 	return &PoolServiceFileHandle{
 		SessionID:    session.ID,
 		Entry:        irodsEntry,
-		OpenMode:     string(irodsfs_clienttype.FileOpenModeWriteOnly),
+		OpenMode:     string(irodsclient_types.FileOpenModeWriteOnly),
 		FileHandleID: response.FileHandleId,
 	}, nil
 }
@@ -570,9 +570,9 @@ func (client *PoolServiceClient) OpenFile(session *PoolServiceSession, path stri
 		return nil, err
 	}
 
-	irodsEntry := &irodsfs.Entry{
+	irodsEntry := &irodsclient_fs.Entry{
 		ID:         response.Entry.Id,
-		Type:       irodsfs.EntryType(response.Entry.Type),
+		Type:       irodsclient_fs.EntryType(response.Entry.Type),
 		Name:       response.Entry.Name,
 		Path:       response.Entry.Path,
 		Owner:      response.Entry.Owner,

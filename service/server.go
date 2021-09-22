@@ -8,8 +8,9 @@ import (
 	"sync"
 	"time"
 
-	irodsfs "github.com/cyverse/go-irodsclient/fs"
-	irodsfs_clienttype "github.com/cyverse/go-irodsclient/irods/types"
+	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
+	irodsclient_session "github.com/cyverse/go-irodsclient/irods/session"
+	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	"github.com/cyverse/irodsfs-pool/service/asyncwrite"
 	"github.com/cyverse/irodsfs-pool/utils"
@@ -26,8 +27,8 @@ type Server struct {
 
 type Session struct {
 	ID               string
-	Account          *irodsfs_clienttype.IRODSAccount
-	IRODSFS          *irodsfs.FileSystem
+	Account          *irodsclient_types.IRODSAccount
+	IRODSFS          *irodsclient_fs.FileSystem
 	ReferenceCount   int
 	LastActivityTime time.Time
 	FileHandles      map[string]*FileHandle
@@ -38,7 +39,7 @@ type FileHandle struct {
 	ID          string
 	SessionID   string
 	Writer      asyncwrite.Writer
-	IRODSHandle *irodsfs.FileHandle
+	IRODSHandle *irodsclient_fs.FileHandle
 	Mutex       *sync.Mutex // mutex to access IRODSHandle
 }
 
@@ -94,10 +95,10 @@ func (server *Server) Login(context context.Context, request *api.LoginRequest) 
 		logger.Infof("Creating a new session: %s", sessionID)
 
 		// new session
-		account := &irodsfs_clienttype.IRODSAccount{
-			AuthenticationScheme:    irodsfs_clienttype.AuthScheme(request.Account.AuthenticationScheme),
+		account := &irodsclient_types.IRODSAccount{
+			AuthenticationScheme:    irodsclient_types.AuthScheme(request.Account.AuthenticationScheme),
 			ClientServerNegotiation: request.Account.ClientServerNegotiation,
-			CSNegotiationPolicy:     irodsfs_clienttype.CSNegotiationRequire(request.Account.CsNegotiationPolicy),
+			CSNegotiationPolicy:     irodsclient_types.CSNegotiationRequire(request.Account.CsNegotiationPolicy),
 			Host:                    request.Account.Host,
 			Port:                    int(request.Account.Port),
 			ClientUser:              request.Account.ClientUser,
@@ -110,10 +111,26 @@ func (server *Server) Login(context context.Context, request *api.LoginRequest) 
 			PamTTL:                  int(request.Account.PamTtl),
 		}
 
+		sessConfig := &irodsclient_session.IRODSSessionConfig{
+			ApplicationName:      request.ApplicationName,
+			OperationTimeout:     5 * time.Minute,
+			IdleTimeout:          5 * time.Minute,
+			ConnectionMax:        10,
+			ConnectionInitNumber: 1,
+			ConnectionMaxIdle:    0,
+			StartNewTransaction:  true,
+		}
+
+		fs, err := irodsclient_fs.NewFileSystemWithSessionConfig(account, sessConfig)
+		if err != nil {
+			logger.Error(err)
+			return nil, err
+		}
+
 		session = &Session{
 			ID:               sessionID,
 			Account:          account,
-			IRODSFS:          nil, // placeholder
+			IRODSFS:          fs,
 			ReferenceCount:   1,
 			LastActivityTime: time.Now(),
 			FileHandles:      map[string]*FileHandle{},
@@ -123,14 +140,6 @@ func (server *Server) Login(context context.Context, request *api.LoginRequest) 
 		defer session.Mutex.Unlock()
 
 		server.Sessions[sessionID] = session
-
-		fs, err := irodsfs.NewFileSystemWithDefault(account, request.ApplicationName)
-		if err != nil {
-			logger.Error(err)
-			return nil, err
-		}
-
-		session.IRODSFS = fs
 	}
 
 	response := &api.LoginResponse{
@@ -354,7 +363,7 @@ func (server *Server) Stat(context context.Context, request *api.StatRequest) (*
 
 	entry, err := session.IRODSFS.Stat(request.Path)
 	if err != nil {
-		if irodsfs_clienttype.IsFileNotFoundError(err) {
+		if irodsclient_types.IsFileNotFoundError(err) {
 			return &api.StatResponse{
 				Error: &api.SoftError{
 					Type:    api.ErrorType_FILENOTFOUND,

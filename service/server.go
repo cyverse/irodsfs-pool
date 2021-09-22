@@ -687,18 +687,18 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 	}
 
 	handleMutex := &sync.Mutex{}
+	fileHandleID := xid.New().String()
 
 	var writer asyncwrite.Writer
 
 	if server.Buffer != nil {
-		asyncWriter := asyncwrite.NewAsyncWriter(request.Path, handle, handleMutex, server.Buffer)
+		asyncWriter := asyncwrite.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.Buffer)
 		writer = asyncwrite.NewBufferedWriter(request.Path, asyncWriter)
 	} else {
 		syncWriter := asyncwrite.NewSyncWriter(request.Path, handle, handleMutex)
 		writer = asyncwrite.NewBufferedWriter(request.Path, syncWriter)
 	}
 
-	fileHandleID := xid.New().String()
 	fileHandle := &FileHandle{
 		ID:          fileHandleID,
 		SessionID:   request.SessionId,
@@ -756,11 +756,11 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 	}
 
 	handleMutex := &sync.Mutex{}
+	fileHandleID := xid.New().String()
 
-	asyncWriter := asyncwrite.NewAsyncWriter(request.Path, handle, handleMutex, server.Buffer)
+	asyncWriter := asyncwrite.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.Buffer)
 	writer := asyncwrite.NewBufferedWriter(request.Path, asyncWriter)
 
-	fileHandleID := xid.New().String()
 	fileHandle := &FileHandle{
 		ID:          fileHandleID,
 		SessionID:   request.SessionId,

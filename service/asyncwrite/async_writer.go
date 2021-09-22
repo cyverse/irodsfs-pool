@@ -27,14 +27,14 @@ type AsyncWriter struct {
 }
 
 // NewAsyncWriter create a new AsyncWriter
-func NewAsyncWriter(path string, fileHandle *irodsfs.FileHandle, fileHandleLock *sync.Mutex, writeBuffer Buffer) *AsyncWriter {
+func NewAsyncWriter(path string, fileHandleID string, fileHandle *irodsfs.FileHandle, fileHandleLock *sync.Mutex, writeBuffer Buffer) *AsyncWriter {
 	asyncWriter := &AsyncWriter{
 		Path:            path,
 		IRODSFileHandle: fileHandle,
 		FileHandleLock:  fileHandleLock,
 
 		Buffer:               writeBuffer,
-		BufferEntryGroupName: fmt.Sprintf("write:%s", path),
+		BufferEntryGroupName: fmt.Sprintf("write:%s:%s", fileHandleID, path),
 
 		WriteWaitTasks: sync.WaitGroup{},
 		WriteQueue:     channels.NewInfiniteChannel(),

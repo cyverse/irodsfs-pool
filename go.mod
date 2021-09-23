@@ -3,7 +3,7 @@ module github.com/cyverse/irodsfs-pool
 go 1.14
 
 require (
-	github.com/cyverse/go-irodsclient v0.5.5-0.20210922202522-59553fe46048
+	github.com/cyverse/go-irodsclient v0.5.5-0.20210923005549-0856f717aa03
 	github.com/eapache/channels v1.1.0
 	github.com/eapache/queue v1.1.0 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect

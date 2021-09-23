@@ -11,6 +11,8 @@ github.com/cncf/udpa/go v0.0.0-20201120205902-5459f2c99403/go.mod h1:WmhPx2Nbnht
 github.com/cncf/xds/go v0.0.0-20210312221358-fbca930ec8ed/go.mod h1:eXthEFrGJvWHgFFCl3hGmgk+/aYT6PnTQLykKQRLhEs=
 github.com/cyverse/go-irodsclient v0.5.5-0.20210922202522-59553fe46048 h1:ALyzF1mrBj8152sCMkhcFxxiEmKdBbBF7E7QrR/NdYc=
 github.com/cyverse/go-irodsclient v0.5.5-0.20210922202522-59553fe46048/go.mod h1:PVmKLbP3uBZZw9ihroy1RdnY2vNCkwXGYeDtPgVle30=
+github.com/cyverse/go-irodsclient v0.5.5-0.20210923005549-0856f717aa03 h1:iK1sSZvX0SSCJglcMKoo0GrC3Yl+J6MWmzDHn1xbPxQ=
+github.com/cyverse/go-irodsclient v0.5.5-0.20210923005549-0856f717aa03/go.mod h1:PVmKLbP3uBZZw9ihroy1RdnY2vNCkwXGYeDtPgVle30=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

@@ -880,7 +880,7 @@ func (server *Server) ReadAt(context context.Context, request *api.ReadAtRequest
 		"function": "ReadAt",
 	})
 
-	logger.Infof("ReadAt request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+	logger.Infof("ReadAt request from client sessionID: %s, fileHandleID: %s, offset: %d, length: %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
 
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
@@ -911,7 +911,7 @@ func (server *Server) WriteAt(context context.Context, request *api.WriteAtReque
 		"function": "WriteAt",
 	})
 
-	logger.Infof("WriteAt request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+	logger.Infof("WriteAt request from client sessionID: %s, fileHandleID: %s, offset: %d, length : %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
 
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {

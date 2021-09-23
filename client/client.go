@@ -643,6 +643,25 @@ func (client *PoolServiceClient) ReadAt(handle *PoolServiceFileHandle, offset in
 		"function": "ReadAt",
 	})
 
+	if length <= FileRWLengthMax {
+		// do zero copy
+		request := &api.ReadAtRequest{
+			SessionId:    handle.SessionID,
+			FileHandleId: handle.FileHandleID,
+			Offset:       offset,
+			Length:       length,
+		}
+
+		response, err := client.APIClient.ReadAt(context.Background(), request)
+		if err != nil {
+			logger.Error(err)
+			return nil, err
+		}
+
+		return response.Data, nil
+	}
+
+	// large data, use a buffer
 	remainLength := length
 	curOffset := offset
 	outputData := make([]byte, length)

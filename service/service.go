@@ -73,8 +73,12 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 }
 
 // NewPoolService creates a new pool service
-func NewPoolService(config *Config) *PoolService {
-	apiServer := NewServer(config.BufferSizeMax)
+func NewPoolService(config *Config) (*PoolService, error) {
+	cacheTimeout := time.Duration(config.CacheTimeout) * time.Second
+	apiServer, err := NewServer(config.BufferSizeMax, config.CacheSizeMax, config.CacheRootPath, cacheTimeout)
+	if err != nil {
+		return nil, err
+	}
 
 	statHandler := &PoolServiceStatHandler{
 		APIServer:       apiServer,
@@ -91,7 +95,7 @@ func NewPoolService(config *Config) *PoolService {
 		TerminateChan: make(chan bool),
 	}
 
-	return service
+	return service, nil
 }
 
 // Init initializes the service

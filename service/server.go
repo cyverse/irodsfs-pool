@@ -11,7 +11,7 @@ import (
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/irodsfs-pool/service/api"
-	"github.com/cyverse/irodsfs-pool/service/asyncwrite"
+	"github.com/cyverse/irodsfs-pool/service/io"
 	"github.com/cyverse/irodsfs-pool/utils"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -19,9 +19,11 @@ import (
 
 type Server struct {
 	api.UnimplementedPoolAPIServer
+
 	Mutex    sync.RWMutex // mutex to access Sessions
 	Sessions map[string]*Session
-	Buffer   asyncwrite.Buffer
+	Buffer   io.Buffer
+	Cache    io.Cache
 }
 
 type Session struct {
@@ -37,21 +39,32 @@ type Session struct {
 type FileHandle struct {
 	ID          string
 	SessionID   string
-	Writer      asyncwrite.Writer
+	Writer      io.Writer
+	Reader      io.Reader
 	IRODSHandle *irodsclient_fs.FileHandle
 	Mutex       *sync.Mutex // mutex to access IRODSHandle
 }
 
-func NewServer(bufferSizeMax int64) *Server {
-	var ramBuffer asyncwrite.Buffer
+func NewServer(bufferSizeMax int64, cacheSizeMax int64, cacheRootPath string, cacheTimeout time.Duration) (*Server, error) {
+	var ramBuffer io.Buffer
+	var err error
 	if bufferSizeMax > 0 {
-		ramBuffer = asyncwrite.NewRAMBuffer(bufferSizeMax)
+		ramBuffer = io.NewRAMBuffer(bufferSizeMax)
+	}
+
+	var diskCache io.Cache
+	if cacheSizeMax > 0 {
+		diskCache, err = io.NewDiskCache(cacheSizeMax, cacheRootPath, cacheTimeout, cacheTimeout)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &Server{
 		Sessions: map[string]*Session{},
 		Buffer:   ramBuffer,
-	}
+		Cache:    diskCache,
+	}, nil
 }
 
 func (server *Server) generateSessionID(account *api.Account) string {
@@ -706,14 +719,14 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 	handleMutex := &sync.Mutex{}
 	fileHandleID := xid.New().String()
 
-	var writer asyncwrite.Writer
+	var writer io.Writer
 
 	if server.Buffer != nil {
-		asyncWriter := asyncwrite.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.Buffer)
-		writer = asyncwrite.NewBufferedWriter(request.Path, asyncWriter)
+		asyncWriter := io.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.Buffer)
+		writer = io.NewBufferedWriter(request.Path, asyncWriter)
 	} else {
-		syncWriter := asyncwrite.NewSyncWriter(request.Path, handle, handleMutex)
-		writer = asyncwrite.NewBufferedWriter(request.Path, syncWriter)
+		syncWriter := io.NewSyncWriter(request.Path, handle, handleMutex)
+		writer = io.NewBufferedWriter(request.Path, syncWriter)
 	}
 
 	fileHandle := &FileHandle{
@@ -775,8 +788,21 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 	handleMutex := &sync.Mutex{}
 	fileHandleID := xid.New().String()
 
-	asyncWriter := asyncwrite.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.Buffer)
-	writer := asyncwrite.NewBufferedWriter(request.Path, asyncWriter)
+	var writer io.Writer
+
+	switch irodsclient_types.FileOpenMode(request.Mode) {
+	case irodsclient_types.FileOpenModeAppend, irodsclient_types.FileOpenModeWriteOnly, irodsclient_types.FileOpenModeWriteTruncate:
+		// write
+		if server.Buffer != nil {
+			asyncWriter := io.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.Buffer)
+			writer = io.NewBufferedWriter(request.Path, asyncWriter)
+		} else {
+			syncWriter := io.NewSyncWriter(request.Path, handle, handleMutex)
+			writer = io.NewBufferedWriter(request.Path, syncWriter)
+		}
+	default:
+		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
+	}
 
 	fileHandle := &FileHandle{
 		ID:          fileHandleID,

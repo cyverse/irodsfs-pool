@@ -6,8 +6,10 @@ require (
 	github.com/cyverse/go-irodsclient v0.5.5-0.20210923005549-0856f717aa03
 	github.com/eapache/channels v1.1.0
 	github.com/eapache/queue v1.1.0 // indirect
+	github.com/emirpasic/gods v1.12.0
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/rs/xid v1.3.0
 	github.com/sirupsen/logrus v1.8.1
 	google.golang.org/grpc v1.40.0

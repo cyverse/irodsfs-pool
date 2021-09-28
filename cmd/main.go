@@ -243,8 +243,16 @@ func run(config *service.Config, isChildProcess bool) error {
 	})
 
 	// run a service
-	svc := service.NewPoolService(config)
-	err := svc.Init()
+	svc, err := service.NewPoolService(config)
+	if err != nil {
+		logger.WithError(err).Error("Could not create the service")
+		if isChildProcess {
+			fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
+		}
+		return err
+	}
+
+	err = svc.Init()
 	if err != nil {
 		logger.WithError(err).Error("Could not init the service")
 		if isChildProcess {

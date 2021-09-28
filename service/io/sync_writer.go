@@ -1,4 +1,4 @@
-package asyncwrite
+package io
 
 import (
 	"sync"
@@ -30,10 +30,10 @@ func (writer *SyncWriter) Release() {
 	writer.Flush()
 }
 
-// Write writes data
+// WriteAt writes data
 func (writer *SyncWriter) WriteAt(offset int64, data []byte) error {
 	logger := log.WithFields(log.Fields{
-		"package":  "syncwrite",
+		"package":  "io",
 		"struct":   "SyncWriter",
 		"function": "WriteAt",
 	})
@@ -42,14 +42,14 @@ func (writer *SyncWriter) WriteAt(offset int64, data []byte) error {
 		return nil
 	}
 
-	logger.Infof("Sync Writing - %s, Offset %d, length %d", writer.Path, offset, len(data))
+	logger.Infof("Sync Writing - %s, offset %d, length %d", writer.Path, offset, len(data))
 
 	writer.FileHandleLock.Lock()
 
 	err := writer.IRODSFileHandle.WriteAt(offset, data)
 	if err != nil {
 		writer.FileHandleLock.Unlock()
-		logger.WithError(err).Errorf("failed to write data - %s, %d, %d", writer.Path, offset, len(data))
+		logger.WithError(err).Errorf("failed to write data - %s, offset %d, length %d", writer.Path, offset, len(data))
 		return err
 	}
 

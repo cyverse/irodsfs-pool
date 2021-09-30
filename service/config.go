@@ -14,6 +14,7 @@ const (
 	CacheSizeMaxDefault        int64  = 1024 * 1024 * 1024 * 20 // 20GB
 	CacheRootPathPrefixDefault string = "/tmp/irodsfs_pool_"
 	CacheTimeoutDefault        int    = 3 * 60 // 3min
+	CacheCleanupDefault        int    = 3 * 60 // 3min
 )
 
 // Config holds the parameters list which can be configured
@@ -23,6 +24,7 @@ type Config struct {
 	CacheSizeMax  int64  `envconfig:"CACHE_SIZE_MAX" yaml:"cache_size_max"`
 	CacheRootPath string `envconfig:"CACHE_ROOT_PATH" yaml:"cache_root_path"`
 	CacheTimeout  int    `envconfig:"CACHE_TIMEOUT" yaml:"cache_timeout"`
+	CacheCleanup  int    `envconfig:"CACHE_CLEANUP" yaml:"cache_cleanup"`
 
 	LogPath string `envconfig:"LOG_PATH" yaml:"log_path,omitempty"`
 
@@ -38,6 +40,7 @@ func NewDefaultConfig() *Config {
 		CacheSizeMax:  CacheSizeMaxDefault,
 		CacheRootPath: fmt.Sprintf("%s%s", CacheRootPathPrefixDefault, xid.New().String()),
 		CacheTimeout:  CacheTimeoutDefault,
+		CacheCleanup:  CacheCleanupDefault,
 
 		LogPath: "",
 
@@ -54,6 +57,7 @@ func NewConfigFromENV() (*Config, error) {
 		CacheSizeMax:  CacheSizeMaxDefault,
 		CacheRootPath: fmt.Sprintf("%s%s", CacheRootPathPrefixDefault, xid.New().String()),
 		CacheTimeout:  CacheTimeoutDefault,
+		CacheCleanup:  CacheCleanupDefault,
 	}
 
 	err := envconfig.Process("", &config)
@@ -72,6 +76,7 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 		CacheSizeMax:  CacheSizeMaxDefault,
 		CacheRootPath: fmt.Sprintf("%s%s", CacheRootPathPrefixDefault, xid.New().String()),
 		CacheTimeout:  CacheTimeoutDefault,
+		CacheCleanup:  CacheCleanupDefault,
 	}
 
 	err := yaml.Unmarshal(yamlBytes, &config)

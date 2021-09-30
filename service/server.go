@@ -20,10 +20,19 @@ import (
 type Server struct {
 	api.UnimplementedPoolAPIServer
 
+	Config   *ServerConfig
 	Mutex    sync.RWMutex // mutex to access Sessions
 	Sessions map[string]*Session
 	Buffer   io.Buffer
 	Cache    io.Cache
+}
+
+type ServerConfig struct {
+	BufferSizeMax int64
+	CacheSizeMax  int64
+	CacheRootPath string
+	CacheTimeout  time.Duration
+	CacheCleanup  time.Duration
 }
 
 type Session struct {
@@ -45,22 +54,23 @@ type FileHandle struct {
 	Mutex       *sync.Mutex // mutex to access IRODSHandle
 }
 
-func NewServer(bufferSizeMax int64, cacheSizeMax int64, cacheRootPath string, cacheTimeout time.Duration) (*Server, error) {
+func NewServer(config *ServerConfig) (*Server, error) {
 	var ramBuffer io.Buffer
 	var err error
-	if bufferSizeMax > 0 {
-		ramBuffer = io.NewRAMBuffer(bufferSizeMax)
+	if config.BufferSizeMax > 0 {
+		ramBuffer = io.NewRAMBuffer(config.BufferSizeMax)
 	}
 
 	var diskCache io.Cache
-	if cacheSizeMax > 0 {
-		diskCache, err = io.NewDiskCache(cacheSizeMax, cacheRootPath, cacheTimeout, cacheTimeout)
+	if config.CacheSizeMax > 0 {
+		diskCache, err = io.NewDiskCache(config.CacheSizeMax, config.CacheRootPath, config.CacheTimeout, config.CacheCleanup)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	return &Server{
+		Config:   config,
 		Sessions: map[string]*Session{},
 		Buffer:   ramBuffer,
 		Cache:    diskCache,
@@ -725,14 +735,16 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 		asyncWriter := io.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.Buffer)
 		writer = io.NewBufferedWriter(request.Path, asyncWriter)
 	} else {
-		syncWriter := io.NewSyncWriter(request.Path, handle, handleMutex)
-		writer = io.NewBufferedWriter(request.Path, syncWriter)
+		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
 	}
+
+	var reader io.Reader = io.NewSyncReader(request.Path, handle, handleMutex)
 
 	fileHandle := &FileHandle{
 		ID:          fileHandleID,
 		SessionID:   request.SessionId,
 		Writer:      writer,
+		Reader:      reader,
 		IRODSHandle: handle,
 		Mutex:       handleMutex,
 	}
@@ -789,10 +801,11 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 	fileHandleID := xid.New().String()
 
 	var writer io.Writer
+	var reader io.Reader
 
 	switch irodsclient_types.FileOpenMode(request.Mode) {
 	case irodsclient_types.FileOpenModeAppend, irodsclient_types.FileOpenModeWriteOnly, irodsclient_types.FileOpenModeWriteTruncate:
-		// write
+		// writer
 		if server.Buffer != nil {
 			asyncWriter := io.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.Buffer)
 			writer = io.NewBufferedWriter(request.Path, asyncWriter)
@@ -800,14 +813,30 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 			syncWriter := io.NewSyncWriter(request.Path, handle, handleMutex)
 			writer = io.NewBufferedWriter(request.Path, syncWriter)
 		}
+
+		// reader
+		reader = io.NewSyncReader(request.Path, handle, handleMutex)
+	case irodsclient_types.FileOpenModeReadOnly:
+		// writer
+		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
+
+		// reader
+		if server.Cache != nil {
+			syncReader := io.NewSyncReader(request.Path, handle, handleMutex)
+			reader = io.NewCacheReader(request.Path, server.Cache, syncReader)
+		} else {
+			reader = io.NewSyncReader(request.Path, handle, handleMutex)
+		}
 	default:
 		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
+		reader = io.NewSyncReader(request.Path, handle, handleMutex)
 	}
 
 	fileHandle := &FileHandle{
 		ID:          fileHandleID,
 		SessionID:   request.SessionId,
 		Writer:      writer,
+		Reader:      reader,
 		IRODSHandle: handle,
 		Mutex:       handleMutex,
 	}

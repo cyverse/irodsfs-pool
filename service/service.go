@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -15,11 +16,13 @@ import (
 
 // PoolService is a service object
 type PoolService struct {
-	Config        *Config
+	Config        *commons.Config
 	APIServer     *Server
 	GrpcServer    *grpc.Server
 	StatHandler   *PoolServiceStatHandler
 	TerminateChan chan bool
+	Terminated    bool
+	Mutex         sync.Mutex // for termination
 }
 
 type PoolServiceStatHandler struct {
@@ -73,20 +76,23 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 }
 
 // NewPoolService creates a new pool service
-func NewPoolService(config *Config) (*PoolService, error) {
-	cacheTimeout := time.Duration(config.CacheTimeout) * time.Second
-	cacheCleanup := time.Duration(config.CacheCleanup) * time.Second
+func NewPoolService(config *commons.Config) (*PoolService, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"function": "NewPoolService",
+	})
 
 	serverConfig := &ServerConfig{
 		BufferSizeMax: config.BufferSizeMax,
-		CacheSizeMax:  config.CacheSizeMax,
-		CacheRootPath: config.CacheRootPath,
-		CacheTimeout:  cacheTimeout,
-		CacheCleanup:  cacheCleanup,
+		CacheSizeMax:  config.DataCacheSizeMax,
+		CacheRootPath: config.DataCacheRootPath,
+		CacheTimeout:  config.DataCacheTimeout,
+		CacheCleanup:  config.DataCacheCleanupTime,
 	}
 
 	apiServer, err := NewServer(serverConfig)
 	if err != nil {
+		logger.WithError(err).Error("failed to create a new server")
 		return nil, err
 	}
 
@@ -161,6 +167,16 @@ func (svc *PoolService) Start() error {
 
 // Destroy destroys the service
 func (svc *PoolService) Destroy() {
+	svc.Mutex.Lock()
+	defer svc.Mutex.Unlock()
+
+	if svc.Terminated {
+		// already terminated
+		return
+	}
+
+	svc.Terminated = true
+
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"struct":   "PoolService",
@@ -170,5 +186,11 @@ func (svc *PoolService) Destroy() {
 	logger.Info("Destroying the iRODS FUSE Lite Pool service")
 	svc.TerminateChan <- true
 
-	svc.GrpcServer.Stop()
+	if svc.GrpcServer != nil {
+		svc.GrpcServer.Stop()
+	}
+
+	if svc.APIServer != nil {
+		svc.APIServer.Release()
+	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/cyverse/irodsfs-pool/utils"
 	heap "github.com/emirpasic/gods/trees/binaryheap"
 	gocache "github.com/patrickmn/go-cache"
+	log "github.com/sirupsen/logrus"
 )
 
 type DiskCacheEntry struct {
@@ -107,6 +108,23 @@ func NewDiskCache(sizeCap int64, rootPath string, cacheTimeout time.Duration, cl
 	cache.OnEvicted(diskCache.onEvicted)
 
 	return diskCache, nil
+}
+
+func (cache *DiskCache) Release() {
+	logger := log.WithFields(log.Fields{
+		"package":  "io",
+		"struct":   "DiskCache",
+		"function": "Release",
+	})
+
+	logger.Info("Deleting all data cache entries")
+	cache.DeleteAllEntries()
+
+	cache.Mutex.Lock()
+	defer cache.Mutex.Unlock()
+
+	logger.Infof("Deleting cache files and directory %s", cache.RootPath)
+	os.RemoveAll(cache.RootPath)
 }
 
 func (cache *DiskCache) GetSizeCap() int64 {

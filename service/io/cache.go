@@ -16,6 +16,8 @@ type CacheEntry interface {
 
 // Cache is a cache management object
 type Cache interface {
+	Release()
+
 	GetSizeCap() int64
 
 	GetTotalEntries() int

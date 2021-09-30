@@ -33,6 +33,8 @@ type BufferEntryGroup interface {
 
 // Buffer is a buffer management object
 type Buffer interface {
+	Release()
+
 	GetSizeCap() int64
 
 	GetTotalEntries() int

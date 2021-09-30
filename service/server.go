@@ -77,6 +77,11 @@ func NewServer(config *ServerConfig) (*Server, error) {
 	}, nil
 }
 
+func (server *Server) Release() {
+	server.Buffer.Release()
+	server.Cache.Release()
+}
+
 func (server *Server) generateSessionID(account *api.Account) string {
 	hash := sha1.New()
 	hash.Write([]byte(account.Host))

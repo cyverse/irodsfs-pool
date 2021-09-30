@@ -11,16 +11,20 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
 
 const (
+	// InterProcessCommunicationFinishSuccess is the message that parent process receives when child process is executed successfully
 	InterProcessCommunicationFinishSuccess string = "<<COMMUNICATION_CLOSE_SUCCESS>>"
-	InterProcessCommunicationFinishError   string = "<<COMMUNICATION_CLOSE_ERROR>>"
+	// InterProcessCommunicationFinishError is the message that parent process receives when child process fails to run
+	InterProcessCommunicationFinishError string = "<<COMMUNICATION_CLOSE_ERROR>>"
 )
 
+// NilWriter drains output
 type NilWriter struct{}
 
 // Write does nothing
@@ -42,17 +46,21 @@ func main() {
 	}
 
 	if isChildProc {
+		// child process
 		childMain()
 	} else {
+		// parent process
 		parentMain()
 	}
 }
 
-func RunFSDaemon(execPath string, config *service.Config) error {
+// RunFSDaemon runs irodsfs-pool as a daemon
+func RunFSDaemon(execPath string, config *commons.Config) error {
 	return parentRun(execPath, config)
 }
 
-func parentRun(execPath string, config *service.Config) error {
+// parentRun executes irodsfs-pool with the config given
+func parentRun(irodsfsPoolExec string, config *commons.Config) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "main",
 		"function": "parentRun",
@@ -60,24 +68,25 @@ func parentRun(execPath string, config *service.Config) error {
 
 	err := config.Validate()
 	if err != nil {
-		logger.WithError(err).Error("Argument validation error")
+		logger.WithError(err).Error("invalid argument")
 		return err
 	}
 
 	if !config.Foreground {
-		// run the program in background
+		// run child process in background and pass parameters via stdin PIPE
+		// receives result from the child process
 		logger.Info("Running the process in the background mode")
 		childProcessArgument := fmt.Sprintf("-%s", ChildProcessArgument)
-		cmd := exec.Command(execPath, childProcessArgument)
+		cmd := exec.Command(irodsfsPoolExec, childProcessArgument)
 		subStdin, err := cmd.StdinPipe()
 		if err != nil {
-			logger.WithError(err).Error("Could not communicate to background process")
+			logger.WithError(err).Error("failed to communicate to background process")
 			return err
 		}
 
 		subStdout, err := cmd.StdoutPipe()
 		if err != nil {
-			logger.WithError(err).Error("Could not communicate to background process")
+			logger.WithError(err).Error("failed to communicate to background process")
 			return err
 		}
 
@@ -85,7 +94,7 @@ func parentRun(execPath string, config *service.Config) error {
 
 		err = cmd.Start()
 		if err != nil {
-			logger.WithError(err).Errorf("Could not start a child process")
+			logger.WithError(err).Errorf("failed to start a child process")
 			return err
 		}
 
@@ -94,14 +103,14 @@ func parentRun(execPath string, config *service.Config) error {
 		logger.Info("Sending configuration data")
 		configBytes, err := yaml.Marshal(config)
 		if err != nil {
-			logger.WithError(err).Error("Could not serialize configuration")
+			logger.WithError(err).Error("failed to serialize configuration")
 			return err
 		}
 
 		// send it to child
 		_, err = io.WriteString(subStdin, string(configBytes))
 		if err != nil {
-			logger.WithError(err).Error("Could not communicate to background process")
+			logger.WithError(err).Error("failed to communicate to background process")
 			return err
 		}
 		subStdin.Close()
@@ -118,7 +127,7 @@ func parentRun(execPath string, config *service.Config) error {
 					logger.Info("Successfully started background process")
 					break
 				} else if errMsg == InterProcessCommunicationFinishError {
-					logger.Error("Failed to start background process")
+					logger.Error("failed to start background process")
 					childProcessFailed = true
 					break
 				} else {
@@ -137,13 +146,13 @@ func parentRun(execPath string, config *service.Config) error {
 		subStdout.Close()
 
 		if childProcessFailed {
-			return fmt.Errorf("Failed to start background process")
+			return fmt.Errorf("failed to start background process")
 		}
 	} else {
 		// foreground
 		err = run(config, false)
 		if err != nil {
-			logger.WithError(err).Error("Could not run the service")
+			logger.WithError(err).Error("failed to run iRODS FUSE Lite Pool Service")
 			return err
 		}
 	}
@@ -151,6 +160,7 @@ func parentRun(execPath string, config *service.Config) error {
 	return nil
 }
 
+// parentMain handles command-line parameters and run parent process
 func parentMain() {
 	logger := log.WithFields(log.Fields{
 		"package":  "main",
@@ -158,9 +168,9 @@ func parentMain() {
 	})
 
 	// parse argument
-	config, err, exit := processArguments()
+	config, logFile, err, exit := processArguments()
 	if err != nil {
-		logger.WithError(err).Error("Error occurred while processing arguments")
+		logger.WithError(err).Error("failed to process arguments")
 		if exit {
 			logger.Fatal(err)
 		}
@@ -172,13 +182,21 @@ func parentMain() {
 	// run
 	err = parentRun(os.Args[0], config)
 	if err != nil {
-		logger.WithError(err).Error("Error occurred while running parent process")
+		logger.WithError(err).Error("failed to run the foreground process")
 		logger.Fatal(err)
+	}
+
+	// clean up
+	if logFile != nil {
+		logFile.Close()
+		// do not remove the log file
+		//os.Remove(config.LogPath)
 	}
 
 	os.Exit(0)
 }
 
+// childMain runs child process
 func childMain() {
 	logger := log.WithFields(log.Fields{
 		"package":  "main",
@@ -190,40 +208,43 @@ func childMain() {
 	// read from stdin
 	_, err := os.Stdin.Stat()
 	if err != nil {
-		logger.WithError(err).Error("Could not communicate to foreground process")
+		logger.WithError(err).Error("failed to communicate to foreground process")
 		fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
 		os.Exit(1)
 	}
 
 	configBytes, err := ioutil.ReadAll(os.Stdin)
 	if err != nil {
-		logger.WithError(err).Error("Could not read configuration")
+		logger.WithError(err).Error("failed to read configuration")
 		fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
 		os.Exit(1)
 	}
 
-	config, err := service.NewConfigFromYAML(configBytes)
+	config, err := commons.NewConfigFromYAML(configBytes)
 	if err != nil {
-		logger.WithError(err).Error("Could not read configuration")
+		logger.WithError(err).Error("failed to read configuration")
 		fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
 		os.Exit(1)
 	}
 
-	// output to default log
+	// output to log file
+	var logFile *os.File
+	logFile = nil
 	if len(config.LogPath) > 0 {
-		logFile, err := os.OpenFile(config.LogPath, os.O_WRONLY|os.O_CREATE, 0755)
+		logFileHandle, err := os.OpenFile(config.LogPath, os.O_WRONLY|os.O_CREATE, 0755)
 		if err != nil {
-			logger.WithError(err).Error("Could not create log file")
+			logger.WithError(err).Error("failed to create log file")
 			fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
 			os.Exit(1)
 		} else {
-			log.SetOutput(logFile)
+			log.SetOutput(logFileHandle)
+			logFile = logFileHandle
 		}
 	}
 
 	err = config.Validate()
 	if err != nil {
-		logger.WithError(err).Error("Argument validation error")
+		logger.WithError(err).Error("invalid configuration")
 		fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
 		os.Exit(1)
 	}
@@ -231,12 +252,19 @@ func childMain() {
 	// background
 	err = run(config, true)
 	if err != nil {
-		logger.WithError(err).Error("Could not run the service")
+		logger.WithError(err).Error("failed to run iRODS FUSE Lite Pool Service")
 		os.Exit(1)
+	}
+
+	if logFile != nil {
+		logFile.Close()
+		// do not remove the log file
+		//os.Remove(config.LogPath)
 	}
 }
 
-func run(config *service.Config, isChildProcess bool) error {
+// run runs irodsfs-pool
+func run(config *commons.Config, isChildProcess bool) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "main",
 		"function": "run",
@@ -245,7 +273,7 @@ func run(config *service.Config, isChildProcess bool) error {
 	// run a service
 	svc, err := service.NewPoolService(config)
 	if err != nil {
-		logger.WithError(err).Error("Could not create the service")
+		logger.WithError(err).Error("failed to create the service")
 		if isChildProcess {
 			fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
 		}
@@ -254,7 +282,7 @@ func run(config *service.Config, isChildProcess bool) error {
 
 	err = svc.Init()
 	if err != nil {
-		logger.WithError(err).Error("Could not init the service")
+		logger.WithError(err).Error("failed to init the service")
 		if isChildProcess {
 			fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
 		}
@@ -265,7 +293,9 @@ func run(config *service.Config, isChildProcess bool) error {
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
 
 	go func() {
-		<-signalChan
+		receivedSignal := <-signalChan
+
+		logger.Infof("received signal (%s), terminating iRODS FUSE Lite Pool Service", receivedSignal.String())
 		if isChildProcess {
 			fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
 		}
@@ -285,12 +315,13 @@ func run(config *service.Config, isChildProcess bool) error {
 
 	err = svc.Start()
 	if err != nil {
-		logger.WithError(err).Error("Could not start the service")
+		logger.WithError(err).Error("failed to start the service, terminating iRODS FUSE Lite Pool Service")
 		svc.Destroy()
 		return err
 	}
 
 	// returns if fails, or stopped.
+	logger.Info("Service stopped, terminating iRODS FUSE Lite Pool Service")
 	svc.Destroy()
 	return nil
 }

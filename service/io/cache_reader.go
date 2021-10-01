@@ -67,7 +67,7 @@ func (reader *CacheReader) ReadAt(offset int64, length int) ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	logger.Infof("Cache-through Reading - %s, offset %d, length %d", reader.Path, offset, length)
+	logger.Infof("Reading through cache - %s, offset %d, length %d", reader.Path, offset, length)
 
 	blockIDs := reader.getBlockIDs(offset, length)
 	dataRead := 0
@@ -75,8 +75,11 @@ func (reader *CacheReader) ReadAt(offset int64, length int) ([]byte, error) {
 	for _, blockID := range blockIDs {
 		blockKey := reader.getCacheEntryKey(blockID)
 		cacheEntry := reader.Cache.GetEntry(blockKey)
+
 		var cacheData []byte
 		if cacheEntry == nil {
+			logger.Info("cache for block %s not found -- read from remote", blockKey)
+
 			blockOffset := reader.BlockHelper.GetBlockStartOffsetForBlockID(blockID)
 			blockData, err := reader.Reader.ReadAt(blockOffset, BlockSize)
 			if err != nil {
@@ -89,7 +92,11 @@ func (reader *CacheReader) ReadAt(offset int64, length int) ([]byte, error) {
 			}
 
 			cacheData = blockData
-			reader.Cache.CreateEntry(blockKey, blockData) // deliverately ignore result
+			_, err = reader.Cache.CreateEntry(blockKey, blockData) // deliverately ignore result
+			if err != nil {
+				// just log
+				logger.Error(err)
+			}
 		} else {
 			cacheEntryData, err := cacheEntry.GetData()
 			if err != nil {

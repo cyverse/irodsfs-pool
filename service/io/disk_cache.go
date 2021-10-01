@@ -23,12 +23,19 @@ type DiskCacheEntry struct {
 }
 
 func NewDiskCacheEntry(cache *DiskCache, key string, data []byte) (*DiskCacheEntry, error) {
-	// write to disk
-	hash := utils.MakeHash(key)
-	filePath := utils.JoinPath(cache.GetRootPath(), hash)
+	logger := log.WithFields(log.Fields{
+		"package":  "io",
+		"struct":   "DiskCache",
+		"function": "Release",
+	})
 
+	// write to disk
+	filePath := utils.JoinPath(cache.GetRootPath(), key)
+
+	logger.Infof("Writing data cache to %s", filePath)
 	err := ioutil.WriteFile(filePath, data, 0666)
 	if err != nil {
+		logger.Error(err)
 		return nil, err
 	}
 
@@ -92,7 +99,7 @@ type DiskCache struct {
 func NewDiskCache(sizeCap int64, rootPath string, cacheTimeout time.Duration, cleanup time.Duration) (*DiskCache, error) {
 	cache := gocache.New(cacheTimeout, cleanup)
 
-	err := os.MkdirAll(rootPath, 0666)
+	err := os.MkdirAll(rootPath, 0777)
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +184,12 @@ func (cache *DiskCache) GetEntryKeys() []string {
 }
 
 func (cache *DiskCache) CreateEntry(key string, data []byte) (CacheEntry, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "io",
+		"struct":   "DiskCache",
+		"function": "CreateEntry",
+	})
+
 	cache.Mutex.Lock()
 	defer cache.Mutex.Unlock()
 
@@ -243,11 +256,14 @@ func (cache *DiskCache) CreateEntry(key string, data []byte) (CacheEntry, error)
 		}
 	}
 
-	entry, err := NewDiskCacheEntry(cache, key, data)
+	hash := utils.MakeHash(key)
+	logger.Infof("creating a new cache key %s", hash)
+	entry, err := NewDiskCacheEntry(cache, hash, data)
 	if err != nil {
 		return nil, err
 	}
 
+	logger.Infof("putting a new cache key %s", entry.Key)
 	cache.Cache.Set(entry.Key, entry, 0)
 
 	cache.CurrentSize += int64(len(data))
@@ -267,12 +283,19 @@ func (cache *DiskCache) HasEntry(key string) bool {
 }
 
 func (cache *DiskCache) GetEntry(key string) CacheEntry {
+	logger := log.WithFields(log.Fields{
+		"package":  "io",
+		"struct":   "DiskCache",
+		"function": "GetEntry",
+	})
+
 	cache.Mutex.Lock()
 	defer cache.Mutex.Unlock()
 
 	hash := utils.MakeHash(key)
 	if entry, ok := cache.Cache.Get(hash); ok {
 		if cacheEntry, ok := entry.(*DiskCacheEntry); ok {
+			logger.Infof("getting a cache key %s", cacheEntry.Key)
 			cacheEntry.LastAccessTime = time.Now()
 			return cacheEntry
 		}

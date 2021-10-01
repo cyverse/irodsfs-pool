@@ -78,8 +78,13 @@ func NewServer(config *ServerConfig) (*Server, error) {
 }
 
 func (server *Server) Release() {
-	server.Buffer.Release()
-	server.Cache.Release()
+	if server.Buffer != nil {
+		server.Buffer.Release()
+	}
+
+	if server.Cache != nil {
+		server.Cache.Release()
+	}
 }
 
 func (server *Server) generateSessionID(account *api.Account) string {
@@ -788,7 +793,7 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 		"function": "OpenFile",
 	})
 
-	logger.Infof("OpenFile request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("OpenFile request from client %s: %s, mode(%s)", request.SessionId, request.Path, request.Mode)
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -948,10 +953,8 @@ func (server *Server) ReadAt(context context.Context, request *api.ReadAtRequest
 		return nil, err
 	}
 
-	fileHandle.Mutex.Lock()
-	defer fileHandle.Mutex.Unlock()
-
-	data, err := fileHandle.IRODSHandle.ReadAt(request.Offset, int(request.Length))
+	data, err := fileHandle.Reader.ReadAt(request.Offset, int(request.Length))
+	//data, err := fileHandle.IRODSHandle.ReadAt(request.Offset, int(request.Length))
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -1059,6 +1062,16 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 		fileHandle.Writer.Release()
 
 		err := fileHandle.Writer.GetPendingError()
+		if err != nil {
+			logger.WithError(err)
+			return nil, err
+		}
+	}
+
+	if fileHandle.Reader != nil {
+		fileHandle.Reader.Release()
+
+		err := fileHandle.Reader.GetPendingError()
 		if err != nil {
 			logger.WithError(err)
 			return nil, err

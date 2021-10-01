@@ -2,20 +2,17 @@ package commons
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/rs/xid"
 	yaml "gopkg.in/yaml.v2"
 )
 
 const (
-	ServicePortDefault             int           = 12020
-	BufferSizeMaxDefault           int64         = 1024 * 1024 * 64        // 64MB
-	DataCacheSizeMaxDefault        int64         = 1024 * 1024 * 1024 * 20 // 20GB
-	DataCacheRootPathPrefixDefault string        = "/tmp/irodsfs_pool"
-	DataCacheTimeoutDefault        time.Duration = 3 * time.Minute // 3min
-	DataCacheCleanupTimeDefault    time.Duration = 3 * time.Minute // 3min
-	LogFilePathPrefixDefault       string        = "/tmp/irodsfs_pool"
+	ServicePortDefault             int    = 12020
+	BufferSizeMaxDefault           int64  = 1024 * 1024 * 64        // 64MB
+	DataCacheSizeMaxDefault        int64  = 1024 * 1024 * 1024 * 20 // 20GB
+	DataCacheRootPathPrefixDefault string = "/tmp/irodsfs_pool"
+	LogFilePathPrefixDefault       string = "/tmp/irodsfs_pool"
 )
 
 var (
@@ -43,28 +40,10 @@ func GetDefaultDataCacheRootPath() string {
 
 // Config holds the parameters list which can be configured
 type Config struct {
-	ServicePort          int           `yaml:"service_port"`
-	BufferSizeMax        int64         `yaml:"buffer_size_max"`
-	DataCacheSizeMax     int64         `yaml:"data_cache_size_max"`
-	DataCacheRootPath    string        `yaml:"data_cache_root_path"`
-	DataCacheTimeout     time.Duration `yaml:"data_cache_timeout"`
-	DataCacheCleanupTime time.Duration `yaml:"data_cache_cleanup_time"`
-
-	LogPath string `yaml:"log_path,omitempty"`
-
-	Foreground   bool `yaml:"foreground,omitempty"`
-	ChildProcess bool `yaml:"childprocess,omitempty"`
-
-	InstanceID string `yaml:"instanceid,omitempty"`
-}
-
-type configAlias struct {
-	ServicePort          int    `yaml:"service_port"`
-	BufferSizeMax        int64  `yaml:"buffer_size_max"`
-	DataCacheSizeMax     int64  `yaml:"data_cache_size_max"`
-	DataCacheRootPath    string `yaml:"data_cache_root_path"`
-	DataCacheTimeout     string `yaml:"data_cache_timeout"`
-	DataCacheCleanupTime string `yaml:"data_cache_cleanup_time"`
+	ServicePort       int    `yaml:"service_port"`
+	BufferSizeMax     int64  `yaml:"buffer_size_max"`
+	DataCacheSizeMax  int64  `yaml:"data_cache_size_max"`
+	DataCacheRootPath string `yaml:"data_cache_root_path"`
 
 	LogPath string `yaml:"log_path,omitempty"`
 
@@ -77,12 +56,10 @@ type configAlias struct {
 // NewDefaultConfig creates DefaultConfig
 func NewDefaultConfig() *Config {
 	return &Config{
-		ServicePort:          ServicePortDefault,
-		BufferSizeMax:        BufferSizeMaxDefault,
-		DataCacheSizeMax:     DataCacheSizeMaxDefault,
-		DataCacheRootPath:    GetDefaultDataCacheRootPath(),
-		DataCacheTimeout:     DataCacheTimeoutDefault,
-		DataCacheCleanupTime: DataCacheCleanupTimeDefault,
+		ServicePort:       ServicePortDefault,
+		BufferSizeMax:     BufferSizeMaxDefault,
+		DataCacheSizeMax:  DataCacheSizeMaxDefault,
+		DataCacheRootPath: GetDefaultDataCacheRootPath(),
 
 		LogPath: "",
 
@@ -95,8 +72,7 @@ func NewDefaultConfig() *Config {
 
 // NewConfigFromYAML creates Config from YAML
 func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
-
-	alias := configAlias{
+	config := Config{
 		ServicePort:       ServicePortDefault,
 		BufferSizeMax:     BufferSizeMaxDefault,
 		DataCacheSizeMax:  DataCacheSizeMaxDefault,
@@ -108,46 +84,12 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 		InstanceID: getInstanceID(),
 	}
 
-	err := yaml.Unmarshal(yamlBytes, &alias)
+	err := yaml.Unmarshal(yamlBytes, &config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal YAML - %v", err)
 	}
 
-	var dataCacheTimeout time.Duration
-	if len(alias.DataCacheTimeout) > 0 {
-		dataCacheTimeout, err = time.ParseDuration(alias.DataCacheTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal YAML - %v", err)
-		}
-	} else {
-		dataCacheTimeout = DataCacheTimeoutDefault
-	}
-
-	var dataCacheCleanupTime time.Duration
-	if len(alias.DataCacheCleanupTime) > 0 {
-		dataCacheCleanupTime, err = time.ParseDuration(alias.DataCacheCleanupTime)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal YAML - %v", err)
-		}
-	} else {
-		dataCacheCleanupTime = DataCacheCleanupTimeDefault
-	}
-
-	return &Config{
-		ServicePort:          alias.ServicePort,
-		BufferSizeMax:        alias.BufferSizeMax,
-		DataCacheSizeMax:     alias.BufferSizeMax,
-		DataCacheRootPath:    alias.DataCacheRootPath,
-		DataCacheTimeout:     dataCacheTimeout,
-		DataCacheCleanupTime: dataCacheCleanupTime,
-
-		LogPath: alias.LogPath,
-
-		Foreground:   alias.Foreground,
-		ChildProcess: alias.ChildProcess,
-
-		InstanceID: alias.InstanceID,
-	}, nil
+	return &config, nil
 }
 
 // Validate validates configuration

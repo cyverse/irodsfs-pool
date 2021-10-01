@@ -9,7 +9,6 @@ type CacheEntry interface {
 	GetKey() string
 	GetSize() int
 	GetCreationTime() time.Time
-	GetLastAccessTime() time.Time
 
 	GetData() ([]byte, error)
 }

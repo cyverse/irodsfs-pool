@@ -31,8 +31,6 @@ type ServerConfig struct {
 	BufferSizeMax int64
 	CacheSizeMax  int64
 	CacheRootPath string
-	CacheTimeout  time.Duration
-	CacheCleanup  time.Duration
 }
 
 type Session struct {
@@ -63,7 +61,7 @@ func NewServer(config *ServerConfig) (*Server, error) {
 
 	var diskCache io.Cache
 	if config.CacheSizeMax > 0 {
-		diskCache, err = io.NewDiskCache(config.CacheSizeMax, config.CacheRootPath, config.CacheTimeout, config.CacheCleanup)
+		diskCache, err = io.NewDiskCache(config.CacheSizeMax, config.CacheRootPath)
 		if err != nil {
 			return nil, err
 		}

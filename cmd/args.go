@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"time"
 
 	"gopkg.in/yaml.v2"
 
@@ -28,8 +27,6 @@ func processArguments() (*commons.Config, *os.File, error, bool) {
 	var version bool
 	var help bool
 	var configFilePath string
-	var dataCacheTimeout string
-	var dataCacheCleanupTime string
 
 	config := commons.NewDefaultConfig()
 
@@ -41,8 +38,6 @@ func processArguments() (*commons.Config, *os.File, error, bool) {
 	flag.IntVar(&config.ServicePort, "p", commons.ServicePortDefault, "Service port")
 	flag.BoolVar(&config.Foreground, "f", false, "Run in foreground")
 	flag.BoolVar(&config.ChildProcess, ChildProcessArgument, false, "")
-	flag.StringVar(&dataCacheTimeout, "data_cache_timeout", "", "Set data cache timeout")
-	flag.StringVar(&dataCacheCleanupTime, "data_cache_cleanup_time", "", "Set adata cache cleanup time")
 	flag.Int64Var(&config.BufferSizeMax, "buffer_size_max", commons.BufferSizeMaxDefault, "Set file buffer max size")
 	flag.Int64Var(&config.DataCacheSizeMax, "cache_size_max", commons.DataCacheSizeMaxDefault, "Set file cache max size")
 	flag.StringVar(&config.DataCacheRootPath, "cache_root", commons.GetDefaultDataCacheRootPath(), "Set file cache root path")
@@ -113,26 +108,6 @@ func processArguments() (*commons.Config, *os.File, error, bool) {
 		if err != nil {
 			return nil, logFile, fmt.Errorf("failed to unmarshal YAML - %v", err), true
 		}
-	}
-
-	if len(dataCacheTimeout) > 0 {
-		timeout, err := time.ParseDuration(dataCacheTimeout)
-		if err != nil {
-			logger.WithError(err).Error("failed to parse Data Cache Timeout parameter into time.duration")
-			return nil, logFile, err, true
-		}
-
-		config.DataCacheTimeout = timeout
-	}
-
-	if len(dataCacheCleanupTime) > 0 {
-		timeout, err := time.ParseDuration(dataCacheCleanupTime)
-		if err != nil {
-			logger.WithError(err).Error("failed to parse Data Cache Cleanup Time parameter into time.duration")
-			return nil, logFile, err, true
-		}
-
-		config.DataCacheCleanupTime = timeout
 	}
 
 	return config, logFile, nil, false

@@ -9,7 +9,8 @@ import (
 
 // CacheReader helps read through cache
 type CacheReader struct {
-	Path string
+	Path     string
+	Checksum string
 
 	Cache       Cache
 	Reader      Reader
@@ -21,9 +22,10 @@ const (
 )
 
 // NewCacheReader create a new CacheReader
-func NewCacheReader(path string, cache Cache, reader Reader) *CacheReader {
+func NewCacheReader(path string, checksum string, cache Cache, reader Reader) *CacheReader {
 	cacheReader := &CacheReader{
-		Path: path,
+		Path:     path,
+		Checksum: checksum,
 
 		Cache:       cache,
 		Reader:      reader,
@@ -35,6 +37,12 @@ func NewCacheReader(path string, cache Cache, reader Reader) *CacheReader {
 
 // Release releases all resources
 func (reader *CacheReader) Release() {
+	if reader.Cache != nil {
+		// there can be multiple readers for the same path
+		//reader.Cache.DeleteAllEntriesForGroup(reader.Path)
+		reader.Cache = nil
+	}
+
 	if reader.Reader != nil {
 		reader.Reader.Release()
 		reader.Reader = nil
@@ -42,7 +50,7 @@ func (reader *CacheReader) Release() {
 }
 
 func (reader *CacheReader) getCacheEntryKey(blockID int64) string {
-	return fmt.Sprintf("%s:%d", reader.Path, blockID)
+	return fmt.Sprintf("%s:%s:%d", reader.Path, reader.Checksum, blockID)
 }
 
 func (reader *CacheReader) getBlockIDs(offset int64, length int) []int64 {
@@ -92,7 +100,7 @@ func (reader *CacheReader) ReadAt(offset int64, length int) ([]byte, error) {
 			}
 
 			cacheData = blockData
-			_, err = reader.Cache.CreateEntry(blockKey, blockData) // deliverately ignore result
+			_, err = reader.Cache.CreateEntry(blockKey, reader.Path, blockData)
 			if err != nil {
 				// just log
 				logger.Error(err)

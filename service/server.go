@@ -598,6 +598,9 @@ func (server *Server) RemoveFile(context context.Context, request *api.RemoveFil
 		return nil, err
 	}
 
+	// clear cache for the path if exists
+	server.Cache.GetEntryKeysForGroup(request.Path)
+
 	return &api.Empty{}, nil
 }
 
@@ -710,6 +713,9 @@ func (server *Server) RenameFileToFile(context context.Context, request *api.Ren
 		return nil, err
 	}
 
+	// clear cache for the path if exists
+	server.Cache.GetEntryKeysForGroup(request.SourcePath)
+
 	return &api.Empty{}, nil
 }
 
@@ -727,6 +733,9 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 		logger.Error(err)
 		return nil, err
 	}
+
+	// clear cache for the path if exists
+	server.Cache.GetEntryKeysForGroup(request.Path)
 
 	handle, err := session.IRODSFS.CreateFile(request.Path, request.Resource)
 	if err != nil {
@@ -813,6 +822,9 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 
 	switch irodsclient_types.FileOpenMode(request.Mode) {
 	case irodsclient_types.FileOpenModeAppend, irodsclient_types.FileOpenModeWriteOnly, irodsclient_types.FileOpenModeWriteTruncate:
+		// clear cache for the path if exists
+		server.Cache.GetEntryKeysForGroup(request.Path)
+
 		// writer
 		if server.Buffer != nil {
 			asyncWriter := io.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.Buffer)
@@ -831,11 +843,14 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 		// reader
 		if server.Cache != nil {
 			syncReader := io.NewSyncReader(request.Path, handle, handleMutex)
-			reader = io.NewCacheReader(request.Path, server.Cache, syncReader)
+			reader = io.NewCacheReader(request.Path, handle.Entry.CheckSum, server.Cache, syncReader)
 		} else {
 			reader = io.NewSyncReader(request.Path, handle, handleMutex)
 		}
 	default:
+		// clear cache for the path if exists
+		server.Cache.GetEntryKeysForGroup(request.Path)
+
 		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
 		reader = io.NewSyncReader(request.Path, handle, handleMutex)
 	}
@@ -894,6 +909,9 @@ func (server *Server) TruncateFile(context context.Context, request *api.Truncat
 	session.Mutex.Lock()
 	session.LastActivityTime = time.Now()
 	session.Mutex.Unlock()
+
+	// clear cache for the path if exists
+	server.Cache.GetEntryKeysForGroup(request.Path)
 
 	err = session.IRODSFS.TruncateFile(request.Path, request.Size)
 	if err != nil {
@@ -1074,6 +1092,12 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 			logger.WithError(err)
 			return nil, err
 		}
+	}
+
+	if irodsclient_types.FileOpenMode(fileHandle.IRODSHandle.OpenMode) != irodsclient_types.FileOpenModeReadOnly {
+		// not read-only
+		// clear cache for the path if exists
+		server.Cache.GetEntryKeysForGroup(fileHandle.IRODSHandle.Entry.Path)
 	}
 
 	fileHandle.Mutex.Lock()

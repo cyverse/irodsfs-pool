@@ -7,6 +7,7 @@ import (
 // CacheEntry is a cache entry (e.g., a file chunk)
 type CacheEntry interface {
 	GetKey() string
+	GetGroup() string
 	GetSize() int
 	GetCreationTime() time.Time
 
@@ -24,9 +25,12 @@ type Cache interface {
 	GetAvailableSize() int64
 
 	DeleteAllEntries()
-	GetEntryKeys() []string
+	DeleteAllEntriesForGroup(group string)
 
-	CreateEntry(key string, data []byte) (CacheEntry, error)
+	GetEntryKeys() []string
+	GetEntryKeysForGroup(group string) []string
+
+	CreateEntry(key string, group string, data []byte) (CacheEntry, error)
 	HasEntry(key string) bool
 	GetEntry(key string) CacheEntry
 	DeleteEntry(key string)

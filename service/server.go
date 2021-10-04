@@ -78,10 +78,12 @@ func NewServer(config *ServerConfig) (*Server, error) {
 func (server *Server) Release() {
 	if server.Buffer != nil {
 		server.Buffer.Release()
+		server.Buffer = nil
 	}
 
 	if server.Cache != nil {
 		server.Cache.Release()
+		server.Cache = nil
 	}
 }
 

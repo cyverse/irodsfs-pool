@@ -168,7 +168,7 @@ func parentMain() {
 	})
 
 	// parse argument
-	config, logFile, err, exit := processArguments()
+	config, logWriter, err, exit := processArguments()
 	if err != nil {
 		logger.WithError(err).Error("failed to process arguments")
 		if exit {
@@ -187,10 +187,8 @@ func parentMain() {
 	}
 
 	// clean up
-	if logFile != nil {
-		logFile.Close()
-		// do not remove the log file
-		//os.Remove(config.LogPath)
+	if logWriter != nil {
+		logWriter.Close()
 	}
 
 	os.Exit(0)
@@ -228,18 +226,10 @@ func childMain() {
 	}
 
 	// output to log file
-	var logFile *os.File
-	logFile = nil
+	var logWriter io.WriteCloser
 	if len(config.LogPath) > 0 {
-		logFileHandle, err := os.OpenFile(config.LogPath, os.O_WRONLY|os.O_CREATE, 0755)
-		if err != nil {
-			logger.WithError(err).Error("failed to create log file")
-			fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
-			os.Exit(1)
-		} else {
-			log.SetOutput(logFileHandle)
-			logFile = logFileHandle
-		}
+		logWriter = getLogWriter(config.LogPath)
+		log.SetOutput(logWriter)
 	}
 
 	err = config.Validate()
@@ -256,10 +246,8 @@ func childMain() {
 		os.Exit(1)
 	}
 
-	if logFile != nil {
-		logFile.Close()
-		// do not remove the log file
-		//os.Remove(config.LogPath)
+	if logWriter != nil {
+		logWriter.Close()
 	}
 }
 

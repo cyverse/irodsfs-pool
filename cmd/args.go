@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"gopkg.in/natefinch/lumberjack.v2"
 	"gopkg.in/yaml.v2"
 
 	"github.com/cyverse/irodsfs-pool/commons"
@@ -18,7 +19,7 @@ const (
 	ChildProcessArgument = "child_process"
 )
 
-func processArguments() (*commons.Config, *os.File, error, bool) {
+func processArguments() (*commons.Config, io.WriteCloser, error, bool) {
 	logger := log.WithFields(log.Fields{
 		"package":  "main",
 		"function": "processArguments",
@@ -61,20 +62,15 @@ func processArguments() (*commons.Config, *os.File, error, bool) {
 		return nil, nil, nil, true
 	}
 
-	var logFile *os.File
-	logFile = nil
+	var logWriter io.WriteCloser
 	if config.LogPath == "-" || len(config.LogPath) == 0 {
 		log.SetOutput(os.Stderr)
 	} else {
-		logFileHandle, err := os.OpenFile(config.LogPath, os.O_WRONLY|os.O_CREATE, 0755)
-		if err != nil {
-			logger.WithError(err).Errorf("Could not create log file - %s", config.LogPath)
-		} else {
-			// use multi output - to output to file and stdout
-			mw := io.MultiWriter(os.Stderr, logFileHandle)
-			log.SetOutput(mw)
-			logFile = logFileHandle
-		}
+		logWriter = getLogWriter(config.LogPath)
+
+		// use multi output - to output to file and stdout
+		mw := io.MultiWriter(os.Stderr, logWriter)
+		log.SetOutput(mw)
 	}
 
 	logger.Infof("Logging to %s", config.LogPath)
@@ -84,31 +80,41 @@ func processArguments() (*commons.Config, *os.File, error, bool) {
 		configFileAbsPath, err := filepath.Abs(configFilePath)
 		if err != nil {
 			logger.WithError(err).Errorf("failed to access the local yaml file %s", configFilePath)
-			return nil, logFile, err, true
+			return nil, logWriter, err, true
 		}
 
 		fileinfo, err := os.Stat(configFileAbsPath)
 		if err != nil {
 			logger.WithError(err).Errorf("failed to access the local yaml file %s", configFileAbsPath)
-			return nil, logFile, err, true
+			return nil, logWriter, err, true
 		}
 
 		if fileinfo.IsDir() {
 			logger.WithError(err).Errorf("local yaml file %s is not a file", configFileAbsPath)
-			return nil, logFile, fmt.Errorf("local yaml file %s is not a file", configFileAbsPath), true
+			return nil, logWriter, fmt.Errorf("local yaml file %s is not a file", configFileAbsPath), true
 		}
 
 		yamlBytes, err := ioutil.ReadFile(configFileAbsPath)
 		if err != nil {
 			logger.WithError(err).Errorf("failed to read the local yaml file %s", configFileAbsPath)
-			return nil, logFile, err, true
+			return nil, logWriter, err, true
 		}
 
 		err = yaml.Unmarshal(yamlBytes, &config)
 		if err != nil {
-			return nil, logFile, fmt.Errorf("failed to unmarshal YAML - %v", err), true
+			return nil, logWriter, fmt.Errorf("failed to unmarshal YAML - %v", err), true
 		}
 	}
 
-	return config, logFile, nil, false
+	return config, logWriter, nil, false
+}
+
+func getLogWriter(logPath string) io.WriteCloser {
+	return &lumberjack.Logger{
+		Filename:   logPath,
+		MaxSize:    100, // 100MB
+		MaxBackups: 3,
+		MaxAge:     30, // 30 days
+		Compress:   false,
+	}
 }

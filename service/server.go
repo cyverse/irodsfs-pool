@@ -599,7 +599,7 @@ func (server *Server) RemoveFile(context context.Context, request *api.RemoveFil
 	}
 
 	// clear cache for the path if exists
-	server.Cache.GetEntryKeysForGroup(request.Path)
+	server.Cache.DeleteAllEntriesForGroup(request.Path)
 
 	return &api.Empty{}, nil
 }
@@ -714,7 +714,7 @@ func (server *Server) RenameFileToFile(context context.Context, request *api.Ren
 	}
 
 	// clear cache for the path if exists
-	server.Cache.GetEntryKeysForGroup(request.SourcePath)
+	server.Cache.DeleteAllEntriesForGroup(request.SourcePath)
 
 	return &api.Empty{}, nil
 }
@@ -735,7 +735,7 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 	}
 
 	// clear cache for the path if exists
-	server.Cache.GetEntryKeysForGroup(request.Path)
+	server.Cache.DeleteAllEntriesForGroup(request.Path)
 
 	handle, err := session.IRODSFS.CreateFile(request.Path, request.Resource)
 	if err != nil {
@@ -823,7 +823,7 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 	switch irodsclient_types.FileOpenMode(request.Mode) {
 	case irodsclient_types.FileOpenModeAppend, irodsclient_types.FileOpenModeWriteOnly, irodsclient_types.FileOpenModeWriteTruncate:
 		// clear cache for the path if exists
-		server.Cache.GetEntryKeysForGroup(request.Path)
+		server.Cache.DeleteAllEntriesForGroup(request.Path)
 
 		// writer
 		if server.Buffer != nil {
@@ -849,7 +849,7 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 		}
 	default:
 		// clear cache for the path if exists
-		server.Cache.GetEntryKeysForGroup(request.Path)
+		server.Cache.DeleteAllEntriesForGroup(request.Path)
 
 		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
 		reader = io.NewSyncReader(request.Path, handle, handleMutex)
@@ -911,7 +911,7 @@ func (server *Server) TruncateFile(context context.Context, request *api.Truncat
 	session.Mutex.Unlock()
 
 	// clear cache for the path if exists
-	server.Cache.GetEntryKeysForGroup(request.Path)
+	server.Cache.DeleteAllEntriesForGroup(request.Path)
 
 	err = session.IRODSFS.TruncateFile(request.Path, request.Size)
 	if err != nil {
@@ -1097,7 +1097,7 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 	if irodsclient_types.FileOpenMode(fileHandle.IRODSHandle.OpenMode) != irodsclient_types.FileOpenModeReadOnly {
 		// not read-only
 		// clear cache for the path if exists
-		server.Cache.GetEntryKeysForGroup(fileHandle.IRODSHandle.Entry.Path)
+		server.Cache.DeleteAllEntriesForGroup(fileHandle.IRODSHandle.Entry.Path)
 	}
 
 	fileHandle.Mutex.Lock()

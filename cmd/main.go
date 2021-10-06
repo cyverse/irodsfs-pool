@@ -55,8 +55,8 @@ func main() {
 }
 
 // RunFSDaemon runs irodsfs-pool as a daemon
-func RunFSDaemon(execPath string, config *commons.Config) error {
-	return parentRun(execPath, config)
+func RunFSDaemon(irodsfsPoolExec string, config *commons.Config) error {
+	return parentRun(irodsfsPoolExec, config)
 }
 
 // parentRun executes irodsfs-pool with the config given

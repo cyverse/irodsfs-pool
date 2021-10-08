@@ -33,6 +33,8 @@ func (w *NilWriter) Write(p []byte) (n int, err error) {
 }
 
 func main() {
+	log.SetLevel(log.DebugLevel)
+
 	// check if this is subprocess running in the background
 	isChildProc := false
 
@@ -131,7 +133,7 @@ func parentRun(irodsfsPoolExec string, config *commons.Config) error {
 					childProcessFailed = true
 					break
 				} else {
-					fmt.Fprintln(os.Stderr, errMsg)
+					logger.Info(errMsg)
 				}
 			} else {
 				// check err
@@ -238,6 +240,8 @@ func childMain() {
 		fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
 		os.Exit(1)
 	}
+
+	logger.Info("Run background process")
 
 	// background
 	err = run(config, true)

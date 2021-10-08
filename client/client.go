@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
@@ -18,9 +19,10 @@ const (
 
 // PoolServiceClient is a struct that holds connection information
 type PoolServiceClient struct {
-	Host       string // host:port
-	Connection *grpc.ClientConn
-	APIClient  api.PoolAPIClient
+	Host             string // host:port
+	OperationTimeout time.Duration
+	Connection       *grpc.ClientConn
+	APIClient        api.PoolAPIClient
 }
 
 type PoolServiceSession struct {
@@ -47,10 +49,11 @@ func (handle *PoolServiceFileHandle) IsWriteMode() bool {
 }
 
 // NewPoolServiceClient creates a new pool service client
-func NewPoolServiceClient(poolHost string) *PoolServiceClient {
+func NewPoolServiceClient(poolHost string, operationTimeout time.Duration) *PoolServiceClient {
 	return &PoolServiceClient{
-		Host:       poolHost,
-		Connection: nil,
+		Host:             poolHost,
+		OperationTimeout: operationTimeout,
+		Connection:       nil,
 	}
 }
 
@@ -85,6 +88,10 @@ func (client *PoolServiceClient) Disconnect() {
 	}
 }
 
+func (client *PoolServiceClient) getContextWithDeadline() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), client.OperationTimeout)
+}
+
 // Login logins to iRODS service using account info
 func (client *PoolServiceClient) Login(account *irodsclient_types.IRODSAccount, applicationName string) (*PoolServiceSession, error) {
 	logger := log.WithFields(log.Fields{
@@ -112,7 +119,10 @@ func (client *PoolServiceClient) Login(account *irodsclient_types.IRODSAccount, 
 		ApplicationName: applicationName,
 	}
 
-	response, err := client.APIClient.Login(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	response, err := client.APIClient.Login(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -137,7 +147,10 @@ func (client *PoolServiceClient) Logout(session *PoolServiceSession) error {
 		SessionId: session.ID,
 	}
 
-	_, err := client.APIClient.Logout(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	_, err := client.APIClient.Logout(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -159,7 +172,10 @@ func (client *PoolServiceClient) List(session *PoolServiceSession, path string) 
 		Path:      path,
 	}
 
-	response, err := client.APIClient.List(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	response, err := client.APIClient.List(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -211,7 +227,10 @@ func (client *PoolServiceClient) Stat(session *PoolServiceSession, path string) 
 		Path:      path,
 	}
 
-	response, err := client.APIClient.Stat(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	response, err := client.APIClient.Stat(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -266,7 +285,10 @@ func (client *PoolServiceClient) ExistsDir(session *PoolServiceSession, path str
 		Path:      path,
 	}
 
-	response, err := client.APIClient.ExistsDir(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	response, err := client.APIClient.ExistsDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return false
@@ -288,7 +310,10 @@ func (client *PoolServiceClient) ExistsFile(session *PoolServiceSession, path st
 		Path:      path,
 	}
 
-	response, err := client.APIClient.ExistsFile(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	response, err := client.APIClient.ExistsFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return false
@@ -310,7 +335,10 @@ func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceS
 		Path:      path,
 	}
 
-	response, err := client.APIClient.ListDirACLsWithGroupUsers(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	response, err := client.APIClient.ListDirACLsWithGroupUsers(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -346,7 +374,10 @@ func (client *PoolServiceClient) ListFileACLsWithGroupUsers(session *PoolService
 		Path:      path,
 	}
 
-	response, err := client.APIClient.ListFileACLsWithGroupUsers(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	response, err := client.APIClient.ListFileACLsWithGroupUsers(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -383,7 +414,10 @@ func (client *PoolServiceClient) RemoveFile(session *PoolServiceSession, path st
 		Force:     force,
 	}
 
-	_, err := client.APIClient.RemoveFile(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	_, err := client.APIClient.RemoveFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -407,7 +441,10 @@ func (client *PoolServiceClient) RemoveDir(session *PoolServiceSession, path str
 		Force:     force,
 	}
 
-	_, err := client.APIClient.RemoveDir(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	_, err := client.APIClient.RemoveDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -430,7 +467,10 @@ func (client *PoolServiceClient) MakeDir(session *PoolServiceSession, path strin
 		Recurse:   recurse,
 	}
 
-	_, err := client.APIClient.MakeDir(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	_, err := client.APIClient.MakeDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -453,7 +493,10 @@ func (client *PoolServiceClient) RenameDirToDir(session *PoolServiceSession, src
 		DestinationPath: destPath,
 	}
 
-	_, err := client.APIClient.RenameDirToDir(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	_, err := client.APIClient.RenameDirToDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -476,7 +519,10 @@ func (client *PoolServiceClient) RenameFileToFile(session *PoolServiceSession, s
 		DestinationPath: destPath,
 	}
 
-	_, err := client.APIClient.RenameFileToFile(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	_, err := client.APIClient.RenameFileToFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -499,7 +545,10 @@ func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path st
 		Resource:  resource,
 	}
 
-	response, err := client.APIClient.CreateFile(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	response, err := client.APIClient.CreateFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -552,7 +601,10 @@ func (client *PoolServiceClient) OpenFile(session *PoolServiceSession, path stri
 		Mode:      mode,
 	}
 
-	response, err := client.APIClient.OpenFile(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	response, err := client.APIClient.OpenFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -604,7 +656,10 @@ func (client *PoolServiceClient) TruncateFile(session *PoolServiceSession, path 
 		Size:      size,
 	}
 
-	_, err := client.APIClient.TruncateFile(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	_, err := client.APIClient.TruncateFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -626,7 +681,10 @@ func (client *PoolServiceClient) GetOffset(handle *PoolServiceFileHandle) int64 
 		FileHandleId: handle.FileHandleID,
 	}
 
-	response, err := client.APIClient.GetOffset(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	response, err := client.APIClient.GetOffset(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return -1
@@ -652,7 +710,10 @@ func (client *PoolServiceClient) ReadAt(handle *PoolServiceFileHandle, offset in
 			Length:       length,
 		}
 
-		response, err := client.APIClient.ReadAt(context.Background(), request)
+		ctx, cancel := client.getContextWithDeadline()
+		defer cancel()
+
+		response, err := client.APIClient.ReadAt(ctx, request)
 		if err != nil {
 			logger.Error(err)
 			return nil, err
@@ -680,7 +741,10 @@ func (client *PoolServiceClient) ReadAt(handle *PoolServiceFileHandle, offset in
 			Length:       curLength,
 		}
 
-		response, err := client.APIClient.ReadAt(context.Background(), request)
+		ctx, cancel := client.getContextWithDeadline()
+		defer cancel()
+
+		response, err := client.APIClient.ReadAt(ctx, request)
 		if err != nil {
 			logger.Error(err)
 			return nil, err
@@ -726,7 +790,10 @@ func (client *PoolServiceClient) WriteAt(handle *PoolServiceFileHandle, offset i
 			Data:         data[totalWriteLength : totalWriteLength+curLength],
 		}
 
-		_, err := client.APIClient.WriteAt(context.Background(), request)
+		ctx, cancel := client.getContextWithDeadline()
+		defer cancel()
+
+		_, err := client.APIClient.WriteAt(ctx, request)
 		if err != nil {
 			logger.Error(err)
 			return err
@@ -753,7 +820,10 @@ func (client *PoolServiceClient) Flush(handle *PoolServiceFileHandle) error {
 		FileHandleId: handle.FileHandleID,
 	}
 
-	_, err := client.APIClient.Flush(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	_, err := client.APIClient.Flush(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -775,7 +845,10 @@ func (client *PoolServiceClient) Close(handle *PoolServiceFileHandle) error {
 		FileHandleId: handle.FileHandleID,
 	}
 
-	_, err := client.APIClient.Close(context.Background(), request)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	_, err := client.APIClient.Close(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return err

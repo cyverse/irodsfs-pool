@@ -109,6 +109,7 @@ func (server *Server) Login(context context.Context, request *api.LoginRequest) 
 	})
 
 	logger.Infof("Login request from client: %s - %s", request.Account.Host, request.Account.ClientUser)
+	defer logger.Info("Returned")
 
 	sessionID := server.generateSessionID(request.Account)
 
@@ -179,6 +180,7 @@ func (server *Server) Logout(context context.Context, request *api.LogoutRequest
 	})
 
 	logger.Infof("Logout request from client: %s", request.SessionId)
+	defer logger.Info("Returned")
 
 	server.Mutex.Lock()
 	defer server.Mutex.Unlock()
@@ -230,6 +232,7 @@ func (server *Server) LogoutAll() {
 	})
 
 	logger.Info("Logout All")
+	defer logger.Info("Returned")
 
 	server.Mutex.Lock()
 	defer server.Mutex.Unlock()
@@ -343,6 +346,7 @@ func (server *Server) List(context context.Context, request *api.ListRequest) (*
 	})
 
 	logger.Infof("List request from client %s: %s", request.SessionId, request.Path)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -391,6 +395,7 @@ func (server *Server) Stat(context context.Context, request *api.StatRequest) (*
 	})
 
 	logger.Infof("Stat request from client %s: %s", request.SessionId, request.Path)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -445,6 +450,7 @@ func (server *Server) ExistsDir(context context.Context, request *api.ExistsDirR
 	})
 
 	logger.Infof("ExistsDir request from client %s: %s", request.SessionId, request.Path)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -470,6 +476,7 @@ func (server *Server) ExistsFile(context context.Context, request *api.ExistsFil
 	})
 
 	logger.Infof("ExistsFile request from client %s: %s", request.SessionId, request.Path)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -495,6 +502,7 @@ func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request
 	})
 
 	logger.Infof("ListDirACLsWithGroupUsers request from client %s: %s", request.SessionId, request.Path)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -539,6 +547,7 @@ func (server *Server) ListFileACLsWithGroupUsers(context context.Context, reques
 	})
 
 	logger.Infof("ListFileACLsWithGroupUsers request from client %s: %s", request.SessionId, request.Path)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -583,6 +592,7 @@ func (server *Server) RemoveFile(context context.Context, request *api.RemoveFil
 	})
 
 	logger.Infof("RemoveFile request from client %s: %s", request.SessionId, request.Path)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -614,6 +624,7 @@ func (server *Server) RemoveDir(context context.Context, request *api.RemoveDirR
 	})
 
 	logger.Infof("RemoveDir request from client %s: %s", request.SessionId, request.Path)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -642,6 +653,7 @@ func (server *Server) MakeDir(context context.Context, request *api.MakeDirReque
 	})
 
 	logger.Infof("MakeDir request from client %s: %s", request.SessionId, request.Path)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -670,6 +682,7 @@ func (server *Server) RenameDirToDir(context context.Context, request *api.Renam
 	})
 
 	logger.Infof("RenameDirToDir request from client %s: %s -> %s", request.SessionId, request.SourcePath, request.DestinationPath)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -698,6 +711,7 @@ func (server *Server) RenameFileToFile(context context.Context, request *api.Ren
 	})
 
 	logger.Infof("RenameFileToFile request from client %s: %s -> %s", request.SessionId, request.SourcePath, request.DestinationPath)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -729,6 +743,7 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 	})
 
 	logger.Infof("CreateFile request from client %s: %s", request.SessionId, request.Path)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -803,6 +818,7 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 	})
 
 	logger.Infof("OpenFile request from client %s: %s, mode(%s)", request.SessionId, request.Path, request.Mode)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -901,6 +917,7 @@ func (server *Server) TruncateFile(context context.Context, request *api.Truncat
 	})
 
 	logger.Infof("TruncateFile request from client %s: %s", request.SessionId, request.Path)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -932,6 +949,7 @@ func (server *Server) GetOffset(context context.Context, request *api.GetOffsetR
 	})
 
 	logger.Infof("GetOffset request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+	defer logger.Info("Returned")
 
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
@@ -964,6 +982,7 @@ func (server *Server) ReadAt(context context.Context, request *api.ReadAtRequest
 	})
 
 	logger.Infof("ReadAt request from client sessionID: %s, fileHandleID: %s, offset: %d, length: %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
+	defer logger.Info("Returned")
 
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
@@ -993,6 +1012,7 @@ func (server *Server) WriteAt(context context.Context, request *api.WriteAtReque
 	})
 
 	logger.Infof("WriteAt request from client sessionID: %s, fileHandleID: %s, offset: %d, length : %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
+	defer logger.Info("Returned")
 
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
@@ -1018,6 +1038,7 @@ func (server *Server) Flush(context context.Context, request *api.FlushRequest) 
 	})
 
 	logger.Infof("Flush request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {
@@ -1054,6 +1075,7 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 	})
 
 	logger.Infof("Close request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+	defer logger.Info("Returned")
 
 	session, err := server.getSession(request.SessionId)
 	if err != nil {

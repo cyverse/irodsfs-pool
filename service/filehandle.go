@@ -34,9 +34,6 @@ func NewFileHandle(handleID string, sessionID string, connectionID string, write
 }
 
 func (handle *FileHandle) Release() error {
-	handle.mutex.Lock()
-	defer handle.mutex.Unlock()
-
 	errs := []error{}
 
 	if handle.writer != nil {
@@ -59,6 +56,9 @@ func (handle *FileHandle) Release() error {
 		handle.reader = nil
 	}
 
+	handle.mutex.Lock()
+	defer handle.mutex.Unlock()
+
 	if handle.irodsFileHandle != nil {
 		err := handle.irodsFileHandle.Close()
 		if err != nil {
@@ -79,9 +79,6 @@ func (handle *FileHandle) GetID() string {
 }
 
 func (handle *FileHandle) Flush() error {
-	handle.mutex.Lock()
-	defer handle.mutex.Unlock()
-
 	if handle.writer != nil {
 		return handle.writer.Flush()
 	}
@@ -97,20 +94,17 @@ func (handle *FileHandle) GetEntryPath() string {
 }
 
 func (handle *FileHandle) GetOffset() int64 {
-	handle.mutex.Lock()
-	defer handle.mutex.Unlock()
-
 	if handle.writer != nil {
 		handle.writer.Flush()
 	}
+
+	handle.mutex.Lock()
+	defer handle.mutex.Unlock()
 
 	return handle.irodsFileHandle.GetOffset()
 }
 
 func (handle *FileHandle) ReadAt(offset int64, len int) ([]byte, error) {
-	handle.mutex.Lock()
-	defer handle.mutex.Unlock()
-
 	if handle.reader != nil {
 		return handle.reader.ReadAt(offset, len)
 	}
@@ -118,9 +112,6 @@ func (handle *FileHandle) ReadAt(offset int64, len int) ([]byte, error) {
 }
 
 func (handle *FileHandle) WriteAt(offset int64, data []byte) error {
-	handle.mutex.Lock()
-	defer handle.mutex.Unlock()
-
 	if handle.writer != nil {
 		return handle.writer.WriteAt(offset, data)
 	}

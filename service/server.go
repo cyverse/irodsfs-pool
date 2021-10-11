@@ -2,13 +2,9 @@ package service
 
 import (
 	context "context"
-	"crypto/sha1"
-	"encoding/hex"
 	"fmt"
 	"sync"
-	"time"
 
-	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	"github.com/cyverse/irodsfs-pool/service/io"
@@ -17,39 +13,25 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type Server struct {
-	api.UnimplementedPoolAPIServer
-
-	Config   *ServerConfig
-	Mutex    sync.RWMutex // mutex to access Sessions
-	Sessions map[string]*Session
-	Buffer   io.Buffer
-	Cache    io.Cache
-}
-
+// ServerConfig is a configuration for Server
 type ServerConfig struct {
 	BufferSizeMax int64
 	CacheSizeMax  int64
 	CacheRootPath string
 }
 
-type Session struct {
-	ID               string
-	Account          *irodsclient_types.IRODSAccount
-	IRODSFS          *irodsclient_fs.FileSystem
-	ReferenceCount   int
-	LastActivityTime time.Time
-	FileHandles      map[string]*FileHandle
-	Mutex            sync.Mutex // mutex to access FileHandles, ReferenceCount and LastActivityTime
-}
+// Server is a struct for Server
+type Server struct {
+	api.UnimplementedPoolAPIServer
 
-type FileHandle struct {
-	ID          string
-	SessionID   string
-	Writer      io.Writer
-	Reader      io.Reader
-	IRODSHandle *irodsclient_fs.FileHandle
-	Mutex       *sync.Mutex // mutex to access IRODSHandle
+	config *ServerConfig
+
+	buffer io.Buffer
+	cache  io.Cache
+
+	sessions         map[string]*Session         // key: session id
+	irodsConnections map[string]*IRODSConnection // key: connection id
+	mutex            sync.RWMutex                // mutex to access Sessions
 }
 
 func NewServer(config *ServerConfig) (*Server, error) {
@@ -68,37 +50,55 @@ func NewServer(config *ServerConfig) (*Server, error) {
 	}
 
 	return &Server{
-		Config:   config,
-		Sessions: map[string]*Session{},
-		Buffer:   ramBuffer,
-		Cache:    diskCache,
+		config: config,
+
+		buffer: ramBuffer,
+		cache:  diskCache,
+
+		sessions:         map[string]*Session{},
+		irodsConnections: map[string]*IRODSConnection{},
+		mutex:            sync.RWMutex{},
 	}, nil
 }
 
 func (server *Server) Release() {
-	if server.Buffer != nil {
-		server.Buffer.Release()
-		server.Buffer = nil
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "Server",
+		"function": "Release",
+	})
+
+	logger.Info("Release")
+	defer logger.Info("Returned")
+
+	server.mutex.Lock()
+
+	for _, session := range server.sessions {
+		logger.Infof("Logout session for client id %s", session.GetClientID())
+
+		session.Release()
+	}
+	server.sessions = map[string]*Session{}
+
+	for _, irodsConnection := range server.irodsConnections {
+		logger.Infof("Logout connection for connection id %s", irodsConnection.GetID())
+
+		// close file system for connection
+		irodsConnection.Release()
+	}
+	server.irodsConnections = map[string]*IRODSConnection{}
+
+	server.mutex.Unlock()
+
+	if server.buffer != nil {
+		server.buffer.Release()
+		server.buffer = nil
 	}
 
-	if server.Cache != nil {
-		server.Cache.Release()
-		server.Cache = nil
+	if server.cache != nil {
+		server.cache.Release()
+		server.cache = nil
 	}
-}
-
-func (server *Server) generateSessionID(account *api.Account) string {
-	hash := sha1.New()
-	hash.Write([]byte(account.Host))
-	hash.Write([]byte(fmt.Sprintf("%d", account.Port)))
-	hash.Write([]byte(account.ClientUser))
-	hash.Write([]byte(account.ClientZone))
-	hash.Write([]byte(account.ProxyUser))
-	hash.Write([]byte(account.ProxyZone))
-	hash.Write([]byte(account.ServerDn))
-	hash.Write([]byte(account.Password))
-	hash.Write([]byte(account.Ticket))
-	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func (server *Server) Login(context context.Context, request *api.LoginRequest) (*api.LoginResponse, error) {
@@ -108,62 +108,40 @@ func (server *Server) Login(context context.Context, request *api.LoginRequest) 
 		"function": "Login",
 	})
 
-	logger.Infof("Login request from client: %s - %s", request.Account.Host, request.Account.ClientUser)
+	logger.Infof("Login request from client id %s, host %s, user %s", request.ClientId, request.Account.Host, request.Account.ClientUser)
 	defer logger.Info("Returned")
 
-	sessionID := server.generateSessionID(request.Account)
+	server.mutex.Lock()
+	defer server.mutex.Unlock()
 
-	server.Mutex.Lock()
-	defer server.Mutex.Unlock()
+	connectionID := getConnectionID(request.Account)
 
-	if session, ok := server.Sessions[sessionID]; ok {
-		logger.Infof("Reusing existing session: %s", sessionID)
+	// create a session
+	session := NewSession(request.ClientId, connectionID)
+	sessionID := session.GetID()
 
-		session.Mutex.Lock()
-		defer session.Mutex.Unlock()
+	// find connection for the same account if exists
+	if irodsConnection, ok := server.irodsConnections[connectionID]; ok {
+		logger.Infof("Reusing existing connection: %s", connectionID)
 
-		session.ReferenceCount++
-		session.LastActivityTime = time.Now()
+		irodsConnection.AddSession(sessionID)
+
 	} else {
-		logger.Infof("Creating a new session: %s", sessionID)
+		logger.Infof("Creating a new connection: %s", connectionID)
 
-		// new session
-		account := &irodsclient_types.IRODSAccount{
-			AuthenticationScheme:    irodsclient_types.AuthScheme(request.Account.AuthenticationScheme),
-			ClientServerNegotiation: request.Account.ClientServerNegotiation,
-			CSNegotiationPolicy:     irodsclient_types.CSNegotiationRequire(request.Account.CsNegotiationPolicy),
-			Host:                    request.Account.Host,
-			Port:                    int(request.Account.Port),
-			ClientUser:              request.Account.ClientUser,
-			ClientZone:              request.Account.ClientZone,
-			ProxyUser:               request.Account.ProxyUser,
-			ProxyZone:               request.Account.ProxyZone,
-			ServerDN:                request.Account.ServerDn,
-			Password:                request.Account.Password,
-			Ticket:                  request.Account.Ticket,
-			PamTTL:                  int(request.Account.PamTtl),
-		}
-
-		fs, err := irodsclient_fs.NewFileSystemWithDefault(account, request.ApplicationName)
+		// new connection
+		newConn, err := NewIRODSConnection(connectionID, request.Account, request.ApplicationName)
 		if err != nil {
-			logger.Error(err)
+			logger.WithError(err).Error("failed to create a new connection")
 			return nil, err
 		}
 
-		session = &Session{
-			ID:               sessionID,
-			Account:          account,
-			IRODSFS:          fs,
-			ReferenceCount:   1,
-			LastActivityTime: time.Now(),
-			FileHandles:      map[string]*FileHandle{},
-		}
+		newConn.AddSession(sessionID)
 
-		session.Mutex.Lock()
-		defer session.Mutex.Unlock()
-
-		server.Sessions[sessionID] = session
+		server.irodsConnections[connectionID] = newConn
 	}
+
+	server.sessions[sessionID] = session
 
 	response := &api.LoginResponse{
 		SessionId: sessionID,
@@ -179,48 +157,34 @@ func (server *Server) Logout(context context.Context, request *api.LogoutRequest
 		"function": "Logout",
 	})
 
-	logger.Infof("Logout request from client: %s", request.SessionId)
+	logger.Infof("Logout request from client, session id %s", request.SessionId)
 	defer logger.Info("Returned")
 
-	server.Mutex.Lock()
-	defer server.Mutex.Unlock()
+	server.mutex.Lock()
+	defer server.mutex.Unlock()
 
-	session, ok := server.Sessions[request.SessionId]
-	if !ok {
-		//err := fmt.Errorf("cannot find session %s", request.SessionId)
-		//logger.Error(err)
-		//return nil, err
+	if session, ok := server.sessions[request.SessionId]; ok {
+		logger.Infof("Logout session for client id %s", session.GetClientID())
 
-		// no problem, session might be already closed due to timeout
-		return &api.Empty{}, nil
-	}
+		connectionID := session.GetConnectionID()
+		session.Release()
+		delete(server.sessions, request.SessionId)
 
-	session.Mutex.Lock()
-	defer session.Mutex.Unlock()
-
-	session.ReferenceCount--
-	session.LastActivityTime = time.Now()
-
-	if session.ReferenceCount <= 0 {
-		logger.Infof("Deleting session: %s", session.ID)
-		// find opened file handles
-		for _, handle := range session.FileHandles {
-			if handle.IRODSHandle != nil {
-				handle.IRODSHandle.Close()
+		if connection, ok := server.irodsConnections[connectionID]; ok {
+			connection.RemoveSession(request.SessionId)
+			if connection.ReleaseIfNoSession() {
+				delete(server.irodsConnections, connectionID)
 			}
 		}
 
-		// empty
-		session.FileHandles = map[string]*FileHandle{}
-
-		delete(server.Sessions, request.SessionId)
-
-		if session.IRODSFS != nil {
-			session.IRODSFS.Release()
-			session.IRODSFS = nil
-		}
+		return &api.Empty{}, nil
 	}
 
+	//err := fmt.Errorf("cannot find session %s", request.SessionId)
+	//logger.Error(err)
+	//return nil, err
+
+	// no problem, session might be already closed due to timeout
 	return &api.Empty{}, nil
 }
 
@@ -234,80 +198,78 @@ func (server *Server) LogoutAll() {
 	logger.Info("Logout All")
 	defer logger.Info("Returned")
 
-	server.Mutex.Lock()
-	defer server.Mutex.Unlock()
+	server.mutex.Lock()
+	defer server.mutex.Unlock()
 
-	for _, session := range server.Sessions {
-		session.Mutex.Lock()
+	for _, session := range server.sessions {
+		logger.Infof("Logout session for client id %s", session.GetClientID())
 
-		session.ReferenceCount = 0
-		session.LastActivityTime = time.Now()
-
-		logger.Infof("Deleting session: %s", session.ID)
-		// find opened file handles
-		for _, handle := range session.FileHandles {
-			if handle.IRODSHandle != nil {
-				handle.IRODSHandle.Close()
-			}
-		}
-
-		// empty
-		session.FileHandles = map[string]*FileHandle{}
-
-		if session.IRODSFS != nil {
-			session.IRODSFS.Release()
-			session.IRODSFS = nil
-		}
-
-		session.Mutex.Unlock()
+		session.Release()
 	}
+	server.sessions = map[string]*Session{}
 
-	server.Sessions = map[string]*Session{}
+	for _, irodsConnection := range server.irodsConnections {
+		logger.Infof("Logout connection for connection id %s", irodsConnection.GetID())
+
+		// close file system for connection
+		irodsConnection.Release()
+	}
+	server.irodsConnections = map[string]*IRODSConnection{}
 }
 
-func (server *Server) Connections() int {
+func (server *Server) GetSessions() int {
+	server.mutex.Lock()
+	defer server.mutex.Unlock()
+
+	return len(server.sessions)
+}
+
+func (server *Server) GetIRODSFSCount() int {
+	server.mutex.Lock()
+	defer server.mutex.Unlock()
+
+	return len(server.irodsConnections)
+}
+
+func (server *Server) GetIRODSConnections() int {
+	server.mutex.Lock()
+	defer server.mutex.Unlock()
+
 	connections := 0
-
-	server.Mutex.Lock()
-	defer server.Mutex.Unlock()
-
-	for _, session := range server.Sessions {
-		session.Mutex.Lock()
-
-		if session.IRODSFS != nil {
-			connections += session.IRODSFS.Connections()
-		}
-
-		session.Mutex.Unlock()
+	for _, connection := range server.irodsConnections {
+		connections += connection.irodsFS.Connections()
 	}
 
 	return connections
 }
 
-func (server *Server) getSession(sessionID string) (*Session, error) {
+func (server *Server) getSessionAndConnection(sessionID string) (*Session, *IRODSConnection, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"struct":   "Server",
-		"function": "getSession",
+		"function": "getSessionAndConnection",
 	})
 
-	server.Mutex.RLock()
-	defer server.Mutex.RUnlock()
+	server.mutex.RLock()
+	defer server.mutex.RUnlock()
 
-	session, ok := server.Sessions[sessionID]
+	session, ok := server.sessions[sessionID]
 	if !ok {
-		err := fmt.Errorf("cannot find session %s", sessionID)
+		err := fmt.Errorf("cannot find session for id %s", sessionID)
 		logger.Error(err)
-		return nil, err
+		return nil, nil, err
 	}
 
-	if session.IRODSFS == nil {
-		err := fmt.Errorf("session not logged in %s", sessionID)
+	connectionID := session.GetConnectionID()
+
+	connection, ok := server.irodsConnections[connectionID]
+	if !ok {
+		err := fmt.Errorf("cannot find connection for id %s", connectionID)
 		logger.Error(err)
-		return nil, err
+		return nil, nil, err
 	}
 
-	return session, nil
+	return session, connection, nil
 }
 
 func (server *Server) getFileHandle(sessionID string, fileHandleID string) (*FileHandle, error) {
@@ -317,20 +279,21 @@ func (server *Server) getFileHandle(sessionID string, fileHandleID string) (*Fil
 		"function": "getFileHandle",
 	})
 
-	session, err := server.getSession(sessionID)
-	if err != nil {
+	server.mutex.RLock()
+	defer server.mutex.RUnlock()
+
+	session, ok := server.sessions[sessionID]
+	if !ok {
+		err := fmt.Errorf("cannot find session for id %s", sessionID)
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	defer session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	session.LastActivityTime = time.Now()
-
-	fileHandle, ok := session.FileHandles[fileHandleID]
-	if !ok {
-		err := fmt.Errorf("cannot find file handle %s", fileHandleID)
+	fileHandle := session.GetFileHandle(fileHandleID)
+	if fileHandle == nil {
+		err := fmt.Errorf("failed to find file handle %s", fileHandleID)
 		logger.Error(err)
 		return nil, err
 	}
@@ -345,20 +308,24 @@ func (server *Server) List(context context.Context, request *api.ListRequest) (*
 		"function": "List",
 	})
 
-	logger.Infof("List request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("List request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	entries, err := session.IRODSFS.List(request.Path)
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	entries, err := irodsFS.List(request.Path)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -394,20 +361,24 @@ func (server *Server) Stat(context context.Context, request *api.StatRequest) (*
 		"function": "Stat",
 	})
 
-	logger.Infof("Stat request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("Stat request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	entry, err := session.IRODSFS.Stat(request.Path)
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	entry, err := irodsFS.Stat(request.Path)
 	if err != nil {
 		if irodsclient_types.IsFileNotFoundError(err) {
 			return &api.StatResponse{
@@ -449,20 +420,24 @@ func (server *Server) ExistsDir(context context.Context, request *api.ExistsDirR
 		"function": "ExistsDir",
 	})
 
-	logger.Infof("ExistsDir request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("ExistsDir request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	exist := session.IRODSFS.ExistsDir(request.Path)
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	exist := irodsFS.ExistsDir(request.Path)
 	return &api.ExistsDirResponse{
 		Exist: exist,
 	}, nil
@@ -475,20 +450,24 @@ func (server *Server) ExistsFile(context context.Context, request *api.ExistsFil
 		"function": "ExistsFile",
 	})
 
-	logger.Infof("ExistsFile request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("ExistsFile request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	exist := session.IRODSFS.ExistsFile(request.Path)
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	exist := irodsFS.ExistsFile(request.Path)
 	return &api.ExistsFileResponse{
 		Exist: exist,
 	}, nil
@@ -501,20 +480,24 @@ func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request
 		"function": "ListDirACLsWithGroupUsers",
 	})
 
-	logger.Infof("ListDirACLsWithGroupUsers request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("ListDirACLsWithGroupUsers request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	accesses, err := session.IRODSFS.ListDirACLsWithGroupUsers(request.Path)
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	accesses, err := irodsFS.ListDirACLsWithGroupUsers(request.Path)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -546,20 +529,24 @@ func (server *Server) ListFileACLsWithGroupUsers(context context.Context, reques
 		"function": "ListFileACLsWithGroupUsers",
 	})
 
-	logger.Infof("ListFileACLsWithGroupUsers request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("ListFileACLsWithGroupUsers request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	accesses, err := session.IRODSFS.ListFileACLsWithGroupUsers(request.Path)
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	accesses, err := irodsFS.ListFileACLsWithGroupUsers(request.Path)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -591,27 +578,31 @@ func (server *Server) RemoveFile(context context.Context, request *api.RemoveFil
 		"function": "RemoveFile",
 	})
 
-	logger.Infof("RemoveFile request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("RemoveFile request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	err = session.IRODSFS.RemoveFile(request.Path, request.Force)
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	err = irodsFS.RemoveFile(request.Path, request.Force)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
 	// clear cache for the path if exists
-	server.Cache.DeleteAllEntriesForGroup(request.Path)
+	server.cache.DeleteAllEntriesForGroup(request.Path)
 
 	return &api.Empty{}, nil
 }
@@ -623,20 +614,24 @@ func (server *Server) RemoveDir(context context.Context, request *api.RemoveDirR
 		"function": "RemoveDir",
 	})
 
-	logger.Infof("RemoveDir request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("RemoveDir request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	err = session.IRODSFS.RemoveDir(request.Path, request.Recurse, request.Force)
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	err = irodsFS.RemoveDir(request.Path, request.Recurse, request.Force)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -652,20 +647,24 @@ func (server *Server) MakeDir(context context.Context, request *api.MakeDirReque
 		"function": "MakeDir",
 	})
 
-	logger.Infof("MakeDir request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("MakeDir request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	err = session.IRODSFS.MakeDir(request.Path, request.Recurse)
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	err = irodsFS.MakeDir(request.Path, request.Recurse)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -681,20 +680,24 @@ func (server *Server) RenameDirToDir(context context.Context, request *api.Renam
 		"function": "RenameDirToDir",
 	})
 
-	logger.Infof("RenameDirToDir request from client %s: %s -> %s", request.SessionId, request.SourcePath, request.DestinationPath)
+	logger.Infof("RenameDirToDir request from client session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	err = session.IRODSFS.RenameDirToDir(request.SourcePath, request.DestinationPath)
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	err = irodsFS.RenameDirToDir(request.SourcePath, request.DestinationPath)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -710,27 +713,31 @@ func (server *Server) RenameFileToFile(context context.Context, request *api.Ren
 		"function": "RenameFileToFile",
 	})
 
-	logger.Infof("RenameFileToFile request from client %s: %s -> %s", request.SessionId, request.SourcePath, request.DestinationPath)
+	logger.Infof("RenameFileToFile request from client session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	err = session.IRODSFS.RenameFileToFile(request.SourcePath, request.DestinationPath)
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	err = irodsFS.RenameFileToFile(request.SourcePath, request.DestinationPath)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
 	// clear cache for the path if exists
-	server.Cache.DeleteAllEntriesForGroup(request.SourcePath)
+	server.cache.DeleteAllEntriesForGroup(request.SourcePath)
 
 	return &api.Empty{}, nil
 }
@@ -742,31 +749,38 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 		"function": "CreateFile",
 	})
 
-	logger.Infof("CreateFile request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("CreateFile request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
+	}
+
+	session.UpdateLastAccessTime()
+
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
 	}
 
 	// clear cache for the path if exists
-	server.Cache.DeleteAllEntriesForGroup(request.Path)
+	server.cache.DeleteAllEntriesForGroup(request.Path)
 
-	handle, err := session.IRODSFS.CreateFile(request.Path, request.Resource)
+	handle, err := irodsFS.CreateFile(request.Path, request.Resource)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	handleMutex := &sync.Mutex{}
 	fileHandleID := xid.New().String()
-
+	handleMutex := &sync.Mutex{}
 	var writer io.Writer
 
-	if server.Buffer != nil {
-		asyncWriter := io.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.Buffer)
+	if server.buffer != nil {
+		asyncWriter := io.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.buffer)
 		writer = io.NewBufferedWriter(request.Path, asyncWriter)
 	} else {
 		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
@@ -774,21 +788,9 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 
 	var reader io.Reader = io.NewSyncReader(request.Path, handle, handleMutex)
 
-	fileHandle := &FileHandle{
-		ID:          fileHandleID,
-		SessionID:   request.SessionId,
-		Writer:      writer,
-		Reader:      reader,
-		IRODSHandle: handle,
-		Mutex:       handleMutex,
-	}
+	fileHandle := NewFileHandle(fileHandleID, request.SessionId, connection.GetID(), writer, reader, handle, handleMutex)
 
-	session.Mutex.Lock()
-	defer session.Mutex.Unlock()
-
-	// add
-	session.FileHandles[fileHandleID] = fileHandle
-	session.LastActivityTime = time.Now()
+	session.AddFileHandle(fileHandle)
 
 	responseEntry := &api.Entry{
 		Id:         handle.Entry.ID,
@@ -817,23 +819,31 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 		"function": "OpenFile",
 	})
 
-	logger.Infof("OpenFile request from client %s: %s, mode(%s)", request.SessionId, request.Path, request.Mode)
+	logger.Infof("OpenFile request from client session id %s, path %s, mode(%s)", request.SessionId, request.Path, request.Mode)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	handle, err := session.IRODSFS.OpenFile(request.Path, request.Resource, request.Mode)
+	session.UpdateLastAccessTime()
+
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	handle, err := irodsFS.OpenFile(request.Path, request.Resource, request.Mode)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	handleMutex := &sync.Mutex{}
 	fileHandleID := xid.New().String()
+	handleMutex := &sync.Mutex{}
 
 	var writer io.Writer
 	var reader io.Reader
@@ -841,11 +851,11 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 	switch irodsclient_types.FileOpenMode(request.Mode) {
 	case irodsclient_types.FileOpenModeAppend, irodsclient_types.FileOpenModeWriteOnly, irodsclient_types.FileOpenModeWriteTruncate:
 		// clear cache for the path if exists
-		server.Cache.DeleteAllEntriesForGroup(request.Path)
+		server.cache.DeleteAllEntriesForGroup(request.Path)
 
 		// writer
-		if server.Buffer != nil {
-			asyncWriter := io.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.Buffer)
+		if server.buffer != nil {
+			asyncWriter := io.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.buffer)
 			writer = io.NewBufferedWriter(request.Path, asyncWriter)
 		} else {
 			syncWriter := io.NewSyncWriter(request.Path, handle, handleMutex)
@@ -859,35 +869,23 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
 
 		// reader
-		if server.Cache != nil {
+		if server.cache != nil {
 			syncReader := io.NewSyncReader(request.Path, handle, handleMutex)
-			reader = io.NewCacheReader(request.Path, handle.Entry.CheckSum, server.Cache, syncReader)
+			reader = io.NewCacheReader(request.Path, handle.Entry.CheckSum, server.cache, syncReader)
 		} else {
 			reader = io.NewSyncReader(request.Path, handle, handleMutex)
 		}
 	default:
 		// clear cache for the path if exists
-		server.Cache.DeleteAllEntriesForGroup(request.Path)
+		server.cache.DeleteAllEntriesForGroup(request.Path)
 
 		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
 		reader = io.NewSyncReader(request.Path, handle, handleMutex)
 	}
 
-	fileHandle := &FileHandle{
-		ID:          fileHandleID,
-		SessionID:   request.SessionId,
-		Writer:      writer,
-		Reader:      reader,
-		IRODSHandle: handle,
-		Mutex:       handleMutex,
-	}
+	fileHandle := NewFileHandle(fileHandleID, request.SessionId, connection.GetID(), writer, reader, handle, handleMutex)
 
-	session.Mutex.Lock()
-	defer session.Mutex.Unlock()
-
-	// add
-	session.FileHandles[fileHandleID] = fileHandle
-	session.LastActivityTime = time.Now()
+	session.AddFileHandle(fileHandle)
 
 	responseEntry := &api.Entry{
 		Id:         handle.Entry.ID,
@@ -916,23 +914,27 @@ func (server *Server) TruncateFile(context context.Context, request *api.Truncat
 		"function": "TruncateFile",
 	})
 
-	logger.Infof("TruncateFile request from client %s: %s", request.SessionId, request.Path)
+	logger.Infof("TruncateFile request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	session.LastActivityTime = time.Now()
-	session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
+
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
 
 	// clear cache for the path if exists
-	server.Cache.DeleteAllEntriesForGroup(request.Path)
+	server.cache.DeleteAllEntriesForGroup(request.Path)
 
-	err = session.IRODSFS.TruncateFile(request.Path, request.Size)
+	err = irodsFS.TruncateFile(request.Path, request.Size)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -948,7 +950,7 @@ func (server *Server) GetOffset(context context.Context, request *api.GetOffsetR
 		"function": "GetOffset",
 	})
 
-	logger.Infof("GetOffset request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+	logger.Infof("GetOffset request from client session id %s, file handle id %s", request.SessionId, request.FileHandleId)
 	defer logger.Info("Returned")
 
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
@@ -957,18 +959,8 @@ func (server *Server) GetOffset(context context.Context, request *api.GetOffsetR
 		return nil, err
 	}
 
-	err = fileHandle.Writer.Flush()
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-
-	fileHandle.Mutex.Lock()
-	defer fileHandle.Mutex.Unlock()
-
-	offset := fileHandle.IRODSHandle.GetOffset()
 	response := &api.GetOffsetResponse{
-		Offset: offset,
+		Offset: fileHandle.GetOffset(),
 	}
 
 	return response, nil
@@ -981,7 +973,7 @@ func (server *Server) ReadAt(context context.Context, request *api.ReadAtRequest
 		"function": "ReadAt",
 	})
 
-	logger.Infof("ReadAt request from client sessionID: %s, fileHandleID: %s, offset: %d, length: %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
+	logger.Infof("ReadAt request from client session id %s, file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
 	defer logger.Info("Returned")
 
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
@@ -990,8 +982,7 @@ func (server *Server) ReadAt(context context.Context, request *api.ReadAtRequest
 		return nil, err
 	}
 
-	data, err := fileHandle.Reader.ReadAt(request.Offset, int(request.Length))
-	//data, err := fileHandle.IRODSHandle.ReadAt(request.Offset, int(request.Length))
+	data, err := fileHandle.ReadAt(request.Offset, int(request.Length))
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -1011,7 +1002,7 @@ func (server *Server) WriteAt(context context.Context, request *api.WriteAtReque
 		"function": "WriteAt",
 	})
 
-	logger.Infof("WriteAt request from client sessionID: %s, fileHandleID: %s, offset: %d, length : %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
+	logger.Infof("WriteAt request from client session id %s, file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
 	defer logger.Info("Returned")
 
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
@@ -1020,8 +1011,7 @@ func (server *Server) WriteAt(context context.Context, request *api.WriteAtReque
 		return nil, err
 	}
 
-	err = fileHandle.Writer.WriteAt(request.Offset, request.Data)
-	//err = fileHandle.IRODSHandle.WriteAt(request.Offset, request.Data)
+	err = fileHandle.WriteAt(request.Offset, request.Data)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -1037,28 +1027,16 @@ func (server *Server) Flush(context context.Context, request *api.FlushRequest) 
 		"function": "Flush",
 	})
 
-	logger.Infof("Flush request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+	logger.Infof("Flush request from client session id %s, file handle id %s", request.SessionId, request.FileHandleId)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	defer session.Mutex.Unlock()
-
-	session.LastActivityTime = time.Now()
-
-	fileHandle, ok := session.FileHandles[request.FileHandleId]
-	if !ok {
-		err := fmt.Errorf("cannot find file handle %s", request.FileHandleId)
-		logger.Error(err)
-		return nil, err
-	}
-
-	err = fileHandle.Writer.Flush()
+	err = fileHandle.Flush()
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -1074,62 +1052,35 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 		"function": "Close",
 	})
 
-	logger.Infof("Close request from client sessionID: %s, fileHandleID: %s", request.SessionId, request.FileHandleId)
+	logger.Infof("Close request from client session id %s, file handle id %s", request.SessionId, request.FileHandleId)
 	defer logger.Info("Returned")
 
-	session, err := server.getSession(request.SessionId)
+	session, _, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	session.Mutex.Lock()
-	defer session.Mutex.Unlock()
+	session.UpdateLastAccessTime()
 
-	session.LastActivityTime = time.Now()
-
-	fileHandle, ok := session.FileHandles[request.FileHandleId]
-	if !ok {
-		err := fmt.Errorf("cannot find file handle %s", request.FileHandleId)
+	fileHandle := session.GetFileHandle(request.FileHandleId)
+	if fileHandle == nil {
+		err := fmt.Errorf("failed to find file handle %s", request.FileHandleId)
 		logger.Error(err)
 		return nil, err
 	}
 
-	delete(session.FileHandles, request.FileHandleId)
+	session.RemoveFileHandle(request.FileHandleId)
 
-	if fileHandle.Writer != nil {
-		// wait until all queued tasks complete
-		fileHandle.Writer.Release()
-
-		err := fileHandle.Writer.GetPendingError()
-		if err != nil {
-			logger.WithError(err)
-			return nil, err
-		}
-	}
-
-	if fileHandle.Reader != nil {
-		fileHandle.Reader.Release()
-
-		err := fileHandle.Reader.GetPendingError()
-		if err != nil {
-			logger.WithError(err)
-			return nil, err
-		}
-	}
-
-	if irodsclient_types.FileOpenMode(fileHandle.IRODSHandle.OpenMode) != irodsclient_types.FileOpenModeReadOnly {
+	if irodsclient_types.FileOpenMode(fileHandle.irodsFileHandle.OpenMode) != irodsclient_types.FileOpenModeReadOnly {
 		// not read-only
 		// clear cache for the path if exists
-		server.Cache.DeleteAllEntriesForGroup(fileHandle.IRODSHandle.Entry.Path)
+		server.cache.DeleteAllEntriesForGroup(fileHandle.irodsFileHandle.Entry.Path)
 	}
 
-	fileHandle.Mutex.Lock()
-	defer fileHandle.Mutex.Unlock()
-
-	err = fileHandle.IRODSHandle.Close()
+	err = fileHandle.Release()
 	if err != nil {
-		logger.Error(err)
+		logger.WithError(err)
 		return nil, err
 	}
 

@@ -16,19 +16,19 @@ import (
 
 // PoolService is a service object
 type PoolService struct {
-	Config        *commons.Config
-	APIServer     *Server
-	GrpcServer    *grpc.Server
-	StatHandler   *PoolServiceStatHandler
-	TerminateChan chan bool
-	Terminated    bool
-	Mutex         sync.Mutex // for termination
+	config        *commons.Config
+	apiServer     *Server
+	grpcServer    *grpc.Server
+	statHandler   *PoolServiceStatHandler
+	terminateChan chan bool
+	terminated    bool
+	mutex         sync.Mutex // for termination
 }
 
 type PoolServiceStatHandler struct {
-	APIServer       *Server
-	LiveConnections int
-	Mutex           sync.Mutex
+	apiServer       *Server
+	liveConnections int
+	mutex           sync.Mutex
 }
 
 func (handler *PoolServiceStatHandler) TagRPC(context.Context, *stats.RPCTagInfo) context.Context {
@@ -53,25 +53,25 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 
 	switch s.(type) {
 	case *stats.ConnEnd:
-		handler.Mutex.Lock()
-		defer handler.Mutex.Unlock()
+		handler.mutex.Lock()
+		defer handler.mutex.Unlock()
 
-		handler.LiveConnections--
+		handler.liveConnections--
 
-		logger.Infof("Client is disconnected - total %d live connections", handler.LiveConnections)
+		logger.Infof("Client is disconnected - total %d live connections", handler.liveConnections)
 
-		if handler.LiveConnections <= 0 {
-			handler.LiveConnections = 0
-			handler.APIServer.LogoutAll()
+		if handler.liveConnections <= 0 {
+			handler.liveConnections = 0
+			handler.apiServer.LogoutAll()
 		}
 
 	case *stats.ConnBegin:
-		handler.Mutex.Lock()
-		defer handler.Mutex.Unlock()
+		handler.mutex.Lock()
+		defer handler.mutex.Unlock()
 
-		handler.LiveConnections++
+		handler.liveConnections++
 
-		logger.Infof("Client is connected - total %d connections", handler.LiveConnections)
+		logger.Infof("Client is connected - total %d connections", handler.liveConnections)
 	}
 }
 
@@ -95,18 +95,18 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 	}
 
 	statHandler := &PoolServiceStatHandler{
-		APIServer:       apiServer,
-		LiveConnections: 0,
+		apiServer:       apiServer,
+		liveConnections: 0,
 	}
 	grpcServer := grpc.NewServer(grpc.StatsHandler(statHandler))
 	api.RegisterPoolAPIServer(grpcServer, apiServer)
 
 	service := &PoolService{
-		Config:        config,
-		APIServer:     apiServer,
-		GrpcServer:    grpcServer,
-		StatHandler:   statHandler,
-		TerminateChan: make(chan bool),
+		config:        config,
+		apiServer:     apiServer,
+		grpcServer:    grpcServer,
+		statHandler:   statHandler,
+		terminateChan: make(chan bool),
 	}
 
 	return service, nil
@@ -127,7 +127,7 @@ func (svc *PoolService) Start() error {
 
 	logger.Info("Starting the iRODS FUSE Lite Pool service")
 
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", svc.Config.ServicePort))
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", svc.config.ServicePort))
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -144,16 +144,16 @@ func (svc *PoolService) Start() error {
 
 		for {
 			select {
-			case <-svc.TerminateChan:
+			case <-svc.terminateChan:
 				// terminate
 				return
 			case <-ticker.C:
-				logger.Infof("Total %d live connections, %d live iRODS connections", svc.StatHandler.LiveConnections, svc.APIServer.Connections())
+				logger.Infof("Total %d clients, %d FS, %d iRODS connections", svc.apiServer.GetSessions(), svc.apiServer.GetIRODSFSCount(), svc.apiServer.GetIRODSConnections())
 			}
 		}
 	}()
 
-	err = svc.GrpcServer.Serve(listener)
+	err = svc.grpcServer.Serve(listener)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -165,15 +165,15 @@ func (svc *PoolService) Start() error {
 
 // Destroy destroys the service
 func (svc *PoolService) Destroy() {
-	svc.Mutex.Lock()
-	defer svc.Mutex.Unlock()
+	svc.mutex.Lock()
+	defer svc.mutex.Unlock()
 
-	if svc.Terminated {
+	if svc.terminated {
 		// already terminated
 		return
 	}
 
-	svc.Terminated = true
+	svc.terminated = true
 
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
@@ -182,13 +182,13 @@ func (svc *PoolService) Destroy() {
 	})
 
 	logger.Info("Destroying the iRODS FUSE Lite Pool service")
-	svc.TerminateChan <- true
+	svc.terminateChan <- true
 
-	if svc.GrpcServer != nil {
-		svc.GrpcServer.Stop()
+	if svc.grpcServer != nil {
+		svc.grpcServer.Stop()
 	}
 
-	if svc.APIServer != nil {
-		svc.APIServer.Release()
+	if svc.apiServer != nil {
+		svc.apiServer.Release()
 	}
 }

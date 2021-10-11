@@ -56,7 +56,8 @@ func main() {
 	defer poolClient.Disconnect()
 
 	appName := "list_dir"
-	conn, err := poolClient.Login(account, appName)
+	clientID := "test_client_1"
+	conn, err := poolClient.Login(account, appName, clientID)
 	if err != nil {
 		logger.Errorf("err - %v", err)
 		panic(err)

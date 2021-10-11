@@ -35,7 +35,6 @@ message Entry {
 	string checksum = 9;
 }
 
-
 message Access {
 	string path = 1;
 	string user_name = 2;
@@ -58,6 +57,7 @@ message SoftError {
 message LoginRequest{
 	Account account = 1;
 	string application_name = 2;
+	string client_id = 3;
 }
 
 message LoginResponse{

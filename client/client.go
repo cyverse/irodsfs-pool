@@ -33,20 +33,20 @@ type PoolServiceSession struct {
 }
 
 type PoolServiceFileHandle struct {
-	sessionID    string
-	entry        *irodsclient_fs.Entry
-	openMode     string
-	fileHandleID string
+	SessionID    string
+	Entry        *irodsclient_fs.Entry
+	OpenMode     string
+	FileHandleID string
 }
 
 // IsReadMode returns true if file is opened with read mode
 func (handle *PoolServiceFileHandle) IsReadMode() bool {
-	return irodsclient_types.IsFileOpenFlagRead(irodsclient_types.FileOpenMode(handle.openMode))
+	return irodsclient_types.IsFileOpenFlagRead(irodsclient_types.FileOpenMode(handle.OpenMode))
 }
 
 // IsWriteMode returns true if file is opened with write mode
 func (handle *PoolServiceFileHandle) IsWriteMode() bool {
-	return irodsclient_types.IsFileOpenFlagWrite(irodsclient_types.FileOpenMode(handle.openMode))
+	return irodsclient_types.IsFileOpenFlagWrite(irodsclient_types.FileOpenMode(handle.OpenMode))
 }
 
 // NewPoolServiceClient creates a new pool service client
@@ -582,10 +582,10 @@ func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path st
 	}
 
 	return &PoolServiceFileHandle{
-		sessionID:    session.id,
-		entry:        irodsEntry,
-		openMode:     string(irodsclient_types.FileOpenModeWriteOnly),
-		fileHandleID: response.FileHandleId,
+		SessionID:    session.id,
+		Entry:        irodsEntry,
+		OpenMode:     string(irodsclient_types.FileOpenModeWriteOnly),
+		FileHandleID: response.FileHandleId,
 	}, nil
 }
 
@@ -638,10 +638,10 @@ func (client *PoolServiceClient) OpenFile(session *PoolServiceSession, path stri
 	}
 
 	return &PoolServiceFileHandle{
-		sessionID:    session.id,
-		entry:        irodsEntry,
-		openMode:     mode,
-		fileHandleID: response.FileHandleId,
+		SessionID:    session.id,
+		Entry:        irodsEntry,
+		OpenMode:     mode,
+		FileHandleID: response.FileHandleId,
 	}, nil
 }
 
@@ -680,8 +680,8 @@ func (client *PoolServiceClient) GetOffset(handle *PoolServiceFileHandle) int64 
 	})
 
 	request := &api.GetOffsetRequest{
-		SessionId:    handle.sessionID,
-		FileHandleId: handle.fileHandleID,
+		SessionId:    handle.SessionID,
+		FileHandleId: handle.FileHandleID,
 	}
 
 	ctx, cancel := client.getContextWithDeadline()
@@ -707,8 +707,8 @@ func (client *PoolServiceClient) ReadAt(handle *PoolServiceFileHandle, offset in
 	if length <= FileRWLengthMax {
 		// do zero copy
 		request := &api.ReadAtRequest{
-			SessionId:    handle.sessionID,
-			FileHandleId: handle.fileHandleID,
+			SessionId:    handle.SessionID,
+			FileHandleId: handle.FileHandleID,
 			Offset:       offset,
 			Length:       length,
 		}
@@ -738,8 +738,8 @@ func (client *PoolServiceClient) ReadAt(handle *PoolServiceFileHandle, offset in
 		}
 
 		request := &api.ReadAtRequest{
-			SessionId:    handle.sessionID,
-			FileHandleId: handle.fileHandleID,
+			SessionId:    handle.SessionID,
+			FileHandleId: handle.FileHandleID,
 			Offset:       curOffset,
 			Length:       curLength,
 		}
@@ -787,8 +787,8 @@ func (client *PoolServiceClient) WriteAt(handle *PoolServiceFileHandle, offset i
 		}
 
 		request := &api.WriteAtRequest{
-			SessionId:    handle.sessionID,
-			FileHandleId: handle.fileHandleID,
+			SessionId:    handle.SessionID,
+			FileHandleId: handle.FileHandleID,
 			Offset:       curOffset,
 			Data:         data[totalWriteLength : totalWriteLength+curLength],
 		}
@@ -819,8 +819,8 @@ func (client *PoolServiceClient) Flush(handle *PoolServiceFileHandle) error {
 	})
 
 	request := &api.FlushRequest{
-		SessionId:    handle.sessionID,
-		FileHandleId: handle.fileHandleID,
+		SessionId:    handle.SessionID,
+		FileHandleId: handle.FileHandleID,
 	}
 
 	ctx, cancel := client.getContextWithDeadline()
@@ -844,8 +844,8 @@ func (client *PoolServiceClient) Close(handle *PoolServiceFileHandle) error {
 	})
 
 	request := &api.CloseRequest{
-		SessionId:    handle.sessionID,
-		FileHandleId: handle.fileHandleID,
+		SessionId:    handle.SessionID,
+		FileHandleId: handle.FileHandleID,
 	}
 
 	ctx, cancel := client.getContextWithDeadline()

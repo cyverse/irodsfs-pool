@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
+	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/irodsfs-pool/service/io"
 )
 
@@ -85,6 +86,14 @@ func (handle *FileHandle) Flush() error {
 		return handle.writer.Flush()
 	}
 	return nil
+}
+
+func (handle *FileHandle) GetFileOpenMode() types.FileOpenMode {
+	return handle.irodsFileHandle.OpenMode
+}
+
+func (handle *FileHandle) GetEntryPath() string {
+	return handle.irodsFileHandle.Entry.Path
 }
 
 func (handle *FileHandle) GetOffset() int64 {

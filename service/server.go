@@ -777,15 +777,7 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 
 	fileHandleID := xid.New().String()
 	handleMutex := &sync.Mutex{}
-	var writer io.Writer
-
-	if server.buffer != nil {
-		asyncWriter := io.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.buffer)
-		writer = io.NewBufferedWriter(request.Path, asyncWriter)
-	} else {
-		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
-	}
-
+	var writer io.Writer = io.NewSyncWriter(request.Path, handle, handleMutex)
 	var reader io.Reader = io.NewSyncReader(request.Path, handle, handleMutex)
 
 	fileHandle := NewFileHandle(fileHandleID, request.SessionId, connection.GetID(), writer, reader, handle, handleMutex)
@@ -1072,10 +1064,10 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 
 	session.RemoveFileHandle(request.FileHandleId)
 
-	if irodsclient_types.FileOpenMode(fileHandle.irodsFileHandle.OpenMode) != irodsclient_types.FileOpenModeReadOnly {
+	if irodsclient_types.FileOpenMode(fileHandle.GetFileOpenMode()) != irodsclient_types.FileOpenModeReadOnly {
 		// not read-only
 		// clear cache for the path if exists
-		server.cache.DeleteAllEntriesForGroup(fileHandle.irodsFileHandle.Entry.Path)
+		server.cache.DeleteAllEntriesForGroup(fileHandle.GetEntryPath())
 	}
 
 	err = fileHandle.Release()

@@ -7,6 +7,7 @@ import (
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/irodsfs-pool/service/io"
+	log "github.com/sirupsen/logrus"
 )
 
 type FileHandle struct {
@@ -34,6 +35,18 @@ func NewFileHandle(handleID string, sessionID string, connectionID string, write
 }
 
 func (handle *FileHandle) Release() error {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "FileHandle",
+		"function": "Release",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	errs := []error{}
 
 	if handle.writer != nil {
@@ -79,6 +92,18 @@ func (handle *FileHandle) GetID() string {
 }
 
 func (handle *FileHandle) Flush() error {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "FileHandle",
+		"function": "Flush",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	if handle.writer != nil {
 		return handle.writer.Flush()
 	}
@@ -94,6 +119,18 @@ func (handle *FileHandle) GetEntryPath() string {
 }
 
 func (handle *FileHandle) GetOffset() int64 {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "FileHandle",
+		"function": "GetOffset",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	if handle.writer != nil {
 		handle.writer.Flush()
 	}
@@ -105,6 +142,18 @@ func (handle *FileHandle) GetOffset() int64 {
 }
 
 func (handle *FileHandle) ReadAt(offset int64, len int) ([]byte, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "FileHandle",
+		"function": "ReadAt",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	if handle.reader != nil {
 		return handle.reader.ReadAt(offset, len)
 	}
@@ -112,6 +161,18 @@ func (handle *FileHandle) ReadAt(offset int64, len int) ([]byte, error) {
 }
 
 func (handle *FileHandle) WriteAt(offset int64, data []byte) error {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "FileHandle",
+		"function": "WriteAt",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	if handle.writer != nil {
 		return handle.writer.WriteAt(offset, data)
 	}

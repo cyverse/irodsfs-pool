@@ -50,6 +50,18 @@ func NewAsyncWriter(path string, fileHandleID string, fileHandle *irodsfs.FileHa
 
 // Release releases all resources
 func (writer *AsyncWriter) Release() {
+	logger := log.WithFields(log.Fields{
+		"package":  "io",
+		"struct":   "AsyncWriter",
+		"function": "Release",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	writer.Flush()
 
 	if writer.Buffer != nil {
@@ -78,6 +90,12 @@ func (writer *AsyncWriter) WriteAt(offset int64, data []byte) error {
 		"struct":   "AsyncWriter",
 		"function": "WriteAt",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	if len(data) == 0 || offset < 0 {
 		return nil
@@ -112,6 +130,12 @@ func (writer *AsyncWriter) Flush() error {
 		"struct":   "AsyncWriter",
 		"function": "Flush",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	// wait until all queued tasks complete
 	writer.waitForBackgroundWrites()
@@ -153,6 +177,12 @@ func (writer *AsyncWriter) backgroundWriteTask() {
 		"struct":   "AsyncWriter",
 		"function": "backgroundWriteTask",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	entryGroup := writer.getBufferEntryGroup()
 

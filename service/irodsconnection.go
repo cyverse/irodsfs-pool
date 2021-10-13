@@ -9,6 +9,7 @@ import (
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/irodsfs-pool/service/api"
+	log "github.com/sirupsen/logrus"
 )
 
 // IRODSConnection is a struct for iRODS Connection
@@ -36,6 +37,17 @@ func getConnectionID(account *api.Account) string {
 }
 
 func NewIRODSConnection(connectionID string, account *api.Account, applicationName string) (*IRODSConnection, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"function": "NewIRODSConnection",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	irodsAccount := &irodsclient_types.IRODSAccount{
 		AuthenticationScheme:    irodsclient_types.AuthScheme(account.AuthenticationScheme),
 		ClientServerNegotiation: account.ClientServerNegotiation,
@@ -68,6 +80,18 @@ func NewIRODSConnection(connectionID string, account *api.Account, applicationNa
 }
 
 func (connection *IRODSConnection) Release() {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "IRODSConnection",
+		"function": "Release",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	connection.mutex.Lock()
 	defer connection.mutex.Unlock()
 
@@ -114,6 +138,18 @@ func (connection *IRODSConnection) GetSessions() int {
 }
 
 func (connection *IRODSConnection) ReleaseIfNoSession() bool {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "IRODSConnection",
+		"function": "ReleaseIfNoSession",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	connection.mutex.Lock()
 	defer connection.mutex.Unlock()
 

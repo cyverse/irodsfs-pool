@@ -68,6 +68,12 @@ func (server *Server) Release() {
 		"function": "Release",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Info("Release")
 	defer logger.Info("Released")
 
@@ -107,6 +113,12 @@ func (server *Server) Login(context context.Context, request *api.LoginRequest) 
 		"struct":   "Server",
 		"function": "Login",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Infof("Login request from client id %s, host %s, user %s", request.ClientId, request.Account.Host, request.Account.ClientUser)
 	defer logger.Infof("Login response to client id %s, host %s, user %s", request.ClientId, request.Account.Host, request.Account.ClientUser)
@@ -157,6 +169,12 @@ func (server *Server) Logout(context context.Context, request *api.LogoutRequest
 		"function": "Logout",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Infof("Logout request from client, session id %s", request.SessionId)
 	defer logger.Infof("Logout response to client, session id %s", request.SessionId)
 
@@ -195,6 +213,12 @@ func (server *Server) LogoutAll() {
 		"function": "LogoutAll",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Info("Logout All")
 	defer logger.Info("Logged-out All")
 
@@ -232,6 +256,18 @@ func (server *Server) GetIRODSFSCount() int {
 }
 
 func (server *Server) GetIRODSConnections() int {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "Server",
+		"function": "LogoutAll",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	server.mutex.Lock()
 	defer server.mutex.Unlock()
 
@@ -249,6 +285,12 @@ func (server *Server) getSessionAndConnection(sessionID string) (*Session, *IROD
 		"struct":   "Server",
 		"function": "getSessionAndConnection",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	server.mutex.RLock()
 	defer server.mutex.RUnlock()
@@ -279,6 +321,12 @@ func (server *Server) getFileHandle(sessionID string, fileHandleID string) (*Fil
 		"function": "getFileHandle",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	server.mutex.RLock()
 	defer server.mutex.RUnlock()
 
@@ -307,6 +355,12 @@ func (server *Server) List(context context.Context, request *api.ListRequest) (*
 		"struct":   "Server",
 		"function": "List",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Infof("List request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("List response to client session id %s, path %s", request.SessionId, request.Path)
@@ -360,6 +414,12 @@ func (server *Server) Stat(context context.Context, request *api.StatRequest) (*
 		"struct":   "Server",
 		"function": "Stat",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Infof("Stat request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("Stat response to client session id %s, path %s", request.SessionId, request.Path)
@@ -420,6 +480,12 @@ func (server *Server) ExistsDir(context context.Context, request *api.ExistsDirR
 		"function": "ExistsDir",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Infof("ExistsDir request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("ExistsDir response to client session id %s, path %s", request.SessionId, request.Path)
 
@@ -450,6 +516,12 @@ func (server *Server) ExistsFile(context context.Context, request *api.ExistsFil
 		"function": "ExistsFile",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Infof("ExistsFile request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("ExistsFile response to client session id %s, path %s", request.SessionId, request.Path)
 
@@ -479,6 +551,12 @@ func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request
 		"struct":   "Server",
 		"function": "ListDirACLsWithGroupUsers",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Infof("ListDirACLsWithGroupUsers request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("ListDirACLsWithGroupUsers response to client session id %s, path %s", request.SessionId, request.Path)
@@ -529,6 +607,12 @@ func (server *Server) ListFileACLsWithGroupUsers(context context.Context, reques
 		"function": "ListFileACLsWithGroupUsers",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Infof("ListFileACLsWithGroupUsers request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("ListFileACLsWithGroupUsers response to client session id %s, path %s", request.SessionId, request.Path)
 
@@ -578,6 +662,12 @@ func (server *Server) RemoveFile(context context.Context, request *api.RemoveFil
 		"function": "RemoveFile",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Infof("RemoveFile request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("RemoveFile response to client session id %s, path %s", request.SessionId, request.Path)
 
@@ -614,6 +704,12 @@ func (server *Server) RemoveDir(context context.Context, request *api.RemoveDirR
 		"function": "RemoveDir",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Infof("RemoveDir request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("RemoveDir response to client session id %s, path %s", request.SessionId, request.Path)
 
@@ -646,6 +742,12 @@ func (server *Server) MakeDir(context context.Context, request *api.MakeDirReque
 		"struct":   "Server",
 		"function": "MakeDir",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Infof("MakeDir request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("MakeDir response to client session id %s, path %s", request.SessionId, request.Path)
@@ -680,6 +782,12 @@ func (server *Server) RenameDirToDir(context context.Context, request *api.Renam
 		"function": "RenameDirToDir",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Infof("RenameDirToDir request from client session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
 	defer logger.Infof("RenameDirToDir response to client session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
 
@@ -712,6 +820,12 @@ func (server *Server) RenameFileToFile(context context.Context, request *api.Ren
 		"struct":   "Server",
 		"function": "RenameFileToFile",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Infof("RenameFileToFile request from client session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
 	defer logger.Infof("RenameFileToFile response to client session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
@@ -748,6 +862,12 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 		"struct":   "Server",
 		"function": "CreateFile",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Infof("CreateFile request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("CreateFile response to client session id %s, path %s", request.SessionId, request.Path)
@@ -810,6 +930,12 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 		"struct":   "Server",
 		"function": "OpenFile",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Infof("OpenFile request from client session id %s, path %s, mode(%s)", request.SessionId, request.Path, request.Mode)
 	defer logger.Infof("OpenFile response to client session id %s, path %s, mode(%s)", request.SessionId, request.Path, request.Mode)
@@ -906,6 +1032,12 @@ func (server *Server) TruncateFile(context context.Context, request *api.Truncat
 		"function": "TruncateFile",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Infof("TruncateFile request from client session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("TruncateFile response to client session id %s, path %s", request.SessionId, request.Path)
 
@@ -942,6 +1074,12 @@ func (server *Server) GetOffset(context context.Context, request *api.GetOffsetR
 		"function": "GetOffset",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Infof("GetOffset request from client session id %s, file handle id %s", request.SessionId, request.FileHandleId)
 	defer logger.Infof("GetOffset response to client session id %s, file handle id %s", request.SessionId, request.FileHandleId)
 
@@ -964,6 +1102,12 @@ func (server *Server) ReadAt(context context.Context, request *api.ReadAtRequest
 		"struct":   "Server",
 		"function": "ReadAt",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Infof("ReadAt request from client session id %s, file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
 	defer logger.Infof("ReadAt response to client session id %s, file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
@@ -994,6 +1138,12 @@ func (server *Server) WriteAt(context context.Context, request *api.WriteAtReque
 		"function": "WriteAt",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Infof("WriteAt request from client session id %s, file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
 	defer logger.Infof("WriteAt response to client session id %s, file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
 
@@ -1019,6 +1169,12 @@ func (server *Server) Flush(context context.Context, request *api.FlushRequest) 
 		"function": "Flush",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Infof("Flush request from client session id %s, file handle id %s", request.SessionId, request.FileHandleId)
 	defer logger.Infof("Flush response to client session id %s, file handle id %s", request.SessionId, request.FileHandleId)
 
@@ -1043,6 +1199,12 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 		"struct":   "Server",
 		"function": "Close",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Infof("Close request from client session id %s, file handle id %s", request.SessionId, request.FileHandleId)
 	defer logger.Infof("Close response to client session id %s, file handle id %s", request.SessionId, request.FileHandleId)

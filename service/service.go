@@ -51,6 +51,12 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 		"function": "HandleConn",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	switch s.(type) {
 	case *stats.ConnEnd:
 		handler.mutex.Lock()
@@ -81,6 +87,12 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		"package":  "service",
 		"function": "NewPoolService",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	serverConfig := &ServerConfig{
 		BufferSizeMax: config.BufferSizeMax,
@@ -124,6 +136,12 @@ func (svc *PoolService) Start() error {
 		"struct":   "PoolService",
 		"function": "Start",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Info("Starting the iRODS FUSE Lite Pool service")
 
@@ -180,6 +198,12 @@ func (svc *PoolService) Destroy() {
 		"struct":   "PoolService",
 		"function": "Destroy",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	logger.Info("Destroying the iRODS FUSE Lite Pool service")
 	svc.terminateChan <- true

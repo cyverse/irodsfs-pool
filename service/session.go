@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 )
 
 // Session is a struct for client login
@@ -31,6 +32,18 @@ func NewSession(clientID string, connectionID string) *Session {
 }
 
 func (session *Session) Release() {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "Session",
+		"function": "Release",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 

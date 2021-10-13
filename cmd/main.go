@@ -68,6 +68,11 @@ func parentRun(irodsfsPoolExec string, config *commons.Config) error {
 		"function": "parentRun",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 	err := config.Validate()
 	if err != nil {
 		logger.WithError(err).Error("invalid argument")
@@ -169,6 +174,12 @@ func parentMain() {
 		"function": "parentMain",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	// parse argument
 	config, logWriter, err, exit := processArguments()
 	if err != nil {
@@ -203,8 +214,15 @@ func childMain() {
 		"function": "childMain",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
+
 	logger.Info("Start background process")
 
+	logger.Info("Check STDIN to communicate to parent process")
 	// read from stdin
 	_, err := os.Stdin.Stat()
 	if err != nil {
@@ -213,12 +231,14 @@ func childMain() {
 		os.Exit(1)
 	}
 
+	logger.Info("Reading configuration from STDIN")
 	configBytes, err := ioutil.ReadAll(os.Stdin)
 	if err != nil {
 		logger.WithError(err).Error("failed to read configuration")
 		fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
 		os.Exit(1)
 	}
+	logger.Info("Successfully read configuration from STDIN")
 
 	config, err := commons.NewConfigFromYAML(configBytes)
 	if err != nil {
@@ -261,6 +281,12 @@ func run(config *commons.Config, isChildProcess bool) error {
 		"package":  "main",
 		"function": "run",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Panic(r)
+		}
+	}()
 
 	// run a service
 	svc, err := service.NewPoolService(config)

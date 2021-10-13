@@ -93,6 +93,16 @@ func (client *PoolServiceClient) getContextWithDeadline() (context.Context, cont
 	return context.WithTimeout(context.Background(), client.operationTimeout)
 }
 
+func (client *PoolServiceClient) getLargeReadOption() grpc.CallOption {
+	// set to 1GB
+	return grpc.MaxCallRecvMsgSize(1024 * 1024 * 1024)
+}
+
+func (client *PoolServiceClient) getLargeWriteOption() grpc.CallOption {
+	// set to 1GB
+	return grpc.MaxCallSendMsgSize(1024 * 1024 * 1024)
+}
+
 // Login logins to iRODS service using account info
 func (client *PoolServiceClient) Login(account *irodsclient_types.IRODSAccount, applicationName string, clientID string) (*PoolServiceSession, error) {
 	logger := log.WithFields(log.Fields{
@@ -178,7 +188,7 @@ func (client *PoolServiceClient) List(session *PoolServiceSession, path string) 
 	ctx, cancel := client.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.List(ctx, request)
+	response, err := client.apiClient.List(ctx, request, client.getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -341,7 +351,7 @@ func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceS
 	ctx, cancel := client.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.ListDirACLsWithGroupUsers(ctx, request)
+	response, err := client.apiClient.ListDirACLsWithGroupUsers(ctx, request, client.getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -380,7 +390,7 @@ func (client *PoolServiceClient) ListFileACLsWithGroupUsers(session *PoolService
 	ctx, cancel := client.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.ListFileACLsWithGroupUsers(ctx, request)
+	response, err := client.apiClient.ListFileACLsWithGroupUsers(ctx, request, client.getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -716,7 +726,7 @@ func (client *PoolServiceClient) ReadAt(handle *PoolServiceFileHandle, offset in
 		ctx, cancel := client.getContextWithDeadline()
 		defer cancel()
 
-		response, err := client.apiClient.ReadAt(ctx, request)
+		response, err := client.apiClient.ReadAt(ctx, request, client.getLargeReadOption())
 		if err != nil {
 			logger.Error(err)
 			return nil, err
@@ -796,7 +806,7 @@ func (client *PoolServiceClient) WriteAt(handle *PoolServiceFileHandle, offset i
 		ctx, cancel := client.getContextWithDeadline()
 		defer cancel()
 
-		_, err := client.apiClient.WriteAt(ctx, request)
+		_, err := client.apiClient.WriteAt(ctx, request, client.getLargeWriteOption())
 		if err != nil {
 			logger.Error(err)
 			return err

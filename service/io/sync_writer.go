@@ -1,6 +1,7 @@
 package io
 
 import (
+	"runtime/debug"
 	"sync"
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
@@ -35,6 +36,7 @@ func (writer *SyncWriter) Release() {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -52,6 +54,7 @@ func (writer *SyncWriter) WriteAt(offset int64, data []byte) error {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -40,6 +41,7 @@ func (session *Session) Release() {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()

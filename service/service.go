@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -53,6 +54,7 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -90,6 +92,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -139,6 +142,7 @@ func (svc *PoolService) Start() error {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -201,6 +205,7 @@ func (svc *PoolService) Destroy() {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()

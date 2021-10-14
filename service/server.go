@@ -3,6 +3,7 @@ package service
 import (
 	context "context"
 	"fmt"
+	"runtime/debug"
 	"sync"
 
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
@@ -70,6 +71,7 @@ func (server *Server) Release() {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -116,6 +118,7 @@ func (server *Server) Login(context context.Context, request *api.LoginRequest) 
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -171,6 +174,7 @@ func (server *Server) Logout(context context.Context, request *api.LogoutRequest
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -215,6 +219,7 @@ func (server *Server) LogoutAll() {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -264,6 +269,7 @@ func (server *Server) GetIRODSConnections() int {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -288,6 +294,7 @@ func (server *Server) getSessionAndConnection(sessionID string) (*Session, *IROD
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -323,6 +330,7 @@ func (server *Server) getFileHandle(sessionID string, fileHandleID string) (*Fil
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -358,6 +366,7 @@ func (server *Server) List(context context.Context, request *api.ListRequest) (*
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -417,6 +426,7 @@ func (server *Server) Stat(context context.Context, request *api.StatRequest) (*
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -482,6 +492,7 @@ func (server *Server) ExistsDir(context context.Context, request *api.ExistsDirR
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -518,6 +529,7 @@ func (server *Server) ExistsFile(context context.Context, request *api.ExistsFil
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -554,6 +566,7 @@ func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -609,6 +622,7 @@ func (server *Server) ListFileACLsWithGroupUsers(context context.Context, reques
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -664,6 +678,7 @@ func (server *Server) RemoveFile(context context.Context, request *api.RemoveFil
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -706,6 +721,7 @@ func (server *Server) RemoveDir(context context.Context, request *api.RemoveDirR
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -745,6 +761,7 @@ func (server *Server) MakeDir(context context.Context, request *api.MakeDirReque
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -784,6 +801,7 @@ func (server *Server) RenameDirToDir(context context.Context, request *api.Renam
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -823,6 +841,7 @@ func (server *Server) RenameFileToFile(context context.Context, request *api.Ren
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -865,6 +884,7 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -933,6 +953,7 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -1034,6 +1055,7 @@ func (server *Server) TruncateFile(context context.Context, request *api.Truncat
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -1076,6 +1098,7 @@ func (server *Server) GetOffset(context context.Context, request *api.GetOffsetR
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -1105,6 +1128,7 @@ func (server *Server) ReadAt(context context.Context, request *api.ReadAtRequest
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -1140,6 +1164,7 @@ func (server *Server) WriteAt(context context.Context, request *api.WriteAtReque
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -1171,6 +1196,7 @@ func (server *Server) Flush(context context.Context, request *api.FlushRequest) 
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -1202,6 +1228,7 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()

@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"runtime/debug"
 	"sync"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
@@ -44,6 +45,7 @@ func NewIRODSConnection(connectionID string, account *api.Account, applicationNa
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -88,6 +90,7 @@ func (connection *IRODSConnection) Release() {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -146,6 +149,7 @@ func (connection *IRODSConnection) ReleaseIfNoSession() bool {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()

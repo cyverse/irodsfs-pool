@@ -2,6 +2,7 @@ package io
 
 import (
 	"fmt"
+	"runtime/debug"
 	"strconv"
 	"sync"
 
@@ -58,6 +59,7 @@ func (writer *AsyncWriter) Release() {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -93,6 +95,7 @@ func (writer *AsyncWriter) WriteAt(offset int64, data []byte) error {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -133,6 +136,7 @@ func (writer *AsyncWriter) Flush() error {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -180,6 +184,7 @@ func (writer *AsyncWriter) backgroundWriteTask() {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()

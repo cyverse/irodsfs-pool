@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"runtime/debug"
 	"sync"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
@@ -43,6 +44,7 @@ func (handle *FileHandle) Release() error {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -100,6 +102,7 @@ func (handle *FileHandle) Flush() error {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -127,6 +130,7 @@ func (handle *FileHandle) GetOffset() int64 {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -150,6 +154,7 @@ func (handle *FileHandle) ReadAt(offset int64, len int) ([]byte, error) {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()
@@ -169,6 +174,7 @@ func (handle *FileHandle) WriteAt(offset int64, data []byte) error {
 
 	defer func() {
 		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
 			logger.Panic(r)
 		}
 	}()

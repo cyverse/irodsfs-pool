@@ -20,7 +20,7 @@ type BufferedWriter struct {
 }
 
 const (
-	BufferSizeMax int = 1024 * 1024 * 8 // 8MB
+	BufferSizeMax int = 1024 * 1024 * 4 // 4MB
 )
 
 func NewBufferedWriter(path string, writer Writer) *BufferedWriter {

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
@@ -66,6 +67,13 @@ func (client *PoolServiceClient) Connect() error {
 		"function": "Connect",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	conn, err := grpc.Dial(client.host, grpc.WithInsecure())
 	if err != nil {
 		logger.Error(err)
@@ -110,6 +118,13 @@ func (client *PoolServiceClient) Login(account *irodsclient_types.IRODSAccount, 
 		"struct":   "PoolServiceClient",
 		"function": "Login",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
 
 	request := &api.LoginRequest{
 		Account: &api.Account{
@@ -156,6 +171,13 @@ func (client *PoolServiceClient) Logout(session *PoolServiceSession) error {
 		"function": "Logout",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	request := &api.LogoutRequest{
 		SessionId: session.id,
 	}
@@ -179,6 +201,13 @@ func (client *PoolServiceClient) List(session *PoolServiceSession, path string) 
 		"struct":   "PoolServiceClient",
 		"function": "List",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
 
 	request := &api.ListRequest{
 		SessionId: session.id,
@@ -234,6 +263,13 @@ func (client *PoolServiceClient) Stat(session *PoolServiceSession, path string) 
 		"struct":   "PoolServiceClient",
 		"function": "Stat",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
 
 	request := &api.StatRequest{
 		SessionId: session.id,
@@ -293,6 +329,13 @@ func (client *PoolServiceClient) ExistsDir(session *PoolServiceSession, path str
 		"function": "ExistsDir",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	request := &api.ExistsDirRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -318,6 +361,13 @@ func (client *PoolServiceClient) ExistsFile(session *PoolServiceSession, path st
 		"function": "ExistsFile",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	request := &api.ExistsFileRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -342,6 +392,13 @@ func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceS
 		"struct":   "PoolServiceClient",
 		"function": "ListDirACLsWithGroupUsers",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
 
 	request := &api.ListDirACLsWithGroupUsersRequest{
 		SessionId: session.id,
@@ -382,6 +439,13 @@ func (client *PoolServiceClient) ListFileACLsWithGroupUsers(session *PoolService
 		"function": "ListFileACLsWithGroupUsers",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	request := &api.ListFileACLsWithGroupUsersRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -421,6 +485,13 @@ func (client *PoolServiceClient) RemoveFile(session *PoolServiceSession, path st
 		"function": "RemoveFile",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	request := &api.RemoveFileRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -446,6 +517,13 @@ func (client *PoolServiceClient) RemoveDir(session *PoolServiceSession, path str
 		"struct":   "PoolServiceClient",
 		"function": "RemoveDir",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
 
 	request := &api.RemoveDirRequest{
 		SessionId: session.id,
@@ -474,6 +552,13 @@ func (client *PoolServiceClient) MakeDir(session *PoolServiceSession, path strin
 		"function": "MakeDir",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	request := &api.MakeDirRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -499,6 +584,13 @@ func (client *PoolServiceClient) RenameDirToDir(session *PoolServiceSession, src
 		"struct":   "PoolServiceClient",
 		"function": "RenameDirToDir",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
 
 	request := &api.RenameDirToDirRequest{
 		SessionId:       session.id,
@@ -526,6 +618,13 @@ func (client *PoolServiceClient) RenameFileToFile(session *PoolServiceSession, s
 		"function": "RenameFileToFile",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	request := &api.RenameFileToFileRequest{
 		SessionId:       session.id,
 		SourcePath:      srcPath,
@@ -551,6 +650,13 @@ func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path st
 		"struct":   "PoolServiceClient",
 		"function": "CreateFile",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
 
 	request := &api.CreateFileRequest{
 		SessionId: session.id,
@@ -606,6 +712,13 @@ func (client *PoolServiceClient) OpenFile(session *PoolServiceSession, path stri
 		"struct":   "PoolServiceClient",
 		"function": "OpenFile",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
 
 	request := &api.OpenFileRequest{
 		SessionId: session.id,
@@ -663,6 +776,13 @@ func (client *PoolServiceClient) TruncateFile(session *PoolServiceSession, path 
 		"function": "TruncateFile",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	request := &api.TruncateFileRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -689,6 +809,13 @@ func (client *PoolServiceClient) GetOffset(handle *PoolServiceFileHandle) int64 
 		"function": "GetOffset",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	request := &api.GetOffsetRequest{
 		SessionId:    handle.SessionID,
 		FileHandleId: handle.FileHandleID,
@@ -713,6 +840,13 @@ func (client *PoolServiceClient) ReadAt(handle *PoolServiceFileHandle, offset in
 		"struct":   "PoolServiceClient",
 		"function": "ReadAt",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
 
 	if length <= FileRWLengthMax {
 		// do zero copy
@@ -786,6 +920,13 @@ func (client *PoolServiceClient) WriteAt(handle *PoolServiceFileHandle, offset i
 		"function": "WriteAt",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	remainLength := len(data)
 	curOffset := offset
 	totalWriteLength := 0
@@ -828,6 +969,13 @@ func (client *PoolServiceClient) Flush(handle *PoolServiceFileHandle) error {
 		"function": "Flush",
 	})
 
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
 	request := &api.FlushRequest{
 		SessionId:    handle.SessionID,
 		FileHandleId: handle.FileHandleID,
@@ -852,6 +1000,13 @@ func (client *PoolServiceClient) Close(handle *PoolServiceFileHandle) error {
 		"struct":   "PoolServiceClient",
 		"function": "Close",
 	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
 
 	request := &api.CloseRequest{
 		SessionId:    handle.SessionID,

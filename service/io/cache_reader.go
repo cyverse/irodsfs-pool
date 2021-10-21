@@ -86,7 +86,7 @@ func (reader *CacheReader) ReadAt(offset int64, length int) ([]byte, error) {
 
 		var cacheData []byte
 		if cacheEntry == nil {
-			logger.Info("cache for block %s not found -- read from remote", blockKey)
+			logger.Infof("cache for block %s not found -- read from remote", blockKey)
 
 			blockOffset := reader.BlockHelper.GetBlockStartOffsetForBlockID(blockID)
 			blockData, err := reader.Reader.ReadAt(blockOffset, BlockSize)

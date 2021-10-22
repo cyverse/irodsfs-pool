@@ -140,6 +140,8 @@ func (svc *PoolService) Start() error {
 		"function": "Start",
 	})
 
+	svc.terminated = true
+
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
@@ -181,6 +183,7 @@ func (svc *PoolService) Start() error {
 		return err
 	}
 
+	svc.terminated = false
 	// should not return
 	return nil
 }

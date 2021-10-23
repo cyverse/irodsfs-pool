@@ -102,13 +102,13 @@ func (client *PoolServiceClient) getContextWithDeadline() (context.Context, cont
 }
 
 func (client *PoolServiceClient) getLargeReadOption() grpc.CallOption {
-	// set to 1GB
-	return grpc.MaxCallRecvMsgSize(1024 * 1024 * 1024)
+	// set to 128MB
+	return grpc.MaxCallRecvMsgSize(128 * 1024 * 1024)
 }
 
 func (client *PoolServiceClient) getLargeWriteOption() grpc.CallOption {
-	// set to 1GB
-	return grpc.MaxCallSendMsgSize(1024 * 1024 * 1024)
+	// set to 128MB
+	return grpc.MaxCallSendMsgSize(128 * 1024 * 1024)
 }
 
 // Login logins to iRODS service using account info

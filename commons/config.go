@@ -13,6 +13,7 @@ const (
 	DataCacheSizeMaxDefault        int64  = 1024 * 1024 * 1024 * 20 // 20GB
 	DataCacheRootPathPrefixDefault string = "/tmp/irodsfs_pool"
 	LogFilePathPrefixDefault       string = "/tmp/irodsfs_pool"
+	ProfileServicePortDefault      int    = 12021
 )
 
 var (
@@ -47,6 +48,9 @@ type Config struct {
 
 	LogPath string `yaml:"log_path,omitempty"`
 
+	Profile            bool `yaml:"profile,omitempty"`
+	ProfileServicePort int  `yaml:"profile_service_port,omitempty"`
+
 	Foreground   bool `yaml:"foreground,omitempty"`
 	ChildProcess bool `yaml:"childprocess,omitempty"`
 
@@ -63,6 +67,9 @@ func NewDefaultConfig() *Config {
 
 		LogPath: "",
 
+		Profile:            false,
+		ProfileServicePort: ProfileServicePortDefault,
+
 		Foreground:   false,
 		ChildProcess: false,
 
@@ -77,6 +84,9 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 		BufferSizeMax:     BufferSizeMaxDefault,
 		DataCacheSizeMax:  DataCacheSizeMaxDefault,
 		DataCacheRootPath: GetDefaultDataCacheRootPath(),
+
+		Profile:            false,
+		ProfileServicePort: ProfileServicePortDefault,
 
 		Foreground:   false,
 		ChildProcess: false,
@@ -95,7 +105,11 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 // Validate validates configuration
 func (config *Config) Validate() error {
 	if config.ServicePort <= 0 {
-		return fmt.Errorf("Service port must be given")
+		return fmt.Errorf("service port must be given")
+	}
+
+	if config.Profile && config.ProfileServicePort <= 0 {
+		return fmt.Errorf("profile service port must be given")
 	}
 
 	return nil

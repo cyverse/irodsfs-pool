@@ -43,6 +43,8 @@ func processArguments() (*commons.Config, io.WriteCloser, error, bool) {
 	flag.Int64Var(&config.DataCacheSizeMax, "cache_size_max", commons.DataCacheSizeMaxDefault, "Set file cache max size")
 	flag.StringVar(&config.DataCacheRootPath, "cache_root", commons.GetDefaultDataCacheRootPath(), "Set file cache root path")
 	flag.StringVar(&config.LogPath, "log", commons.GetDefaultLogFilePath(), "Set log file path")
+	flag.BoolVar(&config.Profile, "profile", false, "Enable profiling")
+	flag.IntVar(&config.ProfileServicePort, "profile_port", commons.ProfileServicePortDefault, "Set profile service port")
 
 	flag.Parse()
 
@@ -112,7 +114,7 @@ func processArguments() (*commons.Config, io.WriteCloser, error, bool) {
 func getLogWriter(logPath string) io.WriteCloser {
 	return &lumberjack.Logger{
 		Filename:   logPath,
-		MaxSize:    100, // 100MB
+		MaxSize:    10, // 10MB
 		MaxBackups: 3,
 		MaxAge:     30, // 30 days
 		Compress:   false,

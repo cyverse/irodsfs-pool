@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service"
+	"github.com/pkg/profile"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -292,6 +295,17 @@ func run(config *commons.Config, isChildProcess bool) error {
 			logger.Panic(r)
 		}
 	}()
+
+	// profile
+	if config.Profile {
+		go func() {
+			profileServiceAddr := fmt.Sprintf(":%d", config.ProfileServicePort)
+			http.ListenAndServe(profileServiceAddr, nil)
+		}()
+
+		prof := profile.Start(profile.MemProfile)
+		defer prof.Stop()
+	}
 
 	// run a service
 	svc, err := service.NewPoolService(config)

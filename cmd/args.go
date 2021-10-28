@@ -115,7 +115,7 @@ func getLogWriter(logPath string) io.WriteCloser {
 	return &lumberjack.Logger{
 		Filename:   logPath,
 		MaxSize:    10, // 10MB
-		MaxBackups: 3,
+		MaxBackups: 1,
 		MaxAge:     30, // 30 days
 		Compress:   false,
 	}

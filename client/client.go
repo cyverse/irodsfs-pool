@@ -385,12 +385,12 @@ func (client *PoolServiceClient) ExistsFile(session *PoolServiceSession, path st
 	return response.Exist
 }
 
-// ListDirACLsWithGroupUsers lists iRODS collection ACLs with group users
-func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceSession, path string) ([]*irodsclient_types.IRODSAccess, error) {
+// ListUserGroups lists iRODS Groups that a user belongs to
+func (client *PoolServiceClient) ListUserGroups(session *PoolServiceSession, user string) ([]*irodsclient_types.IRODSUser, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"struct":   "PoolServiceClient",
-		"function": "ListDirACLsWithGroupUsers",
+		"function": "ListUserGroups",
 	})
 
 	defer func() {
@@ -400,7 +400,51 @@ func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceS
 		}
 	}()
 
-	request := &api.ListDirACLsWithGroupUsersRequest{
+	request := &api.ListUserGroupsRequest{
+		SessionId: session.id,
+		UserName:  user,
+	}
+
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	response, err := client.apiClient.ListUserGroups(ctx, request, client.getLargeReadOption())
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	irodsUsers := []*irodsclient_types.IRODSUser{}
+
+	for _, user := range response.Users {
+		irodsUser := &irodsclient_types.IRODSUser{
+			Name: user.Name,
+			Zone: user.Zone,
+			Type: irodsclient_types.IRODSUserType(user.Type),
+		}
+
+		irodsUsers = append(irodsUsers, irodsUser)
+	}
+
+	return irodsUsers, nil
+}
+
+// ListDirACLs lists iRODS collection ACLs
+func (client *PoolServiceClient) ListDirACLs(session *PoolServiceSession, path string) ([]*irodsclient_types.IRODSAccess, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceClient",
+		"function": "ListDirACLs",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
+	request := &api.ListDirACLsRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
@@ -408,7 +452,7 @@ func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceS
 	ctx, cancel := client.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.ListDirACLsWithGroupUsers(ctx, request, client.getLargeReadOption())
+	response, err := client.apiClient.ListDirACLs(ctx, request, client.getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -431,12 +475,12 @@ func (client *PoolServiceClient) ListDirACLsWithGroupUsers(session *PoolServiceS
 	return irodsAccesses, nil
 }
 
-// ListFileACLsWithGroupUsers lists iRODS data object ACLs with group users
-func (client *PoolServiceClient) ListFileACLsWithGroupUsers(session *PoolServiceSession, path string) ([]*irodsclient_types.IRODSAccess, error) {
+// ListFileACLs lists iRODS data object ACLs
+func (client *PoolServiceClient) ListFileACLs(session *PoolServiceSession, path string) ([]*irodsclient_types.IRODSAccess, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"struct":   "PoolServiceClient",
-		"function": "ListFileACLsWithGroupUsers",
+		"function": "ListFileACLs",
 	})
 
 	defer func() {
@@ -446,7 +490,7 @@ func (client *PoolServiceClient) ListFileACLsWithGroupUsers(session *PoolService
 		}
 	}()
 
-	request := &api.ListFileACLsWithGroupUsersRequest{
+	request := &api.ListFileACLsRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
@@ -454,7 +498,7 @@ func (client *PoolServiceClient) ListFileACLsWithGroupUsers(session *PoolService
 	ctx, cancel := client.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.ListFileACLsWithGroupUsers(ctx, request, client.getLargeReadOption())
+	response, err := client.apiClient.ListFileACLs(ctx, request, client.getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
 		return nil, err

@@ -24,8 +24,9 @@ type PoolAPIClient interface {
 	Stat(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
 	ExistsDir(ctx context.Context, in *ExistsDirRequest, opts ...grpc.CallOption) (*ExistsDirResponse, error)
 	ExistsFile(ctx context.Context, in *ExistsFileRequest, opts ...grpc.CallOption) (*ExistsFileResponse, error)
-	ListDirACLsWithGroupUsers(ctx context.Context, in *ListDirACLsWithGroupUsersRequest, opts ...grpc.CallOption) (*ListDirACLsWithGroupUsersResponse, error)
-	ListFileACLsWithGroupUsers(ctx context.Context, in *ListFileACLsWithGroupUsersRequest, opts ...grpc.CallOption) (*ListFileACLsWithGroupUsersResponse, error)
+	ListUserGroups(ctx context.Context, in *ListUserGroupsRequest, opts ...grpc.CallOption) (*ListUserGroupsResponse, error)
+	ListDirACLs(ctx context.Context, in *ListDirACLsRequest, opts ...grpc.CallOption) (*ListDirACLsResponse, error)
+	ListFileACLs(ctx context.Context, in *ListFileACLsRequest, opts ...grpc.CallOption) (*ListFileACLsResponse, error)
 	RemoveFile(ctx context.Context, in *RemoveFileRequest, opts ...grpc.CallOption) (*Empty, error)
 	RemoveDir(ctx context.Context, in *RemoveDirRequest, opts ...grpc.CallOption) (*Empty, error)
 	MakeDir(ctx context.Context, in *MakeDirRequest, opts ...grpc.CallOption) (*Empty, error)
@@ -104,18 +105,27 @@ func (c *poolAPIClient) ExistsFile(ctx context.Context, in *ExistsFileRequest, o
 	return out, nil
 }
 
-func (c *poolAPIClient) ListDirACLsWithGroupUsers(ctx context.Context, in *ListDirACLsWithGroupUsersRequest, opts ...grpc.CallOption) (*ListDirACLsWithGroupUsersResponse, error) {
-	out := new(ListDirACLsWithGroupUsersResponse)
-	err := c.cc.Invoke(ctx, "/api.PoolAPI/ListDirACLsWithGroupUsers", in, out, opts...)
+func (c *poolAPIClient) ListUserGroups(ctx context.Context, in *ListUserGroupsRequest, opts ...grpc.CallOption) (*ListUserGroupsResponse, error) {
+	out := new(ListUserGroupsResponse)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/ListUserGroups", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *poolAPIClient) ListFileACLsWithGroupUsers(ctx context.Context, in *ListFileACLsWithGroupUsersRequest, opts ...grpc.CallOption) (*ListFileACLsWithGroupUsersResponse, error) {
-	out := new(ListFileACLsWithGroupUsersResponse)
-	err := c.cc.Invoke(ctx, "/api.PoolAPI/ListFileACLsWithGroupUsers", in, out, opts...)
+func (c *poolAPIClient) ListDirACLs(ctx context.Context, in *ListDirACLsRequest, opts ...grpc.CallOption) (*ListDirACLsResponse, error) {
+	out := new(ListDirACLsResponse)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/ListDirACLs", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *poolAPIClient) ListFileACLs(ctx context.Context, in *ListFileACLsRequest, opts ...grpc.CallOption) (*ListFileACLsResponse, error) {
+	out := new(ListFileACLsResponse)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/ListFileACLs", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -249,8 +259,9 @@ type PoolAPIServer interface {
 	Stat(context.Context, *StatRequest) (*StatResponse, error)
 	ExistsDir(context.Context, *ExistsDirRequest) (*ExistsDirResponse, error)
 	ExistsFile(context.Context, *ExistsFileRequest) (*ExistsFileResponse, error)
-	ListDirACLsWithGroupUsers(context.Context, *ListDirACLsWithGroupUsersRequest) (*ListDirACLsWithGroupUsersResponse, error)
-	ListFileACLsWithGroupUsers(context.Context, *ListFileACLsWithGroupUsersRequest) (*ListFileACLsWithGroupUsersResponse, error)
+	ListUserGroups(context.Context, *ListUserGroupsRequest) (*ListUserGroupsResponse, error)
+	ListDirACLs(context.Context, *ListDirACLsRequest) (*ListDirACLsResponse, error)
+	ListFileACLs(context.Context, *ListFileACLsRequest) (*ListFileACLsResponse, error)
 	RemoveFile(context.Context, *RemoveFileRequest) (*Empty, error)
 	RemoveDir(context.Context, *RemoveDirRequest) (*Empty, error)
 	MakeDir(context.Context, *MakeDirRequest) (*Empty, error)
@@ -290,11 +301,14 @@ func (UnimplementedPoolAPIServer) ExistsDir(context.Context, *ExistsDirRequest) 
 func (UnimplementedPoolAPIServer) ExistsFile(context.Context, *ExistsFileRequest) (*ExistsFileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExistsFile not implemented")
 }
-func (UnimplementedPoolAPIServer) ListDirACLsWithGroupUsers(context.Context, *ListDirACLsWithGroupUsersRequest) (*ListDirACLsWithGroupUsersResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListDirACLsWithGroupUsers not implemented")
+func (UnimplementedPoolAPIServer) ListUserGroups(context.Context, *ListUserGroupsRequest) (*ListUserGroupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListUserGroups not implemented")
 }
-func (UnimplementedPoolAPIServer) ListFileACLsWithGroupUsers(context.Context, *ListFileACLsWithGroupUsersRequest) (*ListFileACLsWithGroupUsersResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListFileACLsWithGroupUsers not implemented")
+func (UnimplementedPoolAPIServer) ListDirACLs(context.Context, *ListDirACLsRequest) (*ListDirACLsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDirACLs not implemented")
+}
+func (UnimplementedPoolAPIServer) ListFileACLs(context.Context, *ListFileACLsRequest) (*ListFileACLsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListFileACLs not implemented")
 }
 func (UnimplementedPoolAPIServer) RemoveFile(context.Context, *RemoveFileRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveFile not implemented")
@@ -456,38 +470,56 @@ func _PoolAPI_ExistsFile_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PoolAPI_ListDirACLsWithGroupUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListDirACLsWithGroupUsersRequest)
+func _PoolAPI_ListUserGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListUserGroupsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(PoolAPIServer).ListDirACLsWithGroupUsers(ctx, in)
+		return srv.(PoolAPIServer).ListUserGroups(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/api.PoolAPI/ListDirACLsWithGroupUsers",
+		FullMethod: "/api.PoolAPI/ListUserGroups",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PoolAPIServer).ListDirACLsWithGroupUsers(ctx, req.(*ListDirACLsWithGroupUsersRequest))
+		return srv.(PoolAPIServer).ListUserGroups(ctx, req.(*ListUserGroupsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PoolAPI_ListFileACLsWithGroupUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListFileACLsWithGroupUsersRequest)
+func _PoolAPI_ListDirACLs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDirACLsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(PoolAPIServer).ListFileACLsWithGroupUsers(ctx, in)
+		return srv.(PoolAPIServer).ListDirACLs(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/api.PoolAPI/ListFileACLsWithGroupUsers",
+		FullMethod: "/api.PoolAPI/ListDirACLs",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PoolAPIServer).ListFileACLsWithGroupUsers(ctx, req.(*ListFileACLsWithGroupUsersRequest))
+		return srv.(PoolAPIServer).ListDirACLs(ctx, req.(*ListDirACLsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PoolAPI_ListFileACLs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFileACLsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).ListFileACLs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.PoolAPI/ListFileACLs",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).ListFileACLs(ctx, req.(*ListFileACLsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -758,12 +790,16 @@ var PoolAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _PoolAPI_ExistsFile_Handler,
 		},
 		{
-			MethodName: "ListDirACLsWithGroupUsers",
-			Handler:    _PoolAPI_ListDirACLsWithGroupUsers_Handler,
+			MethodName: "ListUserGroups",
+			Handler:    _PoolAPI_ListUserGroups_Handler,
 		},
 		{
-			MethodName: "ListFileACLsWithGroupUsers",
-			Handler:    _PoolAPI_ListFileACLsWithGroupUsers_Handler,
+			MethodName: "ListDirACLs",
+			Handler:    _PoolAPI_ListDirACLs_Handler,
+		},
+		{
+			MethodName: "ListFileACLs",
+			Handler:    _PoolAPI_ListFileACLs_Handler,
 		},
 		{
 			MethodName: "RemoveFile",

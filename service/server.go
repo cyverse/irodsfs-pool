@@ -557,11 +557,11 @@ func (server *Server) ExistsFile(context context.Context, request *api.ExistsFil
 	}, nil
 }
 
-func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request *api.ListDirACLsWithGroupUsersRequest) (*api.ListDirACLsWithGroupUsersResponse, error) {
+func (server *Server) ListUserGroups(context context.Context, request *api.ListUserGroupsRequest) (*api.ListUserGroupsResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"struct":   "Server",
-		"function": "ListDirACLsWithGroupUsers",
+		"function": "ListUserGroups",
 	})
 
 	defer func() {
@@ -571,8 +571,8 @@ func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request
 		}
 	}()
 
-	logger.Infof("ListDirACLsWithGroupUsers request from client session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("ListDirACLsWithGroupUsers response to client session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("ListUserGroups request from client session id %s, user name %s", request.SessionId, request.UserName)
+	defer logger.Infof("ListUserGroups response to client session id %s, user name %s", request.SessionId, request.UserName)
 
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
@@ -588,7 +588,61 @@ func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request
 		return nil, fmt.Errorf("failed to get iRODSFS from connection")
 	}
 
-	accesses, err := irodsFS.ListDirACLsWithGroupUsers(request.Path)
+	groups, err := irodsFS.ListUserGroups(request.UserName)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	responseGroups := []*api.User{}
+	for _, group := range groups {
+		responseGroup := &api.User{
+			Name: group.Name,
+			Zone: group.Zone,
+			Type: string(group.Type),
+		}
+		responseGroups = append(responseGroups, responseGroup)
+	}
+
+	response := &api.ListUserGroupsResponse{
+		Users: responseGroups,
+	}
+
+	return response, nil
+}
+
+func (server *Server) ListDirACLs(context context.Context, request *api.ListDirACLsRequest) (*api.ListDirACLsResponse, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "Server",
+		"function": "ListDirACLs",
+	})
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
+			logger.Panic(r)
+		}
+	}()
+
+	logger.Infof("ListDirACLs request from client session id %s, path %s", request.SessionId, request.Path)
+	defer logger.Infof("ListDirACLs response to client session id %s, path %s", request.SessionId, request.Path)
+
+	session, connection, err := server.getSessionAndConnection(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	session.UpdateLastAccessTime()
+
+	irodsFS := connection.GetIRODSFS()
+	if irodsFS == nil {
+		logger.Error("failed to get iRODSFS from connection")
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+	}
+
+	accesses, err := irodsFS.ListDirACLs(request.Path)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -606,18 +660,18 @@ func (server *Server) ListDirACLsWithGroupUsers(context context.Context, request
 		responseAccesses = append(responseAccesses, responseAccess)
 	}
 
-	response := &api.ListDirACLsWithGroupUsersResponse{
+	response := &api.ListDirACLsResponse{
 		Accesses: responseAccesses,
 	}
 
 	return response, nil
 }
 
-func (server *Server) ListFileACLsWithGroupUsers(context context.Context, request *api.ListFileACLsWithGroupUsersRequest) (*api.ListFileACLsWithGroupUsersResponse, error) {
+func (server *Server) ListFileACLs(context context.Context, request *api.ListFileACLsRequest) (*api.ListFileACLsResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"struct":   "Server",
-		"function": "ListFileACLsWithGroupUsers",
+		"function": "ListFileACLs",
 	})
 
 	defer func() {
@@ -627,8 +681,8 @@ func (server *Server) ListFileACLsWithGroupUsers(context context.Context, reques
 		}
 	}()
 
-	logger.Infof("ListFileACLsWithGroupUsers request from client session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("ListFileACLsWithGroupUsers response to client session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("ListFileACLs request from client session id %s, path %s", request.SessionId, request.Path)
+	defer logger.Infof("ListFileACLs response to client session id %s, path %s", request.SessionId, request.Path)
 
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
@@ -644,7 +698,7 @@ func (server *Server) ListFileACLsWithGroupUsers(context context.Context, reques
 		return nil, fmt.Errorf("failed to get iRODSFS from connection")
 	}
 
-	accesses, err := irodsFS.ListFileACLsWithGroupUsers(request.Path)
+	accesses, err := irodsFS.ListFileACLs(request.Path)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -662,7 +716,7 @@ func (server *Server) ListFileACLsWithGroupUsers(context context.Context, reques
 		responseAccesses = append(responseAccesses, responseAccess)
 	}
 
-	response := &api.ListFileACLsWithGroupUsersResponse{
+	response := &api.ListFileACLsResponse{
 		Accesses: responseAccesses,
 	}
 

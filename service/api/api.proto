@@ -43,6 +43,13 @@ message Access {
 	string access_level = 5;
 }
 
+message User {
+	string name = 1;
+	string zone = 2;
+	string type = 3;
+
+}
+
 enum ErrorType {
 	NONE = 0;
 	GENERAL = 1;
@@ -105,21 +112,30 @@ message ExistsFileResponse {
 	bool exist = 1;
 }
 
-message ListDirACLsWithGroupUsersRequest {
+message ListUserGroupsRequest {
+	string session_id = 1;
+    string user_name = 2;
+}
+
+message ListUserGroupsResponse {
+	repeated User users = 1;
+}
+
+message ListDirACLsRequest {
 	string session_id = 1;
     string path = 2;
 }
 
-message ListDirACLsWithGroupUsersResponse {
+message ListDirACLsResponse {
 	repeated Access accesses = 1;
 }
 
-message ListFileACLsWithGroupUsersRequest {
+message ListFileACLsRequest {
 	string session_id = 1;
     string path = 2;
 }
 
-message ListFileACLsWithGroupUsersResponse {
+message ListFileACLsResponse {
 	repeated Access accesses = 1;
 }
 
@@ -228,8 +244,9 @@ service PoolAPI {
 	rpc ExistsDir(ExistsDirRequest) returns (ExistsDirResponse) {}
 	rpc ExistsFile(ExistsFileRequest) returns (ExistsFileResponse) {}
 
-	rpc ListDirACLsWithGroupUsers(ListDirACLsWithGroupUsersRequest) returns (ListDirACLsWithGroupUsersResponse) {}
-	rpc ListFileACLsWithGroupUsers(ListFileACLsWithGroupUsersRequest) returns (ListFileACLsWithGroupUsersResponse) {}
+	rpc ListUserGroups(ListUserGroupsRequest) returns (ListUserGroupsResponse) {}
+	rpc ListDirACLs(ListDirACLsRequest) returns (ListDirACLsResponse) {}
+	rpc ListFileACLs(ListFileACLsRequest) returns (ListFileACLsResponse) {}
 	rpc RemoveFile(RemoveFileRequest) returns (Empty) {}
 	rpc RemoveDir(RemoveDirRequest) returns (Empty) {}
 	rpc MakeDir(MakeDirRequest) returns (Empty) {}

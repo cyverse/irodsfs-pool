@@ -50,17 +50,6 @@ message User {
 
 }
 
-enum ErrorType {
-	NONE = 0;
-	GENERAL = 1;
-	FILENOTFOUND = 2;
-}
-
-message SoftError {
-	ErrorType type = 1;
-	string message = 2;
-}
-
 message LoginRequest{
 	Account account = 1;
 	string application_name = 2;
@@ -91,7 +80,6 @@ message StatRequest {
 
 message StatResponse {
 	Entry entry = 1;
-	SoftError error = 2;
 }
 
 message ExistsDirRequest {

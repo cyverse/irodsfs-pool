@@ -12,6 +12,8 @@ import (
 	"github.com/cyverse/irodsfs-pool/utils"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ServerConfig is a configuration for Server
@@ -109,6 +111,17 @@ func (server *Server) Release() {
 	}
 }
 
+func (server *Server) errorToStatus(err error) error {
+	if irodsclient_types.IsFileNotFoundError(err) {
+		return status.Error(codes.NotFound, err.Error())
+	} else if irodsclient_types.IsCollectionNotEmptyError(err) {
+		// there's no matching error type for not empty
+		return status.Error(codes.AlreadyExists, err.Error())
+	}
+
+	return status.Error(codes.Internal, err.Error())
+}
+
 func (server *Server) Login(context context.Context, request *api.LoginRequest) (*api.LoginResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
@@ -140,7 +153,6 @@ func (server *Server) Login(context context.Context, request *api.LoginRequest) 
 		logger.Infof("Reusing existing connection: %s", connectionID)
 
 		irodsConnection.AddSession(sessionID)
-
 	} else {
 		logger.Infof("Creating a new connection: %s", connectionID)
 
@@ -148,7 +160,7 @@ func (server *Server) Login(context context.Context, request *api.LoginRequest) 
 		newConn, err := NewIRODSConnection(connectionID, request.Account, request.ApplicationName)
 		if err != nil {
 			logger.WithError(err).Error("failed to create a new connection")
-			return nil, err
+			return nil, server.errorToStatus(err)
 		}
 
 		newConn.AddSession(sessionID)
@@ -202,11 +214,7 @@ func (server *Server) Logout(context context.Context, request *api.LogoutRequest
 		return &api.Empty{}, nil
 	}
 
-	//err := fmt.Errorf("cannot find session %s", request.SessionId)
-	//logger.Error(err)
-	//return nil, err
-
-	// no problem, session might be already closed due to timeout
+	// session might be already closed due to timeout
 	return &api.Empty{}, nil
 }
 
@@ -377,21 +385,22 @@ func (server *Server) List(context context.Context, request *api.ListRequest) (*
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	entries, err := irodsFS.List(request.Path)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	responseEntries := []*api.Entry{}
@@ -437,30 +446,22 @@ func (server *Server) Stat(context context.Context, request *api.StatRequest) (*
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	entry, err := irodsFS.Stat(request.Path)
 	if err != nil {
-		if irodsclient_types.IsFileNotFoundError(err) {
-			return &api.StatResponse{
-				Error: &api.SoftError{
-					Type:    api.ErrorType_FILENOTFOUND,
-					Message: err.Error(),
-				},
-			}, nil
-		}
-
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	responseEntry := &api.Entry{
@@ -477,7 +478,6 @@ func (server *Server) Stat(context context.Context, request *api.StatRequest) (*
 
 	response := &api.StatResponse{
 		Entry: responseEntry,
-		Error: nil,
 	}
 
 	return response, nil
@@ -503,15 +503,16 @@ func (server *Server) ExistsDir(context context.Context, request *api.ExistsDirR
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	exist := irodsFS.ExistsDir(request.Path)
@@ -540,15 +541,16 @@ func (server *Server) ExistsFile(context context.Context, request *api.ExistsFil
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	exist := irodsFS.ExistsFile(request.Path)
@@ -577,21 +579,22 @@ func (server *Server) ListUserGroups(context context.Context, request *api.ListU
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	groups, err := irodsFS.ListUserGroups(request.UserName)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	responseGroups := []*api.User{}
@@ -631,21 +634,22 @@ func (server *Server) ListDirACLs(context context.Context, request *api.ListDirA
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	accesses, err := irodsFS.ListDirACLs(request.Path)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	responseAccesses := []*api.Access{}
@@ -687,21 +691,22 @@ func (server *Server) ListFileACLs(context context.Context, request *api.ListFil
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	accesses, err := irodsFS.ListFileACLs(request.Path)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	responseAccesses := []*api.Access{}
@@ -743,21 +748,22 @@ func (server *Server) RemoveFile(context context.Context, request *api.RemoveFil
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	err = irodsFS.RemoveFile(request.Path, request.Force)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	// clear cache for the path if exists
@@ -786,21 +792,22 @@ func (server *Server) RemoveDir(context context.Context, request *api.RemoveDirR
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, fmt.Errorf("failed to get iRODSFS from connection")
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	err = irodsFS.RemoveDir(request.Path, request.Recurse, request.Force)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -826,21 +833,22 @@ func (server *Server) MakeDir(context context.Context, request *api.MakeDirReque
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	err = irodsFS.MakeDir(request.Path, request.Recurse)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -866,21 +874,22 @@ func (server *Server) RenameDirToDir(context context.Context, request *api.Renam
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	err = irodsFS.RenameDirToDir(request.SourcePath, request.DestinationPath)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -906,21 +915,22 @@ func (server *Server) RenameFileToFile(context context.Context, request *api.Ren
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	err = irodsFS.RenameFileToFile(request.SourcePath, request.DestinationPath)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	// clear cache for the path if exists
@@ -949,15 +959,16 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	// clear cache for the path if exists
@@ -966,7 +977,7 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 	handle, err := irodsFS.CreateFile(request.Path, request.Resource)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	fileHandleID := xid.New().String()
@@ -1018,21 +1029,22 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	handle, err := irodsFS.OpenFile(request.Path, request.Resource, request.Mode)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	fileHandleID := xid.New().String()
@@ -1120,15 +1132,16 @@ func (server *Server) TruncateFile(context context.Context, request *api.Truncat
 	session, connection, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	irodsFS := connection.GetIRODSFS()
 	if irodsFS == nil {
-		logger.Error("failed to get iRODSFS from connection")
-		return nil, fmt.Errorf("failed to get iRODSFS from connection")
+		err = fmt.Errorf("failed to get iRODSFS from connection")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	// clear cache for the path if exists
@@ -1137,7 +1150,7 @@ func (server *Server) TruncateFile(context context.Context, request *api.Truncat
 	err = irodsFS.TruncateFile(request.Path, request.Size)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -1163,7 +1176,7 @@ func (server *Server) GetOffset(context context.Context, request *api.GetOffsetR
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	response := &api.GetOffsetResponse{
@@ -1193,13 +1206,13 @@ func (server *Server) ReadAt(context context.Context, request *api.ReadAtRequest
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	data, err := fileHandle.ReadAt(request.Offset, int(request.Length))
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	response := &api.ReadAtResponse{
@@ -1229,13 +1242,13 @@ func (server *Server) WriteAt(context context.Context, request *api.WriteAtReque
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	err = fileHandle.WriteAt(request.Offset, request.Data)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -1261,13 +1274,13 @@ func (server *Server) Flush(context context.Context, request *api.FlushRequest) 
 	fileHandle, err := server.getFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	err = fileHandle.Flush()
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -1293,7 +1306,7 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 	session, _, err := server.getSessionAndConnection(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -1302,7 +1315,7 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 	if fileHandle == nil {
 		err := fmt.Errorf("failed to find file handle %s", request.FileHandleId)
 		logger.Error(err)
-		return nil, err
+		return nil, server.errorToStatus(err)
 	}
 
 	session.RemoveFileHandle(request.FileHandleId)
@@ -1315,8 +1328,8 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 
 	err = fileHandle.Release()
 	if err != nil {
-		logger.WithError(err)
-		return nil, err
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	return &api.Empty{}, nil

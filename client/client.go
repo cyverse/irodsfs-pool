@@ -12,6 +12,8 @@ import (
 	"github.com/cyverse/irodsfs-pool/utils"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -97,6 +99,25 @@ func (client *PoolServiceClient) Disconnect() {
 	}
 }
 
+func (client *PoolServiceClient) statusToError(err error) error {
+	st, ok := status.FromError(err)
+	if ok {
+		switch st.Code() {
+		case codes.NotFound:
+			return irodsclient_types.NewFileNotFoundError(st.Message())
+		case codes.AlreadyExists:
+			// there's no matching error type for not empty
+			return irodsclient_types.NewCollectionNotEmptyError(st.Message())
+		case codes.Internal:
+			return fmt.Errorf(err.Error())
+		default:
+			return fmt.Errorf(err.Error())
+		}
+	}
+
+	return err
+}
+
 func (client *PoolServiceClient) getContextWithDeadline() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), client.operationTimeout)
 }
@@ -152,7 +173,7 @@ func (client *PoolServiceClient) Login(account *irodsclient_types.IRODSAccount, 
 	response, err := client.apiClient.Login(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, client.statusToError(err)
 	}
 
 	return &PoolServiceSession{
@@ -188,7 +209,7 @@ func (client *PoolServiceClient) Logout(session *PoolServiceSession) error {
 	_, err := client.apiClient.Logout(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return err
+		return client.statusToError(err)
 	}
 
 	return nil
@@ -220,7 +241,7 @@ func (client *PoolServiceClient) List(session *PoolServiceSession, path string) 
 	response, err := client.apiClient.List(ctx, request, client.getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, client.statusToError(err)
 	}
 
 	irodsEntries := []*irodsclient_fs.Entry{}
@@ -282,16 +303,7 @@ func (client *PoolServiceClient) Stat(session *PoolServiceSession, path string) 
 	response, err := client.apiClient.Stat(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
-	}
-
-	if response.Error != nil && response.Error.Type != api.ErrorType_NONE {
-		// has soft error
-		if response.Error.Type == api.ErrorType_FILENOTFOUND {
-			// file not found
-			return nil, irodsclient_types.NewFileNotFoundError(response.Error.Message)
-		}
-		return nil, fmt.Errorf(response.Error.Message)
+		return nil, client.statusToError(err)
 	}
 
 	createTime, err := utils.ParseTime(response.Entry.CreateTime)
@@ -411,7 +423,7 @@ func (client *PoolServiceClient) ListUserGroups(session *PoolServiceSession, use
 	response, err := client.apiClient.ListUserGroups(ctx, request, client.getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, client.statusToError(err)
 	}
 
 	irodsUsers := []*irodsclient_types.IRODSUser{}
@@ -455,7 +467,7 @@ func (client *PoolServiceClient) ListDirACLs(session *PoolServiceSession, path s
 	response, err := client.apiClient.ListDirACLs(ctx, request, client.getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, client.statusToError(err)
 	}
 
 	irodsAccesses := []*irodsclient_types.IRODSAccess{}
@@ -501,7 +513,7 @@ func (client *PoolServiceClient) ListFileACLs(session *PoolServiceSession, path 
 	response, err := client.apiClient.ListFileACLs(ctx, request, client.getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, client.statusToError(err)
 	}
 
 	irodsAccesses := []*irodsclient_types.IRODSAccess{}
@@ -548,7 +560,7 @@ func (client *PoolServiceClient) RemoveFile(session *PoolServiceSession, path st
 	_, err := client.apiClient.RemoveFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return err
+		return client.statusToError(err)
 	}
 
 	return nil
@@ -582,7 +594,7 @@ func (client *PoolServiceClient) RemoveDir(session *PoolServiceSession, path str
 	_, err := client.apiClient.RemoveDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return err
+		return client.statusToError(err)
 	}
 
 	return nil
@@ -615,7 +627,7 @@ func (client *PoolServiceClient) MakeDir(session *PoolServiceSession, path strin
 	_, err := client.apiClient.MakeDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return err
+		return client.statusToError(err)
 	}
 
 	return nil
@@ -648,7 +660,7 @@ func (client *PoolServiceClient) RenameDirToDir(session *PoolServiceSession, src
 	_, err := client.apiClient.RenameDirToDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return err
+		return client.statusToError(err)
 	}
 
 	return nil
@@ -681,7 +693,7 @@ func (client *PoolServiceClient) RenameFileToFile(session *PoolServiceSession, s
 	_, err := client.apiClient.RenameFileToFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return err
+		return client.statusToError(err)
 	}
 
 	return nil
@@ -714,7 +726,7 @@ func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path st
 	response, err := client.apiClient.CreateFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, client.statusToError(err)
 	}
 
 	createTime, err := utils.ParseTime(response.Entry.CreateTime)
@@ -777,7 +789,7 @@ func (client *PoolServiceClient) OpenFile(session *PoolServiceSession, path stri
 	response, err := client.apiClient.OpenFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return nil, err
+		return nil, client.statusToError(err)
 	}
 
 	createTime, err := utils.ParseTime(response.Entry.CreateTime)
@@ -839,7 +851,7 @@ func (client *PoolServiceClient) TruncateFile(session *PoolServiceSession, path 
 	_, err := client.apiClient.TruncateFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return err
+		return client.statusToError(err)
 	}
 
 	return nil
@@ -907,7 +919,7 @@ func (client *PoolServiceClient) ReadAt(handle *PoolServiceFileHandle, offset in
 		response, err := client.apiClient.ReadAt(ctx, request, client.getLargeReadOption())
 		if err != nil {
 			logger.Error(err)
-			return nil, err
+			return nil, client.statusToError(err)
 		}
 
 		return response.Data, nil
@@ -938,7 +950,7 @@ func (client *PoolServiceClient) ReadAt(handle *PoolServiceFileHandle, offset in
 		response, err := client.apiClient.ReadAt(ctx, request)
 		if err != nil {
 			logger.Error(err)
-			return nil, err
+			return nil, client.statusToError(err)
 		}
 
 		copy(outputData[totalReadLength:], response.Data)
@@ -994,7 +1006,7 @@ func (client *PoolServiceClient) WriteAt(handle *PoolServiceFileHandle, offset i
 		_, err := client.apiClient.WriteAt(ctx, request, client.getLargeWriteOption())
 		if err != nil {
 			logger.Error(err)
-			return err
+			return client.statusToError(err)
 		}
 
 		remainLength -= curLength
@@ -1031,7 +1043,7 @@ func (client *PoolServiceClient) Flush(handle *PoolServiceFileHandle) error {
 	_, err := client.apiClient.Flush(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return err
+		return client.statusToError(err)
 	}
 
 	return nil
@@ -1063,7 +1075,7 @@ func (client *PoolServiceClient) Close(handle *PoolServiceFileHandle) error {
 	_, err := client.apiClient.Close(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return err
+		return client.statusToError(err)
 	}
 
 	return nil

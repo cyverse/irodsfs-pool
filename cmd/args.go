@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -28,6 +29,7 @@ func processArguments() (*commons.Config, io.WriteCloser, error, bool) {
 	var version bool
 	var help bool
 	var configFilePath string
+	var cacheTimeoutSettingsJSON string
 
 	config := commons.NewDefaultConfig()
 
@@ -35,8 +37,8 @@ func processArguments() (*commons.Config, io.WriteCloser, error, bool) {
 	flag.BoolVar(&version, "version", false, "Print client version information")
 	flag.BoolVar(&version, "v", false, "Print client version information (shorthand form)")
 	flag.BoolVar(&help, "h", false, "Print help")
-	flag.StringVar(&configFilePath, "config", "", "Set Config YAML File")
-	flag.IntVar(&config.ServicePort, "p", commons.ServicePortDefault, "Service port")
+	flag.StringVar(&configFilePath, "config", "", "Set config YAML File")
+	flag.IntVar(&config.ServicePort, "p", commons.ServicePortDefault, "Set service port")
 	flag.BoolVar(&config.Foreground, "f", false, "Run in foreground")
 	flag.BoolVar(&config.ChildProcess, ChildProcessArgument, false, "")
 	flag.Int64Var(&config.BufferSizeMax, "buffer_size_max", commons.BufferSizeMaxDefault, "Set file buffer max size")
@@ -45,6 +47,7 @@ func processArguments() (*commons.Config, io.WriteCloser, error, bool) {
 	flag.StringVar(&config.LogPath, "log", commons.GetDefaultLogFilePath(), "Set log file path")
 	flag.BoolVar(&config.Profile, "profile", false, "Enable profiling")
 	flag.IntVar(&config.ProfileServicePort, "profile_port", commons.ProfileServicePortDefault, "Set profile service port")
+	flag.StringVar(&cacheTimeoutSettingsJSON, "cache_timeout_settings", "", "Set cache timeout settings using JSON")
 
 	flag.Parse()
 
@@ -76,6 +79,17 @@ func processArguments() (*commons.Config, io.WriteCloser, error, bool) {
 	}
 
 	logger.Infof("Logging to %s", config.LogPath)
+
+	if len(cacheTimeoutSettingsJSON) > 0 {
+		metadataCacheTimeoutSettings := []commons.MetadataCacheTimeoutSetting{}
+		err := json.Unmarshal([]byte(cacheTimeoutSettingsJSON), &metadataCacheTimeoutSettings)
+		if err != nil {
+			logger.WithError(err).Errorf("failed to convert JSON object to []MetadataCacheTimeoutSetting - %s", cacheTimeoutSettingsJSON)
+			return nil, logWriter, err, true
+		}
+
+		config.CacheTimeoutSettings = metadataCacheTimeoutSettings
+	}
 
 	if len(configFilePath) > 0 {
 		// read config

@@ -60,9 +60,9 @@ type Config struct {
 
 // MetadataCacheTimeoutSetting defines cache timeout for path
 type MetadataCacheTimeoutSetting struct {
-	Path    string   `yaml:"path"`
-	Timeout Duration `yaml:"timeout"`
-	Inherit bool     `yaml:"inherit,omitempty"`
+	Path    string   `yaml:"path" json:"path"`
+	Timeout Duration `yaml:"timeout" json:"timeout"`
+	Inherit bool     `yaml:"inherit,omitempty" json:"inherit,omitempty"`
 }
 
 // NewDefaultConfig creates DefaultConfig

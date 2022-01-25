@@ -98,9 +98,10 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 	}()
 
 	serverConfig := &ServerConfig{
-		BufferSizeMax: config.BufferSizeMax,
-		CacheSizeMax:  config.DataCacheSizeMax,
-		CacheRootPath: config.DataCacheRootPath,
+		BufferSizeMax:        config.BufferSizeMax,
+		CacheSizeMax:         config.DataCacheSizeMax,
+		CacheRootPath:        config.DataCacheRootPath,
+		CacheTimeoutSettings: config.CacheTimeoutSettings,
 	}
 
 	apiServer, err := NewServer(serverConfig)

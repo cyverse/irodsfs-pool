@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	"github.com/cyverse/irodsfs-pool/service/io"
 	"github.com/cyverse/irodsfs-pool/utils"
@@ -18,9 +19,10 @@ import (
 
 // ServerConfig is a configuration for Server
 type ServerConfig struct {
-	BufferSizeMax int64
-	CacheSizeMax  int64
-	CacheRootPath string
+	BufferSizeMax        int64
+	CacheSizeMax         int64
+	CacheRootPath        string
+	CacheTimeoutSettings []commons.MetadataCacheTimeoutSetting
 }
 
 // Server is a struct for Server
@@ -157,7 +159,7 @@ func (server *Server) Login(context context.Context, request *api.LoginRequest) 
 		logger.Infof("Creating a new connection: %s", connectionID)
 
 		// new connection
-		newConn, err := NewIRODSConnection(connectionID, request.Account, request.ApplicationName)
+		newConn, err := NewIRODSConnection(connectionID, request.Account, request.ApplicationName, server.config.CacheTimeoutSettings)
 		if err != nil {
 			logger.WithError(err).Error("failed to create a new connection")
 			return nil, server.errorToStatus(err)

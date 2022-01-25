@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync"
+	"time"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	log "github.com/sirupsen/logrus"
 )
@@ -37,7 +39,7 @@ func getConnectionID(account *api.Account) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func NewIRODSConnection(connectionID string, account *api.Account, applicationName string) (*IRODSConnection, error) {
+func NewIRODSConnection(connectionID string, account *api.Account, applicationName string, cacheTimeoutSettings []commons.MetadataCacheTimeoutSetting) (*IRODSConnection, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"function": "NewIRODSConnection",
@@ -66,7 +68,19 @@ func NewIRODSConnection(connectionID string, account *api.Account, applicationNa
 		PamTTL:                  int(account.PamTtl),
 	}
 
-	irodsFS, err := irodsclient_fs.NewFileSystemWithDefault(irodsAccount, applicationName)
+	irodsConfig := irodsclient_fs.NewFileSystemConfigWithDefault(applicationName)
+
+	for _, cacheTimeoutSetting := range cacheTimeoutSettings {
+		cacheTimeoutSettingConv := irodsclient_fs.MetadataCacheTimeoutSetting{
+			Path:    cacheTimeoutSetting.Path,
+			Timeout: time.Duration(cacheTimeoutSetting.Timeout),
+			Inherit: cacheTimeoutSetting.Inherit,
+		}
+
+		irodsConfig.CacheTimeoutSettings = append(irodsConfig.CacheTimeoutSettings, cacheTimeoutSettingConv)
+	}
+
+	irodsFS, err := irodsclient_fs.NewFileSystem(irodsAccount, irodsConfig)
 	if err != nil {
 		return nil, err
 	}

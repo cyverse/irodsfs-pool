@@ -41,10 +41,11 @@ func GetDefaultDataCacheRootPath() string {
 
 // Config holds the parameters list which can be configured
 type Config struct {
-	ServicePort       int    `yaml:"service_port"`
-	BufferSizeMax     int64  `yaml:"buffer_size_max"`
-	DataCacheSizeMax  int64  `yaml:"data_cache_size_max"`
-	DataCacheRootPath string `yaml:"data_cache_root_path"`
+	ServicePort          int                           `yaml:"service_port"`
+	BufferSizeMax        int64                         `yaml:"buffer_size_max"`
+	DataCacheSizeMax     int64                         `yaml:"data_cache_size_max"`
+	DataCacheRootPath    string                        `yaml:"data_cache_root_path"`
+	CacheTimeoutSettings []MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty"`
 
 	LogPath string `yaml:"log_path,omitempty"`
 
@@ -57,13 +58,21 @@ type Config struct {
 	InstanceID string `yaml:"instanceid,omitempty"`
 }
 
+// MetadataCacheTimeoutSetting defines cache timeout for path
+type MetadataCacheTimeoutSetting struct {
+	Path    string   `yaml:"path"`
+	Timeout Duration `yaml:"timeout"`
+	Inherit bool     `yaml:"inherit,omitempty"`
+}
+
 // NewDefaultConfig creates DefaultConfig
 func NewDefaultConfig() *Config {
 	return &Config{
-		ServicePort:       ServicePortDefault,
-		BufferSizeMax:     BufferSizeMaxDefault,
-		DataCacheSizeMax:  DataCacheSizeMaxDefault,
-		DataCacheRootPath: GetDefaultDataCacheRootPath(),
+		ServicePort:          ServicePortDefault,
+		BufferSizeMax:        BufferSizeMaxDefault,
+		DataCacheSizeMax:     DataCacheSizeMaxDefault,
+		DataCacheRootPath:    GetDefaultDataCacheRootPath(),
+		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
 
 		LogPath: "",
 
@@ -80,10 +89,11 @@ func NewDefaultConfig() *Config {
 // NewConfigFromYAML creates Config from YAML
 func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 	config := Config{
-		ServicePort:       ServicePortDefault,
-		BufferSizeMax:     BufferSizeMaxDefault,
-		DataCacheSizeMax:  DataCacheSizeMaxDefault,
-		DataCacheRootPath: GetDefaultDataCacheRootPath(),
+		ServicePort:          ServicePortDefault,
+		BufferSizeMax:        BufferSizeMaxDefault,
+		DataCacheSizeMax:     DataCacheSizeMaxDefault,
+		DataCacheRootPath:    GetDefaultDataCacheRootPath(),
+		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
 
 		Profile:            false,
 		ProfileServicePort: ProfileServicePortDefault,

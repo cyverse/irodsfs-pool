@@ -187,7 +187,7 @@ func parentMain() {
 	}()
 
 	// parse argument
-	config, logWriter, err, exit := processArguments()
+	config, logWriter, exit, err := processArguments()
 	if err != nil {
 		logger.WithError(err).Error("failed to process arguments")
 		if exit {

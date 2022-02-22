@@ -20,7 +20,7 @@ const (
 	ChildProcessArgument = "child_process"
 )
 
-func processArguments() (*commons.Config, io.WriteCloser, error, bool) {
+func processArguments() (*commons.Config, io.WriteCloser, bool, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "main",
 		"function": "processArguments",
@@ -55,16 +55,16 @@ func processArguments() (*commons.Config, io.WriteCloser, error, bool) {
 		info, err := commons.GetVersionJSON()
 		if err != nil {
 			logger.WithError(err).Error("failed to get client version info")
-			return nil, nil, err, true
+			return nil, nil, true, err
 		}
 
 		fmt.Println(info)
-		return nil, nil, nil, true
+		return nil, nil, true, nil
 	}
 
 	if help {
 		flag.Usage()
-		return nil, nil, nil, true
+		return nil, nil, true, nil
 	}
 
 	var logWriter io.WriteCloser
@@ -85,7 +85,7 @@ func processArguments() (*commons.Config, io.WriteCloser, error, bool) {
 		err := json.Unmarshal([]byte(cacheTimeoutSettingsJSON), &metadataCacheTimeoutSettings)
 		if err != nil {
 			logger.WithError(err).Errorf("failed to convert JSON object to []MetadataCacheTimeoutSetting - %s", cacheTimeoutSettingsJSON)
-			return nil, logWriter, err, true
+			return nil, logWriter, true, err
 		}
 
 		config.CacheTimeoutSettings = metadataCacheTimeoutSettings
@@ -96,33 +96,33 @@ func processArguments() (*commons.Config, io.WriteCloser, error, bool) {
 		configFileAbsPath, err := filepath.Abs(configFilePath)
 		if err != nil {
 			logger.WithError(err).Errorf("failed to access the local yaml file %s", configFilePath)
-			return nil, logWriter, err, true
+			return nil, logWriter, true, err
 		}
 
 		fileinfo, err := os.Stat(configFileAbsPath)
 		if err != nil {
 			logger.WithError(err).Errorf("failed to access the local yaml file %s", configFileAbsPath)
-			return nil, logWriter, err, true
+			return nil, logWriter, true, err
 		}
 
 		if fileinfo.IsDir() {
 			logger.WithError(err).Errorf("local yaml file %s is not a file", configFileAbsPath)
-			return nil, logWriter, fmt.Errorf("local yaml file %s is not a file", configFileAbsPath), true
+			return nil, logWriter, true, fmt.Errorf("local yaml file %s is not a file", configFileAbsPath)
 		}
 
 		yamlBytes, err := ioutil.ReadFile(configFileAbsPath)
 		if err != nil {
 			logger.WithError(err).Errorf("failed to read the local yaml file %s", configFileAbsPath)
-			return nil, logWriter, err, true
+			return nil, logWriter, true, err
 		}
 
 		err = yaml.Unmarshal(yamlBytes, &config)
 		if err != nil {
-			return nil, logWriter, fmt.Errorf("failed to unmarshal YAML - %v", err), true
+			return nil, logWriter, true, fmt.Errorf("failed to unmarshal YAML - %v", err)
 		}
 	}
 
-	return config, logWriter, nil, false
+	return config, logWriter, false, nil
 }
 
 func getLogWriter(logPath string) io.WriteCloser {

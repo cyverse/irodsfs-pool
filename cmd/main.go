@@ -38,6 +38,9 @@ func (w *NilWriter) Write(p []byte) (n int, err error) {
 
 func main() {
 	log.SetLevel(log.DebugLevel)
+	log.SetFormatter(&log.TextFormatter{
+		TimestampFormat: "2006-01-02 15:04:05.000000",
+	})
 
 	// check if this is subprocess running in the background
 	isChildProc := false

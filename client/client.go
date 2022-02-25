@@ -700,7 +700,7 @@ func (client *PoolServiceClient) RenameFileToFile(session *PoolServiceSession, s
 }
 
 // CreateFile creates a new iRODS data object
-func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path string, resource string) (*PoolServiceFileHandle, error) {
+func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path string, resource string, mode string) (*PoolServiceFileHandle, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"struct":   "PoolServiceClient",
@@ -718,6 +718,7 @@ func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path st
 		SessionId: session.id,
 		Path:      path,
 		Resource:  resource,
+		Mode:      mode,
 	}
 
 	ctx, cancel := client.getContextWithDeadline()
@@ -756,7 +757,7 @@ func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path st
 	return &PoolServiceFileHandle{
 		SessionID:    session.id,
 		Entry:        irodsEntry,
-		OpenMode:     string(irodsclient_types.FileOpenModeWriteOnly),
+		OpenMode:     mode,
 		FileHandleID: response.FileHandleId,
 	}, nil
 }

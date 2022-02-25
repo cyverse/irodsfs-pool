@@ -162,6 +162,7 @@ message CreateFileRequest {
 	string session_id = 1;
 	string path = 2;
 	string resource = 3;
+	string mode = 4;
 }
 
 message CreateFileResponse {

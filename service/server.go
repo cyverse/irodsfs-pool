@@ -976,7 +976,7 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 	// clear cache for the path if exists
 	server.cache.DeleteAllEntriesForGroup(request.Path)
 
-	handle, err := irodsFS.CreateFile(request.Path, request.Resource)
+	handle, err := irodsFS.CreateFile(request.Path, request.Resource, request.Mode)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)

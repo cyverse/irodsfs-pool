@@ -310,6 +310,9 @@ func run(config *commons.Config, isChildProcess bool) error {
 		defer prof.Stop()
 	}
 
+	versionInfo := commons.GetVersion()
+	logger.Infof("iRODS FUSE Lite Pool Server version - %s, commit - %s", versionInfo.ServiceVersion, versionInfo.GitCommit)
+
 	// run a service
 	svc, err := service.NewPoolService(config)
 	if err != nil {

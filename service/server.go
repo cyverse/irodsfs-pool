@@ -991,16 +991,17 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 
 	session.AddFileHandle(fileHandle)
 
+	entry := handle.GetEntry()
 	responseEntry := &api.Entry{
-		Id:         handle.Entry.ID,
-		Type:       string(handle.Entry.Type),
-		Name:       handle.Entry.Name,
-		Path:       handle.Entry.Path,
-		Owner:      handle.Entry.Owner,
-		Size:       handle.Entry.Size,
-		CreateTime: utils.MakeTimeToString(handle.Entry.CreateTime),
-		ModifyTime: utils.MakeTimeToString(handle.Entry.ModifyTime),
-		Checksum:   handle.Entry.CheckSum,
+		Id:         entry.ID,
+		Type:       string(entry.Type),
+		Name:       entry.Name,
+		Path:       entry.Path,
+		Owner:      entry.Owner,
+		Size:       entry.Size,
+		CreateTime: utils.MakeTimeToString(entry.CreateTime),
+		ModifyTime: utils.MakeTimeToString(entry.ModifyTime),
+		Checksum:   entry.CheckSum,
 	}
 
 	response := &api.CreateFileResponse{
@@ -1049,6 +1050,8 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 		return nil, server.errorToStatus(err)
 	}
 
+	entry := handle.GetEntry()
+
 	fileHandleID := xid.New().String()
 	handleMutex := &sync.Mutex{}
 
@@ -1078,7 +1081,7 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 		// reader
 		if server.cache != nil {
 			syncReader := io.NewSyncReader(request.Path, handle, handleMutex)
-			reader = io.NewCacheReader(request.Path, handle.Entry.CheckSum, server.cache, syncReader)
+			reader = io.NewCacheReader(request.Path, entry.CheckSum, server.cache, syncReader)
 		} else {
 			reader = io.NewSyncReader(request.Path, handle, handleMutex)
 		}
@@ -1095,15 +1098,15 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 	session.AddFileHandle(fileHandle)
 
 	responseEntry := &api.Entry{
-		Id:         handle.Entry.ID,
-		Type:       string(handle.Entry.Type),
-		Name:       handle.Entry.Name,
-		Path:       handle.Entry.Path,
-		Owner:      handle.Entry.Owner,
-		Size:       handle.Entry.Size,
-		CreateTime: utils.MakeTimeToString(handle.Entry.CreateTime),
-		ModifyTime: utils.MakeTimeToString(handle.Entry.ModifyTime),
-		Checksum:   handle.Entry.CheckSum,
+		Id:         entry.ID,
+		Type:       string(entry.Type),
+		Name:       entry.Name,
+		Path:       entry.Path,
+		Owner:      entry.Owner,
+		Size:       entry.Size,
+		CreateTime: utils.MakeTimeToString(entry.CreateTime),
+		ModifyTime: utils.MakeTimeToString(entry.ModifyTime),
+		Checksum:   entry.CheckSum,
 	}
 
 	response := &api.OpenFileResponse{

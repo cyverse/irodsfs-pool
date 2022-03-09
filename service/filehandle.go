@@ -114,11 +114,11 @@ func (handle *FileHandle) Flush() error {
 }
 
 func (handle *FileHandle) GetFileOpenMode() types.FileOpenMode {
-	return handle.irodsFileHandle.OpenMode
+	return handle.irodsFileHandle.GetOpenMode()
 }
 
 func (handle *FileHandle) GetEntryPath() string {
-	return handle.irodsFileHandle.Entry.Path
+	return handle.irodsFileHandle.GetEntry().Path
 }
 
 func (handle *FileHandle) GetOffset() int64 {

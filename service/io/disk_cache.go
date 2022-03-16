@@ -14,11 +14,11 @@ import (
 )
 
 type DiskCacheEntry struct {
-	Key          string
-	Group        string
-	Size         int
-	CreationTime time.Time
-	FilePath     string
+	key          string
+	group        string
+	size         int
+	creationTime time.Time
+	filePath     string
 }
 
 func NewDiskCacheEntry(cache *DiskCache, key string, group string, data []byte) (*DiskCacheEntry, error) {
@@ -40,32 +40,32 @@ func NewDiskCacheEntry(cache *DiskCache, key string, group string, data []byte) 
 	}
 
 	return &DiskCacheEntry{
-		Key:          key,
-		Group:        group,
-		Size:         len(data),
-		CreationTime: time.Now(),
-		FilePath:     filePath,
+		key:          key,
+		group:        group,
+		size:         len(data),
+		creationTime: time.Now(),
+		filePath:     filePath,
 	}, nil
 }
 
 func (entry *DiskCacheEntry) GetKey() string {
-	return entry.Key
+	return entry.key
 }
 
 func (entry *DiskCacheEntry) GetGroup() string {
-	return entry.Group
+	return entry.group
 }
 
 func (entry *DiskCacheEntry) GetSize() int {
-	return entry.Size
+	return entry.size
 }
 
 func (entry *DiskCacheEntry) GetCreationTime() time.Time {
-	return entry.CreationTime
+	return entry.creationTime
 }
 
 func (entry *DiskCacheEntry) GetData() ([]byte, error) {
-	data, err := ioutil.ReadFile(entry.FilePath)
+	data, err := ioutil.ReadFile(entry.filePath)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (entry *DiskCacheEntry) GetData() ([]byte, error) {
 }
 
 func (entry *DiskCacheEntry) deleteDataFile() error {
-	err := os.Remove(entry.FilePath)
+	err := os.Remove(entry.filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -86,12 +86,12 @@ func (entry *DiskCacheEntry) deleteDataFile() error {
 
 // DiskCache
 type DiskCache struct {
-	SizeCap  int64
-	EntryCap int
-	RootPath string
-	Cache    *lrucache.Cache
-	Groups   map[string]map[string]bool // key = group name, value = cache keys for a group
-	Mutex    sync.Mutex
+	sizeCap        int64
+	entryNumberCap int
+	rootPath       string
+	cache          *lrucache.Cache
+	groups         map[string]map[string]bool // key = group name, value = cache keys for a group
+	mutex          sync.Mutex
 }
 
 func NewDiskCache(sizeCap int64, rootPath string) (*DiskCache, error) {
@@ -103,11 +103,11 @@ func NewDiskCache(sizeCap int64, rootPath string) (*DiskCache, error) {
 	var maxCacheEntryNum int = int(sizeCap / int64(BlockSize))
 
 	diskCache := &DiskCache{
-		SizeCap:  sizeCap,
-		EntryCap: maxCacheEntryNum,
-		RootPath: rootPath,
-		Cache:    nil,
-		Groups:   map[string]map[string]bool{},
+		sizeCap:        sizeCap,
+		entryNumberCap: maxCacheEntryNum,
+		rootPath:       rootPath,
+		cache:          nil,
+		groups:         map[string]map[string]bool{},
 	}
 
 	lruCache, err := lrucache.NewWithEvict(maxCacheEntryNum, diskCache.onEvicted)
@@ -115,7 +115,7 @@ func NewDiskCache(sizeCap int64, rootPath string) (*DiskCache, error) {
 		return nil, err
 	}
 
-	diskCache.Cache = lruCache
+	diskCache.cache = lruCache
 	return diskCache, nil
 }
 
@@ -126,75 +126,75 @@ func (cache *DiskCache) Release() {
 		"function": "Release",
 	})
 
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
 	// clear
 	logger.Info("Deleting all data cache entries")
-	cache.Groups = map[string]map[string]bool{}
-	cache.Cache.Purge()
+	cache.groups = map[string]map[string]bool{}
+	cache.cache.Purge()
 
-	logger.Infof("Deleting cache files and directory %s", cache.RootPath)
-	os.RemoveAll(cache.RootPath)
+	logger.Infof("Deleting cache files and directory %s", cache.rootPath)
+	os.RemoveAll(cache.rootPath)
 }
 
 func (cache *DiskCache) GetSizeCap() int64 {
-	return cache.SizeCap
+	return cache.sizeCap
 }
 
 func (cache *DiskCache) GetRootPath() string {
-	return cache.RootPath
+	return cache.rootPath
 }
 
 func (cache *DiskCache) GetTotalEntries() int {
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
-	return cache.Cache.Len()
+	return cache.cache.Len()
 }
 
 func (cache *DiskCache) GetTotalEntrySize() int64 {
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
-	return int64(cache.Cache.Len()) * int64(BlockSize)
+	return int64(cache.cache.Len()) * int64(BlockSize)
 }
 
 func (cache *DiskCache) GetAvailableSize() int64 {
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
-	availableEntries := cache.EntryCap - cache.Cache.Len()
+	availableEntries := cache.entryNumberCap - cache.cache.Len()
 	return int64(availableEntries) * int64(BlockSize)
 }
 
 func (cache *DiskCache) DeleteAllEntries() {
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
 	// clear
-	cache.Groups = map[string]map[string]bool{}
+	cache.groups = map[string]map[string]bool{}
 
-	cache.Cache.Purge()
+	cache.cache.Purge()
 }
 
 func (cache *DiskCache) DeleteAllEntriesForGroup(group string) {
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
-	if cacheGroup, ok := cache.Groups[group]; ok {
-		for key, _ := range cacheGroup {
-			cache.Cache.Remove(key)
+	if cacheGroup, ok := cache.groups[group]; ok {
+		for key := range cacheGroup {
+			cache.cache.Remove(key)
 		}
 	}
 }
 
 func (cache *DiskCache) GetEntryKeys() []string {
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
 	keys := []string{}
-	for _, key := range cache.Cache.Keys() {
+	for _, key := range cache.cache.Keys() {
 		if strkey, ok := key.(string); ok {
 			keys = append(keys, strkey)
 		}
@@ -203,13 +203,13 @@ func (cache *DiskCache) GetEntryKeys() []string {
 }
 
 func (cache *DiskCache) GetEntryKeysForGroup(group string) []string {
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
 	keys := []string{}
-	if cacheGroup, ok := cache.Groups[group]; ok {
-		for key, _ := range cacheGroup {
-			if cache.Cache.Contains(key) {
+	if cacheGroup, ok := cache.groups[group]; ok {
+		for key := range cacheGroup {
+			if cache.cache.Contains(key) {
 				keys = append(keys, key)
 			}
 		}
@@ -233,28 +233,28 @@ func (cache *DiskCache) CreateEntry(key string, group string, data []byte) (Cach
 		return nil, err
 	}
 
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
 	logger.Infof("putting a new cache with a key %s, group %s", key, group)
-	cache.Cache.Add(key, entry)
+	cache.cache.Add(key, entry)
 
-	if cacheGroup, ok := cache.Groups[group]; ok {
+	if cacheGroup, ok := cache.groups[group]; ok {
 		cacheGroup[key] = true
 	} else {
 		cacheGroup = map[string]bool{}
 		cacheGroup[key] = true
-		cache.Groups[group] = cacheGroup
+		cache.groups[group] = cacheGroup
 	}
 
 	return entry, nil
 }
 
 func (cache *DiskCache) HasEntry(key string) bool {
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
-	return cache.Cache.Contains(key)
+	return cache.cache.Contains(key)
 }
 
 func (cache *DiskCache) GetEntry(key string) CacheEntry {
@@ -264,10 +264,10 @@ func (cache *DiskCache) GetEntry(key string) CacheEntry {
 		"function": "GetEntry",
 	})
 
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
-	if entry, ok := cache.Cache.Get(key); ok {
+	if entry, ok := cache.cache.Get(key); ok {
 		if cacheEntry, ok := entry.(*DiskCacheEntry); ok {
 			logger.Infof("getting a cache with a key %s", key)
 			return cacheEntry
@@ -278,21 +278,21 @@ func (cache *DiskCache) GetEntry(key string) CacheEntry {
 }
 
 func (cache *DiskCache) DeleteEntry(key string) {
-	cache.Mutex.Lock()
-	defer cache.Mutex.Unlock()
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 
-	cache.Cache.Remove(key)
+	cache.cache.Remove(key)
 }
 
 func (cache *DiskCache) onEvicted(key interface{}, entry interface{}) {
 	if cacheEntry, ok := entry.(*DiskCacheEntry); ok {
 		cacheEntry.deleteDataFile()
 
-		if cacheGroup, ok := cache.Groups[cacheEntry.Group]; ok {
-			delete(cacheGroup, cacheEntry.Key)
+		if cacheGroup, ok := cache.groups[cacheEntry.group]; ok {
+			delete(cacheGroup, cacheEntry.key)
 
 			if len(cacheGroup) == 0 {
-				delete(cache.Groups, cacheEntry.Group)
+				delete(cache.groups, cacheEntry.group)
 			}
 		}
 	}

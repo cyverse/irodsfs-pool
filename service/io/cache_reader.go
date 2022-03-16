@@ -9,12 +9,12 @@ import (
 
 // CacheReader helps read through cache
 type CacheReader struct {
-	Path     string
-	Checksum string
+	path     string
+	checksum string
 
-	Cache       Cache
-	Reader      Reader
-	BlockHelper *utils.FileBlockHelper
+	cache       Cache
+	reader      Reader
+	blockHelper *utils.FileBlockHelper
 }
 
 const (
@@ -24,12 +24,12 @@ const (
 // NewCacheReader create a new CacheReader
 func NewCacheReader(path string, checksum string, cache Cache, reader Reader) *CacheReader {
 	cacheReader := &CacheReader{
-		Path:     path,
-		Checksum: checksum,
+		path:     path,
+		checksum: checksum,
 
-		Cache:       cache,
-		Reader:      reader,
-		BlockHelper: utils.NewFileBlockHelper(BlockSize),
+		cache:       cache,
+		reader:      reader,
+		blockHelper: utils.NewFileBlockHelper(BlockSize),
 	}
 
 	return cacheReader
@@ -37,24 +37,24 @@ func NewCacheReader(path string, checksum string, cache Cache, reader Reader) *C
 
 // Release releases all resources
 func (reader *CacheReader) Release() {
-	if reader.Cache != nil {
+	if reader.cache != nil {
 		// there can be multiple readers for the same path
 		//reader.Cache.DeleteAllEntriesForGroup(reader.Path)
-		reader.Cache = nil
+		reader.cache = nil
 	}
 
-	if reader.Reader != nil {
-		reader.Reader.Release()
-		reader.Reader = nil
+	if reader.reader != nil {
+		reader.reader.Release()
+		reader.reader = nil
 	}
 }
 
 func (reader *CacheReader) getCacheEntryKey(blockID int64) string {
-	return fmt.Sprintf("%s:%s:%d", reader.Path, reader.Checksum, blockID)
+	return fmt.Sprintf("%s:%s:%d", reader.path, reader.checksum, blockID)
 }
 
 func (reader *CacheReader) getBlockIDs(offset int64, length int) []int64 {
-	first, last := reader.BlockHelper.GetFirstAndLastBlockIDForRW(offset, length)
+	first, last := reader.blockHelper.GetFirstAndLastBlockIDForRW(offset, length)
 
 	ids := []int64{}
 	for i := first; i <= last; i++ {
@@ -75,21 +75,21 @@ func (reader *CacheReader) ReadAt(offset int64, length int) ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	logger.Infof("Reading through cache - %s, offset %d, length %d", reader.Path, offset, length)
+	logger.Infof("Reading through cache - %s, offset %d, length %d", reader.path, offset, length)
 
 	blockIDs := reader.getBlockIDs(offset, length)
 	dataRead := 0
 	readBuffer := make([]byte, length)
 	for _, blockID := range blockIDs {
 		blockKey := reader.getCacheEntryKey(blockID)
-		cacheEntry := reader.Cache.GetEntry(blockKey)
+		cacheEntry := reader.cache.GetEntry(blockKey)
 
 		var cacheData []byte
 		if cacheEntry == nil {
 			logger.Infof("cache for block %s not found -- read from remote", blockKey)
 
-			blockOffset := reader.BlockHelper.GetBlockStartOffsetForBlockID(blockID)
-			blockData, err := reader.Reader.ReadAt(blockOffset, BlockSize)
+			blockOffset := reader.blockHelper.GetBlockStartOffsetForBlockID(blockID)
+			blockData, err := reader.reader.ReadAt(blockOffset, BlockSize)
 			if err != nil {
 				return nil, err
 			}
@@ -100,7 +100,7 @@ func (reader *CacheReader) ReadAt(offset int64, length int) ([]byte, error) {
 			}
 
 			cacheData = blockData
-			_, err = reader.Cache.CreateEntry(blockKey, reader.Path, blockData)
+			_, err = reader.cache.CreateEntry(blockKey, reader.path, blockData)
 			if err != nil {
 				// just log
 				logger.Error(err)
@@ -114,7 +114,7 @@ func (reader *CacheReader) ReadAt(offset int64, length int) ([]byte, error) {
 			cacheData = cacheEntryData
 		}
 
-		inBlockOffset, _ := reader.BlockHelper.GetInBlockOffsetAndLength(offset+int64(dataRead), length-dataRead)
+		inBlockOffset, _ := reader.blockHelper.GetInBlockOffsetAndLength(offset+int64(dataRead), length-dataRead)
 		inBlockLength := length - dataRead
 		if inBlockLength > (len(cacheData) - inBlockOffset) {
 			inBlockLength = len(cacheData) - inBlockOffset

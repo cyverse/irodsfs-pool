@@ -2,24 +2,24 @@ package utils
 
 // FileBlockHelper ...
 type FileBlockHelper struct {
-	BlockSize int
+	blockSize int
 }
 
 func NewFileBlockHelper(blockSize int) *FileBlockHelper {
 	return &FileBlockHelper{
-		BlockSize: blockSize,
+		blockSize: blockSize,
 	}
 }
 
 // GetBlockIDForOffset returns block index
 func (helper *FileBlockHelper) GetBlockIDForOffset(offset int64) int64 {
-	blockID := offset / int64(helper.BlockSize)
+	blockID := offset / int64(helper.blockSize)
 	return blockID
 }
 
 // GetBlockStartOffsetForBlockID returns block start offset
 func (helper *FileBlockHelper) GetBlockStartOffsetForBlockID(blockID int64) int64 {
-	return int64(blockID) * int64(helper.BlockSize)
+	return int64(blockID) * int64(helper.blockSize)
 }
 
 // GetInBlockOffsetAndLength returns in-block offset and in-block length
@@ -28,8 +28,8 @@ func (helper *FileBlockHelper) GetInBlockOffsetAndLength(offset int64, length in
 	blockStartOffset := helper.GetBlockStartOffsetForBlockID(blockid)
 	inBlockOffset := int(offset - blockStartOffset)
 	inBlockLength := length
-	if inBlockLength > (helper.BlockSize - inBlockOffset) {
-		inBlockLength = helper.BlockSize - inBlockOffset
+	if inBlockLength > (helper.blockSize - inBlockOffset) {
+		inBlockLength = helper.blockSize - inBlockOffset
 	}
 
 	return inBlockOffset, inBlockLength

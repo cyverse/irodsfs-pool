@@ -10,17 +10,17 @@ import (
 
 // SyncWriter helps sync write
 type SyncWriter struct {
-	Path            string
-	IRODSFileHandle *irodsfs.FileHandle
-	FileHandleLock  *sync.Mutex
+	path            string
+	fileHandle      *irodsfs.FileHandle
+	fileHandleMutex *sync.Mutex
 }
 
 // NewSyncWriter create a new SyncWriter
 func NewSyncWriter(path string, fileHandle *irodsfs.FileHandle, fileHandleLock *sync.Mutex) *SyncWriter {
 	syncWriter := &SyncWriter{
-		Path:            path,
-		IRODSFileHandle: fileHandle,
-		FileHandleLock:  fileHandleLock,
+		path:            path,
+		fileHandle:      fileHandle,
+		fileHandleMutex: fileHandleLock,
 	}
 
 	return syncWriter
@@ -63,18 +63,18 @@ func (writer *SyncWriter) WriteAt(offset int64, data []byte) error {
 		return nil
 	}
 
-	logger.Infof("Sync Writing - %s, offset %d, length %d", writer.Path, offset, len(data))
+	logger.Infof("Sync Writing - %s, offset %d, length %d", writer.path, offset, len(data))
 
-	writer.FileHandleLock.Lock()
+	writer.fileHandleMutex.Lock()
 
-	err := writer.IRODSFileHandle.WriteAt(offset, data)
+	err := writer.fileHandle.WriteAt(offset, data)
 	if err != nil {
-		writer.FileHandleLock.Unlock()
-		logger.WithError(err).Errorf("failed to write data - %s, offset %d, length %d", writer.Path, offset, len(data))
+		writer.fileHandleMutex.Unlock()
+		logger.WithError(err).Errorf("failed to write data - %s, offset %d, length %d", writer.path, offset, len(data))
 		return err
 	}
 
-	writer.FileHandleLock.Unlock()
+	writer.fileHandleMutex.Unlock()
 	return nil
 }
 

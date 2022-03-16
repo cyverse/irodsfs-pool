@@ -9,17 +9,17 @@ import (
 
 // SyncReader helps sync read
 type SyncReader struct {
-	Path            string
-	IRODSFileHandle *irodsfs.FileHandle
-	FileHandleLock  *sync.Mutex
+	path           string
+	fileHandle     *irodsfs.FileHandle
+	fileHandleLock *sync.Mutex
 }
 
 // NewSyncReader create a new SyncReader
 func NewSyncReader(path string, fileHandle *irodsfs.FileHandle, fileHandleLock *sync.Mutex) *SyncReader {
 	syncReader := &SyncReader{
-		Path:            path,
-		IRODSFileHandle: fileHandle,
-		FileHandleLock:  fileHandleLock,
+		path:           path,
+		fileHandle:     fileHandle,
+		fileHandleLock: fileHandleLock,
 	}
 
 	return syncReader
@@ -41,18 +41,18 @@ func (reader *SyncReader) ReadAt(offset int64, length int) ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	logger.Infof("Sync Reading - %s, offset %d, length %d", reader.Path, offset, length)
+	logger.Infof("Sync Reading - %s, offset %d, length %d", reader.path, offset, length)
 
-	reader.FileHandleLock.Lock()
+	reader.fileHandleLock.Lock()
 
-	data, err := reader.IRODSFileHandle.ReadAt(offset, length)
+	data, err := reader.fileHandle.ReadAt(offset, length)
 	if err != nil {
-		reader.FileHandleLock.Unlock()
-		logger.WithError(err).Errorf("failed to read data - %s, offset %d, length %d", reader.Path, offset, length)
+		reader.fileHandleLock.Unlock()
+		logger.WithError(err).Errorf("failed to read data - %s, offset %d, length %d", reader.path, offset, length)
 		return nil, err
 	}
 
-	reader.FileHandleLock.Unlock()
+	reader.fileHandleLock.Unlock()
 	return data, nil
 }
 

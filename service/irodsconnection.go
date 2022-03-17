@@ -33,9 +33,9 @@ func getConnectionID(account *api.Account) string {
 	hash.Write([]byte(account.ClientZone))
 	hash.Write([]byte(account.ProxyUser))
 	hash.Write([]byte(account.ProxyZone))
-	hash.Write([]byte(account.ServerDn))
 	hash.Write([]byte(account.Password))
 	hash.Write([]byte(account.Ticket))
+	hash.Write([]byte(account.Resource))
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
@@ -62,9 +62,9 @@ func NewIRODSConnection(connectionID string, account *api.Account, applicationNa
 		ClientZone:              account.ClientZone,
 		ProxyUser:               account.ProxyUser,
 		ProxyZone:               account.ProxyZone,
-		ServerDN:                account.ServerDn,
 		Password:                account.Password,
 		Ticket:                  account.Ticket,
+		DefaultResource:         account.Resource,
 		PamTTL:                  int(account.PamTtl),
 	}
 

@@ -9,17 +9,17 @@ import (
 
 // SyncReader helps sync read
 type SyncReader struct {
-	path           string
-	fileHandle     *irodsfs.FileHandle
-	fileHandleLock *sync.Mutex
+	path            string
+	fileHandle      *irodsfs.FileHandle
+	fileHandleMutex *sync.Mutex
 }
 
 // NewSyncReader create a new SyncReader
-func NewSyncReader(path string, fileHandle *irodsfs.FileHandle, fileHandleLock *sync.Mutex) *SyncReader {
+func NewSyncReader(path string, fileHandle *irodsfs.FileHandle, fileHandleMutex *sync.Mutex) *SyncReader {
 	syncReader := &SyncReader{
-		path:           path,
-		fileHandle:     fileHandle,
-		fileHandleLock: fileHandleLock,
+		path:            path,
+		fileHandle:      fileHandle,
+		fileHandleMutex: fileHandleMutex,
 	}
 
 	return syncReader
@@ -43,16 +43,16 @@ func (reader *SyncReader) ReadAt(offset int64, length int) ([]byte, error) {
 
 	logger.Infof("Sync Reading - %s, offset %d, length %d", reader.path, offset, length)
 
-	reader.fileHandleLock.Lock()
+	reader.fileHandleMutex.Lock()
 
 	data, err := reader.fileHandle.ReadAt(offset, length)
 	if err != nil {
-		reader.fileHandleLock.Unlock()
+		reader.fileHandleMutex.Unlock()
 		logger.WithError(err).Errorf("failed to read data - %s, offset %d, length %d", reader.path, offset, length)
 		return nil, err
 	}
 
-	reader.fileHandleLock.Unlock()
+	reader.fileHandleMutex.Unlock()
 	return data, nil
 }
 

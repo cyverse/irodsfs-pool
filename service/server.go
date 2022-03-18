@@ -982,16 +982,38 @@ func (server *Server) CreateFile(context context.Context, request *api.CreateFil
 		return nil, server.errorToStatus(err)
 	}
 
+	entry := handle.GetEntry()
+
 	fileHandleID := xid.New().String()
 	handleMutex := &sync.Mutex{}
-	var writer io.Writer = io.NewSyncWriter(request.Path, handle, handleMutex)
-	var reader io.Reader = io.NewSyncReader(request.Path, handle, handleMutex)
+
+	var writer io.Writer
+	var reader io.Reader
+
+	openMode := irodsclient_types.FileOpenMode(request.Mode)
+	if openMode.IsReadOnly() {
+		// this never happens
+		reader = io.NewNilReader(request.Path, handle)
+		writer = io.NewNilWriter(request.Path, handle)
+	} else if openMode.IsWriteOnly() {
+		reader = io.NewNilReader(request.Path, handle)
+
+		if server.buffer != nil {
+			asyncWriter := io.NewAsyncWriter(request.Path, fileHandleID, handle, handleMutex, server.buffer)
+			writer = io.NewBufferedWriter(request.Path, asyncWriter)
+		} else {
+			syncWriter := io.NewSyncWriter(request.Path, handle, handleMutex)
+			writer = io.NewBufferedWriter(request.Path, syncWriter)
+		}
+	} else {
+		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
+		reader = io.NewSyncReader(request.Path, handle, handleMutex)
+	}
 
 	fileHandle := NewFileHandle(fileHandleID, request.SessionId, connection.GetID(), writer, reader, handle, handleMutex)
 
 	session.AddFileHandle(fileHandle)
 
-	entry := handle.GetEntry()
 	responseEntry := &api.Entry{
 		Id:         entry.ID,
 		Type:       string(entry.Type),
@@ -1058,10 +1080,24 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 	var writer io.Writer
 	var reader io.Reader
 
-	switch irodsclient_types.FileOpenMode(request.Mode) {
-	case irodsclient_types.FileOpenModeAppend, irodsclient_types.FileOpenModeWriteOnly, irodsclient_types.FileOpenModeWriteTruncate:
+	openMode := irodsclient_types.FileOpenMode(request.Mode)
+	if openMode.IsReadOnly() {
+		// writer
+		writer = io.NewNilWriter(request.Path, handle)
+
+		// reader
+		if server.cache != nil {
+			syncReader := io.NewSyncReader(request.Path, handle, handleMutex)
+			reader = io.NewCacheReader(request.Path, entry.CheckSum, server.cache, syncReader)
+		} else {
+			reader = io.NewSyncReader(request.Path, handle, handleMutex)
+		}
+	} else if openMode.IsWriteOnly() {
 		// clear cache for the path if exists
 		server.cache.DeleteAllEntriesForGroup(request.Path)
+
+		// write only
+		reader = io.NewNilReader(request.Path, handle)
 
 		// writer
 		if server.buffer != nil {
@@ -1071,21 +1107,7 @@ func (server *Server) OpenFile(context context.Context, request *api.OpenFileReq
 			syncWriter := io.NewSyncWriter(request.Path, handle, handleMutex)
 			writer = io.NewBufferedWriter(request.Path, syncWriter)
 		}
-
-		// reader
-		reader = io.NewSyncReader(request.Path, handle, handleMutex)
-	case irodsclient_types.FileOpenModeReadOnly:
-		// writer
-		writer = io.NewSyncWriter(request.Path, handle, handleMutex)
-
-		// reader
-		if server.cache != nil {
-			syncReader := io.NewSyncReader(request.Path, handle, handleMutex)
-			reader = io.NewCacheReader(request.Path, entry.CheckSum, server.cache, syncReader)
-		} else {
-			reader = io.NewSyncReader(request.Path, handle, handleMutex)
-		}
-	default:
+	} else {
 		// clear cache for the path if exists
 		server.cache.DeleteAllEntriesForGroup(request.Path)
 
@@ -1325,8 +1347,8 @@ func (server *Server) Close(context context.Context, request *api.CloseRequest) 
 
 	session.RemoveFileHandle(request.FileHandleId)
 
-	if irodsclient_types.FileOpenMode(fileHandle.GetFileOpenMode()) != irodsclient_types.FileOpenModeReadOnly {
-		// not read-only
+	openMode := irodsclient_types.FileOpenMode(fileHandle.GetFileOpenMode())
+	if openMode.IsWrite() {
 		// clear cache for the path if exists
 		server.cache.DeleteAllEntriesForGroup(fileHandle.GetEntryPath())
 	}

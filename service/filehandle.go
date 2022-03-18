@@ -58,16 +58,21 @@ func (handle *FileHandle) Release() error {
 		}
 
 		handle.writer.Release()
+		err = handle.writer.GetPendingError()
+		if err != nil {
+			errs = append(errs, err)
+		}
+
 		handle.writer = nil
 	}
 
 	if handle.reader != nil {
+		handle.reader.Release()
 		err := handle.reader.GetPendingError()
 		if err != nil {
 			errs = append(errs, err)
 		}
 
-		handle.reader.Release()
 		handle.reader = nil
 	}
 

@@ -16,11 +16,11 @@ type SyncWriter struct {
 }
 
 // NewSyncWriter create a new SyncWriter
-func NewSyncWriter(path string, fileHandle *irodsfs.FileHandle, fileHandleLock *sync.Mutex) *SyncWriter {
+func NewSyncWriter(path string, fileHandle *irodsfs.FileHandle, fileHandleMutex *sync.Mutex) *SyncWriter {
 	syncWriter := &SyncWriter{
 		path:            path,
 		fileHandle:      fileHandle,
-		fileHandleMutex: fileHandleLock,
+		fileHandleMutex: fileHandleMutex,
 	}
 
 	return syncWriter

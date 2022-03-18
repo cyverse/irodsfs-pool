@@ -49,12 +49,14 @@ func (handle *PoolServiceFileHandle) GetSessionID() string {
 
 // IsReadMode returns true if file is opened with read mode
 func (handle *PoolServiceFileHandle) IsReadMode() bool {
-	return irodsclient_types.IsFileOpenFlagRead(irodsclient_types.FileOpenMode(handle.openMode))
+	openMode := irodsclient_types.FileOpenMode(handle.openMode)
+	return openMode.IsRead()
 }
 
 // IsWriteMode returns true if file is opened with write mode
 func (handle *PoolServiceFileHandle) IsWriteMode() bool {
-	return irodsclient_types.IsFileOpenFlagWrite(irodsclient_types.FileOpenMode(handle.openMode))
+	openMode := irodsclient_types.FileOpenMode(handle.openMode)
+	return openMode.IsWrite()
 }
 
 // GetOpenMode returns file open mode

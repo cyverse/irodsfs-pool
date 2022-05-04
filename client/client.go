@@ -115,8 +115,6 @@ func statusToError(err error) error {
 			return irodsclient_types.NewCollectionNotEmptyError(st.Message())
 		case codes.Internal:
 			return fmt.Errorf(err.Error())
-		case codes.OutOfRange:
-			return io.EOF
 		default:
 			return fmt.Errorf(err.Error())
 		}
@@ -871,19 +869,25 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 		defer cancel()
 
 		response, err := handle.poolServiceClient.apiClient.ReadAt(ctx, request, getLargeReadOption())
-		svcErr := statusToError(err)
-		if err != nil && svcErr != io.EOF {
+		if err != nil {
 			logger.Error(err)
-			return 0, svcErr
+			return 0, statusToError(err)
 		}
 
-		copyLen := copy(buffer[totalReadLength:], response.Data)
+		logger.Info("testing")
+		logger.Infof("testing buffer %d", len(buffer))
+		logger.Infof("testing totalReadLength %d", totalReadLength)
+		logger.Infof("testing response data %d", len(response.Data))
 
-		remainLength -= copyLen
-		curOffset += int64(copyLen)
-		totalReadLength += copyLen
+		if len(response.Data) > 0 {
+			copyLen := copy(buffer[totalReadLength:], response.Data)
 
-		if svcErr == io.EOF {
+			remainLength -= copyLen
+			curOffset += int64(copyLen)
+			totalReadLength += copyLen
+		}
+
+		if len(response.Data) < curLength {
 			// EOF
 			return totalReadLength, io.EOF
 		}

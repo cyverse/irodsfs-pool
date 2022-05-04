@@ -121,8 +121,6 @@ func (server *PoolServer) errorToStatus(err error) error {
 	} else if irodsclient_types.IsCollectionNotEmptyError(err) {
 		// there's no matching error type for not empty
 		return status.Error(codes.AlreadyExists, err.Error())
-	} else if err == io.EOF {
-		return status.Error(codes.OutOfRange, err.Error())
 	}
 
 	return status.Error(codes.Internal, err.Error())
@@ -1079,7 +1077,7 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 		Data: buffer[:readLen],
 	}
 
-	return response, server.errorToStatus(err)
+	return response, nil
 }
 
 func (server *PoolServer) WriteAt(context context.Context, request *api.WriteAtRequest) (*api.Empty, error) {

@@ -149,7 +149,7 @@ func (svc *PoolService) Start() error {
 			"struct":  "PoolService",
 		})
 
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 
 		for {
@@ -158,7 +158,7 @@ func (svc *PoolService) Start() error {
 				// terminate
 				return
 			case <-ticker.C:
-				logger.Infof("Total %d sessions, %d FS client instances, %d iRODS connections", svc.poolServer.GetPoolSessions(), svc.poolServer.GetIRODSFSClientInstanceCount(), svc.poolServer.GetIRODSConnections())
+				logger.Infof("Total %d pool sessions, %d FS client instances, %d iRODS connections", svc.poolServer.GetPoolSessions(), svc.poolServer.GetIRODSFSClientInstanceCount(), svc.poolServer.GetIRODSConnections())
 			}
 		}
 	}()

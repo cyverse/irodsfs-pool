@@ -5,6 +5,8 @@ import (
 
 	"github.com/rs/xid"
 	yaml "gopkg.in/yaml.v2"
+
+	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 )
 
 const (
@@ -60,9 +62,9 @@ type Config struct {
 
 // MetadataCacheTimeoutSetting defines cache timeout for path
 type MetadataCacheTimeoutSetting struct {
-	Path    string   `yaml:"path" json:"path"`
-	Timeout Duration `yaml:"timeout" json:"timeout"`
-	Inherit bool     `yaml:"inherit,omitempty" json:"inherit,omitempty"`
+	Path    string                        `yaml:"path" json:"path"`
+	Timeout irodsfs_common_utils.Duration `yaml:"timeout" json:"timeout"`
+	Inherit bool                          `yaml:"inherit,omitempty" json:"inherit,omitempty"`
 }
 
 // NewDefaultConfig creates DefaultConfig

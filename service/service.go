@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"runtime/debug"
 	"sync"
 	"time"
 
+	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	log "github.com/sirupsen/logrus"
@@ -18,7 +18,7 @@ import (
 // PoolService is a service object
 type PoolService struct {
 	config        *commons.Config
-	apiServer     *Server
+	poolServer    *PoolServer
 	grpcServer    *grpc.Server
 	statHandler   *PoolServiceStatHandler
 	terminateChan chan bool
@@ -27,7 +27,7 @@ type PoolService struct {
 }
 
 type PoolServiceStatHandler struct {
-	apiServer       *Server
+	poolServer      *PoolServer
 	liveConnections int
 	mutex           sync.Mutex
 }
@@ -52,12 +52,7 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 		"function": "HandleConn",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	switch s.(type) {
 	case *stats.ConnEnd:
@@ -70,7 +65,7 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 
 		if handler.liveConnections <= 0 {
 			handler.liveConnections = 0
-			handler.apiServer.LogoutAll()
+			handler.poolServer.LogoutAll()
 		}
 
 	case *stats.ConnBegin:
@@ -90,36 +85,31 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		"function": "NewPoolService",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	serverConfig := &ServerConfig{
+	poolServerConfig := &PoolServerConfig{
 		BufferSizeMax:        config.BufferSizeMax,
 		CacheSizeMax:         config.DataCacheSizeMax,
 		CacheRootPath:        config.DataCacheRootPath,
 		CacheTimeoutSettings: config.CacheTimeoutSettings,
 	}
 
-	apiServer, err := NewServer(serverConfig)
+	poolServer, err := NewPoolServer(poolServerConfig)
 	if err != nil {
-		logger.WithError(err).Error("failed to create a new server")
+		logger.WithError(err).Error("failed to create a new pool server")
 		return nil, err
 	}
 
 	statHandler := &PoolServiceStatHandler{
-		apiServer:       apiServer,
+		poolServer:      poolServer,
 		liveConnections: 0,
 	}
 	grpcServer := grpc.NewServer(grpc.StatsHandler(statHandler))
-	api.RegisterPoolAPIServer(grpcServer, apiServer)
+	api.RegisterPoolAPIServer(grpcServer, poolServer)
 
 	service := &PoolService{
 		config:        config,
-		apiServer:     apiServer,
+		poolServer:    poolServer,
 		grpcServer:    grpcServer,
 		statHandler:   statHandler,
 		terminateChan: make(chan bool),
@@ -143,12 +133,7 @@ func (svc *PoolService) Start() error {
 
 	svc.terminated = true
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	logger.Info("Starting the iRODS FUSE Lite Pool service")
 
@@ -173,7 +158,7 @@ func (svc *PoolService) Start() error {
 				// terminate
 				return
 			case <-ticker.C:
-				logger.Infof("Total %d clients, %d FS, %d iRODS connections", svc.apiServer.GetSessions(), svc.apiServer.GetIRODSFSCount(), svc.apiServer.GetIRODSConnections())
+				logger.Infof("Total %d sessions, %d FS client instances, %d iRODS connections", svc.poolServer.GetPoolSessions(), svc.poolServer.GetIRODSFSClientInstanceCount(), svc.poolServer.GetIRODSConnections())
 			}
 		}
 	}()
@@ -207,12 +192,7 @@ func (svc *PoolService) Destroy() {
 		"function": "Destroy",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	logger.Info("Destroying the iRODS FUSE Lite Pool service")
 	svc.terminateChan <- true
@@ -221,7 +201,7 @@ func (svc *PoolService) Destroy() {
 		svc.grpcServer.Stop()
 	}
 
-	if svc.apiServer != nil {
-		svc.apiServer.Release()
+	if svc.poolServer != nil {
+		svc.poolServer.Release()
 	}
 }

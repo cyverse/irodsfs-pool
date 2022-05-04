@@ -10,9 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"runtime/debug"
 	"strings"
 	"syscall"
+
+	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service"
@@ -72,12 +73,8 @@ func parentRun(irodsfsPoolExec string, config *commons.Config) error {
 		"function": "parentRun",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
 	err := config.Validate()
 	if err != nil {
 		logger.WithError(err).Error("invalid argument")
@@ -179,12 +176,7 @@ func parentMain() {
 		"function": "parentMain",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	// parse argument
 	config, logWriter, err, exit := processArguments()
@@ -220,12 +212,7 @@ func childMain() {
 		"function": "childMain",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	logger.Info("Start background process")
 
@@ -289,12 +276,7 @@ func run(config *commons.Config, isChildProcess bool) error {
 		"function": "run",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	// profile
 	if config.Profile {

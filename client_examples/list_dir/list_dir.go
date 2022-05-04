@@ -46,7 +46,7 @@ func main() {
 
 	logger.Debugf("Account : %v", account.MaskSensitiveData())
 
-	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5)
+	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, "test_client_1")
 	err = poolClient.Connect()
 	if err != nil {
 		logger.Errorf("err - %v", err)
@@ -56,14 +56,14 @@ func main() {
 	defer poolClient.Disconnect()
 
 	appName := "list_dir"
-	clientID := "test_client_1"
-	conn, err := poolClient.Login(account, appName, clientID)
+	poolSession, err := poolClient.NewSession(account, appName)
 	if err != nil {
 		logger.Errorf("err - %v", err)
 		panic(err)
 	}
+	defer poolSession.Release()
 
-	entries, err := poolClient.List(conn, inputPath)
+	entries, err := poolSession.List(inputPath)
 	if err != nil {
 		logger.Errorf("err - %v", err)
 		panic(err)
@@ -81,11 +81,5 @@ func main() {
 				fmt.Printf("> DIRECTORY:\t%s\n", entry.Path)
 			}
 		}
-	}
-
-	err = poolClient.Logout(conn)
-	if err != nil {
-		logger.Errorf("err - %v", err)
-		panic(err)
 	}
 }

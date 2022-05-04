@@ -2,52 +2,79 @@ package service
 
 import (
 	"fmt"
-	"runtime/debug"
-	"sync"
 
-	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
-	"github.com/cyverse/irodsfs-pool/service/io"
+	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	irodsfs_common_io "github.com/cyverse/irodsfs-common/io"
+	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
+	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 	log "github.com/sirupsen/logrus"
 )
 
-type FileHandle struct {
-	id           string
-	sessionID    string
-	connectionID string
+// PoolFileHandle is a file handle managed by iRODSFS-Pool
+type PoolFileHandle struct {
+	poolServer              *PoolServer
+	poolSessionID           string
+	irodsFsClientInstanceID string
 
-	writer          io.Writer
-	reader          io.Reader
-	irodsFileHandle *irodsclient_fs.FileHandle
-	mutex           *sync.Mutex // mutex to access writer, reader, irodsFileHandle
+	writer            irodsfs_common_io.Writer
+	reader            irodsfs_common_io.Reader
+	irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle
 }
 
-func NewFileHandle(handleID string, sessionID string, connectionID string, writer io.Writer, reader io.Reader, fileHandle *irodsclient_fs.FileHandle, mutex *sync.Mutex) *FileHandle {
-	return &FileHandle{
-		id:           handleID,
-		sessionID:    sessionID,
-		connectionID: connectionID,
+// NewPoolFileHandle creates a new pool file handle
+func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsClientInstanceID string, irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle) *PoolFileHandle {
+	var writer irodsfs_common_io.Writer
+	var reader irodsfs_common_io.Reader
 
-		writer:          writer,
-		reader:          reader,
-		irodsFileHandle: fileHandle,
-		mutex:           mutex,
+	switch irodsFsFileHandle.GetOpenMode() {
+	case irodsclient_types.FileOpenModeAppend, irodsclient_types.FileOpenModeWriteOnly, irodsclient_types.FileOpenModeWriteTruncate:
+		// writer
+		if poolServer.buffer != nil {
+			asyncWriter := irodsfs_common_io.NewAsyncWriter(irodsFsFileHandle, poolServer.buffer, nil)
+			writer = irodsfs_common_io.NewBufferedWriter(asyncWriter)
+		} else {
+			syncWriter := irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)
+			writer = irodsfs_common_io.NewBufferedWriter(syncWriter)
+		}
+
+		// reader
+		reader = irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
+	case irodsclient_types.FileOpenModeReadOnly:
+		// writer
+		writer = irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)
+
+		// reader
+		if poolServer.cacheStore != nil {
+			syncReader := irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
+			reader = irodsfs_common_io.NewCachedReader(irodsFsFileHandle.GetEntry().CheckSum, poolServer.cacheStore, syncReader)
+		} else {
+			reader = irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
+		}
+	default:
+		writer = irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)
+		reader = irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
+	}
+
+	return &PoolFileHandle{
+		poolServer:              poolServer,
+		poolSessionID:           poolSessionID,
+		irodsFsClientInstanceID: irodsFsClientInstanceID,
+
+		writer:            writer,
+		reader:            reader,
+		irodsFsFileHandle: irodsFsFileHandle,
 	}
 }
 
-func (handle *FileHandle) Release() error {
+func (handle *PoolFileHandle) Release() error {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
-		"struct":   "FileHandle",
+		"struct":   "PoolFileHandle",
 		"function": "Release",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	errs := []error{}
 
@@ -71,16 +98,13 @@ func (handle *FileHandle) Release() error {
 		handle.reader = nil
 	}
 
-	handle.mutex.Lock()
-	defer handle.mutex.Unlock()
-
-	if handle.irodsFileHandle != nil {
-		err := handle.irodsFileHandle.Close()
+	if handle.irodsFsFileHandle != nil {
+		err := handle.irodsFsFileHandle.Close()
 		if err != nil {
 			errs = append(errs, err)
 		}
 
-		handle.irodsFileHandle = nil
+		handle.irodsFsFileHandle = nil
 	}
 
 	if len(errs) > 0 {
@@ -89,23 +113,18 @@ func (handle *FileHandle) Release() error {
 	return nil
 }
 
-func (handle *FileHandle) GetID() string {
-	return handle.id
+func (handle *PoolFileHandle) GetID() string {
+	return handle.irodsFsFileHandle.GetID()
 }
 
-func (handle *FileHandle) Flush() error {
+func (handle *PoolFileHandle) Flush() error {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
-		"struct":   "FileHandle",
+		"struct":   "PoolFileHandle",
 		"function": "Flush",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	if handle.writer != nil {
 		return handle.writer.Flush()
@@ -113,74 +132,56 @@ func (handle *FileHandle) Flush() error {
 	return nil
 }
 
-func (handle *FileHandle) GetFileOpenMode() types.FileOpenMode {
-	return handle.irodsFileHandle.OpenMode
+func (handle *PoolFileHandle) GetOpenMode() types.FileOpenMode {
+	return handle.irodsFsFileHandle.GetOpenMode()
 }
 
-func (handle *FileHandle) GetEntryPath() string {
-	return handle.irodsFileHandle.Entry.Path
+func (handle *PoolFileHandle) GetEntryPath() string {
+	return handle.irodsFsFileHandle.GetEntry().Path
 }
 
-func (handle *FileHandle) GetOffset() int64 {
+func (handle *PoolFileHandle) GetOffset() int64 {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
-		"struct":   "FileHandle",
+		"struct":   "PoolFileHandle",
 		"function": "GetOffset",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	if handle.writer != nil {
 		handle.writer.Flush()
 	}
 
-	handle.mutex.Lock()
-	defer handle.mutex.Unlock()
-
-	return handle.irodsFileHandle.GetOffset()
+	return handle.irodsFsFileHandle.GetOffset()
 }
 
-func (handle *FileHandle) ReadAt(offset int64, len int) ([]byte, error) {
+func (handle *PoolFileHandle) ReadAt(buffer []byte, offset int64) (int, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
-		"struct":   "FileHandle",
+		"struct":   "PoolFileHandle",
 		"function": "ReadAt",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	if handle.reader != nil {
-		return handle.reader.ReadAt(offset, len)
+		return handle.reader.ReadAt(buffer, offset)
 	}
-	return nil, fmt.Errorf("reader is not initialized")
+	return 0, fmt.Errorf("reader is not initialized")
 }
 
-func (handle *FileHandle) WriteAt(offset int64, data []byte) error {
+func (handle *PoolFileHandle) WriteAt(data []byte, offset int64) (int, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
-		"struct":   "FileHandle",
+		"struct":   "PoolFileHandle",
 		"function": "WriteAt",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	if handle.writer != nil {
-		return handle.writer.WriteAt(offset, data)
+		return handle.writer.WriteAt(data, offset)
 	}
-	return fmt.Errorf("writer is not initialized")
+	return 0, fmt.Errorf("writer is not initialized")
 }

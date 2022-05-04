@@ -1,101 +1,100 @@
 package service
 
 import (
-	"runtime/debug"
 	"sync"
 	"time"
 
+	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 )
 
-// Session is a struct for client login
-type Session struct {
-	id                string // session id
-	clientID          string
-	irodsConnectionID string
+// PoolSession is a struct for client login
+type PoolSession struct {
+	id                      string // pool session id
+	poolClientID            string
+	irodsFsClientInstanceID string
 
-	lastAccessTime time.Time
-	fileHandles    map[string]*FileHandle
-	mutex          sync.Mutex // mutex to access lastAccessTime, fileHandles
+	lastAccessTime  time.Time
+	poolFileHandles map[string]*PoolFileHandle
+	mutex           sync.Mutex // mutex to access lastAccessTime, poolFileHandles
 }
 
-func NewSession(clientID string, connectionID string) *Session {
-	return &Session{
-		id:                xid.New().String(),
-		clientID:          clientID,
-		irodsConnectionID: connectionID,
+func NewPoolSession(poolClientID string) *PoolSession {
+	return &PoolSession{
+		id:                      xid.New().String(),
+		poolClientID:            poolClientID,
+		irodsFsClientInstanceID: "",
 
-		lastAccessTime: time.Now(),
-		fileHandles:    map[string]*FileHandle{},
-		mutex:          sync.Mutex{},
+		lastAccessTime:  time.Now(),
+		poolFileHandles: map[string]*PoolFileHandle{},
+		mutex:           sync.Mutex{},
 	}
 }
 
-func (session *Session) Release() {
+func (session *PoolSession) Release() {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
-		"struct":   "Session",
+		"struct":   "PoolSession",
 		"function": "Release",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
-	for _, fileHandle := range session.fileHandles {
+	for _, fileHandle := range session.poolFileHandles {
 		fileHandle.Release()
 	}
 
 	// empty
-	session.fileHandles = map[string]*FileHandle{}
+	session.poolFileHandles = map[string]*PoolFileHandle{}
 }
 
-func (session *Session) GetID() string {
+func (session *PoolSession) GetID() string {
 	return session.id
 }
 
-func (session *Session) GetClientID() string {
-	return session.clientID
+func (session *PoolSession) GetPoolClientID() string {
+	return session.poolClientID
 }
 
-func (session *Session) GetConnectionID() string {
-	return session.irodsConnectionID
+func (session *PoolSession) SetIRODSFSClientInstanceID(irodsFsClientInstanceID string) {
+	session.irodsFsClientInstanceID = irodsFsClientInstanceID
 }
 
-func (session *Session) UpdateLastAccessTime() {
+func (session *PoolSession) GetIRODSFSClientInstanceID() string {
+	return session.irodsFsClientInstanceID
+}
+
+func (session *PoolSession) UpdateLastAccessTime() {
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
 	session.lastAccessTime = time.Now()
 }
 
-func (session *Session) AddFileHandle(fileHandle *FileHandle) {
+func (session *PoolSession) AddPoolFileHandle(poolFileHandle *PoolFileHandle) {
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
-	session.fileHandles[fileHandle.GetID()] = fileHandle
+	session.poolFileHandles[poolFileHandle.GetID()] = poolFileHandle
 }
 
-func (session *Session) RemoveFileHandle(fileHandleID string) {
+func (session *PoolSession) RemovePoolFileHandle(poolFileHandleID string) {
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
-	delete(session.fileHandles, fileHandleID)
+	delete(session.poolFileHandles, poolFileHandleID)
 }
 
-func (session *Session) GetFileHandle(fileHandleID string) *FileHandle {
+func (session *PoolSession) GetPoolFileHandle(poolFileHandleID string) *PoolFileHandle {
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
-	if handle, ok := session.fileHandles[fileHandleID]; ok {
-		return handle
+	if poolFileHandle, ok := session.poolFileHandles[poolFileHandleID]; ok {
+		return poolFileHandle
 	}
 	return nil
 }

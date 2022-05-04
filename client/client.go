@@ -3,13 +3,15 @@ package client
 import (
 	"context"
 	"fmt"
-	"runtime/debug"
+	"io"
 	"time"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
+	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 	"github.com/cyverse/irodsfs-pool/service/api"
-	"github.com/cyverse/irodsfs-pool/utils"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -17,51 +19,42 @@ import (
 )
 
 const (
-	FileRWLengthMax int32 = 1024 * 1024 * 2 // 2MB
+	fileRWLengthMax int = 1024 * 1024 * 4 // 4MB
 )
 
-// PoolServiceClient is a struct that holds connection information
+// PoolServiceClient is a client of pool service
 type PoolServiceClient struct {
+	id               string
 	host             string // host:port
 	operationTimeout time.Duration
-	connection       *grpc.ClientConn
+	grpcConnection   *grpc.ClientConn
 	apiClient        api.PoolAPIClient
 }
 
+// PoolServiceSession is a service session
+// implements irodsfs-common/irods/interface.go
 type PoolServiceSession struct {
-	id              string
-	account         *irodsclient_types.IRODSAccount
-	applicationName string
-	clientID        string
-}
-
-type PoolServiceFileHandle struct {
-	SessionID    string
-	Entry        *irodsclient_fs.Entry
-	OpenMode     string
-	FileHandleID string
-}
-
-// IsReadMode returns true if file is opened with read mode
-func (handle *PoolServiceFileHandle) IsReadMode() bool {
-	return irodsclient_types.IsFileOpenFlagRead(irodsclient_types.FileOpenMode(handle.OpenMode))
-}
-
-// IsWriteMode returns true if file is opened with write mode
-func (handle *PoolServiceFileHandle) IsWriteMode() bool {
-	return irodsclient_types.IsFileOpenFlagWrite(irodsclient_types.FileOpenMode(handle.OpenMode))
+	id                string
+	poolServiceClient *PoolServiceClient
+	account           *irodsclient_types.IRODSAccount
+	applicationName   string
 }
 
 // NewPoolServiceClient creates a new pool service client
-func NewPoolServiceClient(poolHost string, operationTimeout time.Duration) *PoolServiceClient {
+func NewPoolServiceClient(poolHost string, operationTimeout time.Duration, clientID string) *PoolServiceClient {
+	if len(clientID) == 0 {
+		clientID = xid.New().String()
+	}
+
 	return &PoolServiceClient{
+		id:               clientID,
 		host:             poolHost,
 		operationTimeout: operationTimeout,
-		connection:       nil,
+		grpcConnection:   nil,
 	}
 }
 
-// Disconnect connects to pool service
+// Connect connects to pool service
 func (client *PoolServiceClient) Connect() error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
@@ -69,12 +62,7 @@ func (client *PoolServiceClient) Connect() error {
 		"function": "Connect",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	conn, err := grpc.Dial(client.host, grpc.WithInsecure())
 	if err != nil {
@@ -82,7 +70,7 @@ func (client *PoolServiceClient) Connect() error {
 		return err
 	}
 
-	client.connection = conn
+	client.grpcConnection = conn
 	client.apiClient = api.NewPoolAPIClient(conn)
 	return nil
 }
@@ -93,13 +81,30 @@ func (client *PoolServiceClient) Disconnect() {
 		client.apiClient = nil
 	}
 
-	if client.connection != nil {
-		client.connection.Close()
-		client.connection = nil
+	if client.grpcConnection != nil {
+		client.grpcConnection.Close()
+		client.grpcConnection = nil
 	}
 }
 
-func (client *PoolServiceClient) statusToError(err error) error {
+func (client *PoolServiceClient) getContextWithDeadline() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), client.operationTimeout)
+}
+
+func getLargeReadOption() grpc.CallOption {
+	// set to 128MB
+	return grpc.MaxCallRecvMsgSize(128 * 1024 * 1024)
+}
+
+func getLargeWriteOption() grpc.CallOption {
+	// set to 128MB
+	return grpc.MaxCallSendMsgSize(128 * 1024 * 1024)
+}
+func statusToError(err error) error {
+	if err == nil {
+		return nil
+	}
+
 	st, ok := status.FromError(err)
 	if ok {
 		switch st.Code() {
@@ -110,6 +115,8 @@ func (client *PoolServiceClient) statusToError(err error) error {
 			return irodsclient_types.NewCollectionNotEmptyError(st.Message())
 		case codes.Internal:
 			return fmt.Errorf(err.Error())
+		case codes.OutOfRange:
+			return io.EOF
 		default:
 			return fmt.Errorf(err.Error())
 		}
@@ -118,34 +125,15 @@ func (client *PoolServiceClient) statusToError(err error) error {
 	return err
 }
 
-func (client *PoolServiceClient) getContextWithDeadline() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), client.operationTimeout)
-}
-
-func (client *PoolServiceClient) getLargeReadOption() grpc.CallOption {
-	// set to 128MB
-	return grpc.MaxCallRecvMsgSize(128 * 1024 * 1024)
-}
-
-func (client *PoolServiceClient) getLargeWriteOption() grpc.CallOption {
-	// set to 128MB
-	return grpc.MaxCallSendMsgSize(128 * 1024 * 1024)
-}
-
-// Login logins to iRODS service using account info
-func (client *PoolServiceClient) Login(account *irodsclient_types.IRODSAccount, applicationName string, clientID string) (*PoolServiceSession, error) {
+// NewSession creates a new session for iRODS service using account info
+func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAccount, applicationName string) (irodsfs_common_irods.IRODSFSClient, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"struct":   "PoolServiceClient",
-		"function": "Login",
+		"function": "NewSession",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.LoginRequest{
 		Account: &api.Account{
@@ -158,13 +146,13 @@ func (client *PoolServiceClient) Login(account *irodsclient_types.IRODSAccount, 
 			ClientZone:              account.ClientZone,
 			ProxyUser:               account.ProxyUser,
 			ProxyZone:               account.ProxyZone,
-			ServerDn:                account.ServerDN,
 			Password:                account.Password,
 			Ticket:                  account.Ticket,
+			DefaultResource:         account.DefaultResource,
 			PamTtl:                  int32(account.PamTTL),
 		},
 		ApplicationName: applicationName,
-		ClientId:        clientID,
+		ClientId:        client.id,
 	}
 
 	ctx, cancel := client.getContextWithDeadline()
@@ -173,87 +161,93 @@ func (client *PoolServiceClient) Login(account *irodsclient_types.IRODSAccount, 
 	response, err := client.apiClient.Login(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return nil, client.statusToError(err)
+		return nil, statusToError(err)
 	}
 
 	return &PoolServiceSession{
-		id:              response.SessionId,
-		account:         account,
-		applicationName: applicationName,
-		clientID:        clientID,
+		poolServiceClient: client,
+		id:                response.SessionId,
+		account:           account,
+		applicationName:   applicationName,
 	}, nil
 }
 
-// Logout logouts from iRODS service
-func (client *PoolServiceClient) Logout(session *PoolServiceSession) error {
+// Release logouts from iRODS service session
+func (session *PoolServiceSession) Release() {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
-		"function": "Logout",
+		"struct":   "PoolServiceSession",
+		"function": "Release",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.LogoutRequest{
 		SessionId: session.id,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	_, err := client.apiClient.Logout(ctx, request)
+	_, err := session.poolServiceClient.apiClient.Logout(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return client.statusToError(err)
+		return
 	}
+}
 
-	return nil
+func (session *PoolServiceSession) GetAccount() *irodsclient_types.IRODSAccount {
+	return session.account
+}
+
+func (session *PoolServiceSession) GetApplicationName() string {
+	return session.applicationName
+}
+
+func (session *PoolServiceSession) GetConnections() int {
+	// return just 1, proxy connection
+	return 1
+}
+
+func (session *PoolServiceSession) GetTransferMetrics() irodsclient_types.TransferMetrics {
+	// return empty
+	return irodsclient_types.TransferMetrics{}
 }
 
 // List lists iRODS collection entries
-func (client *PoolServiceClient) List(session *PoolServiceSession, path string) ([]*irodsclient_fs.Entry, error) {
+func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "List",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.ListRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.List(ctx, request, client.getLargeReadOption())
+	response, err := session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, client.statusToError(err)
+		return nil, statusToError(err)
 	}
 
 	irodsEntries := []*irodsclient_fs.Entry{}
 
 	for _, entry := range response.Entries {
-		createTime, err := utils.ParseTime(entry.CreateTime)
+		createTime, err := irodsfs_common_utils.ParseTime(entry.CreateTime)
 		if err != nil {
 			logger.Error(err)
 			return nil, err
 		}
 
-		modifyTime, err := utils.ParseTime(entry.ModifyTime)
+		modifyTime, err := irodsfs_common_utils.ParseTime(entry.ModifyTime)
 		if err != nil {
 			logger.Error(err)
 			return nil, err
@@ -278,41 +272,36 @@ func (client *PoolServiceClient) List(session *PoolServiceSession, path string) 
 }
 
 // Stat stats iRODS entry
-func (client *PoolServiceClient) Stat(session *PoolServiceSession, path string) (*irodsclient_fs.Entry, error) {
+func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "Stat",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.StatRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.Stat(ctx, request)
+	response, err := session.poolServiceClient.apiClient.Stat(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return nil, client.statusToError(err)
+		return nil, statusToError(err)
 	}
 
-	createTime, err := utils.ParseTime(response.Entry.CreateTime)
+	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	modifyTime, err := utils.ParseTime(response.Entry.ModifyTime)
+	modifyTime, err := irodsfs_common_utils.ParseTime(response.Entry.ModifyTime)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -334,29 +323,24 @@ func (client *PoolServiceClient) Stat(session *PoolServiceSession, path string) 
 }
 
 // ExistsDir checks existence of Dir
-func (client *PoolServiceClient) ExistsDir(session *PoolServiceSession, path string) bool {
+func (session *PoolServiceSession) ExistsDir(path string) bool {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "ExistsDir",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.ExistsDirRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.ExistsDir(ctx, request)
+	response, err := session.poolServiceClient.apiClient.ExistsDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return false
@@ -366,29 +350,24 @@ func (client *PoolServiceClient) ExistsDir(session *PoolServiceSession, path str
 }
 
 // ExistsFile checks existence of File
-func (client *PoolServiceClient) ExistsFile(session *PoolServiceSession, path string) bool {
+func (session *PoolServiceSession) ExistsFile(path string) bool {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "ExistsFile",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.ExistsFileRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.ExistsFile(ctx, request)
+	response, err := session.poolServiceClient.apiClient.ExistsFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return false
@@ -398,32 +377,27 @@ func (client *PoolServiceClient) ExistsFile(session *PoolServiceSession, path st
 }
 
 // ListUserGroups lists iRODS Groups that a user belongs to
-func (client *PoolServiceClient) ListUserGroups(session *PoolServiceSession, user string) ([]*irodsclient_types.IRODSUser, error) {
+func (session *PoolServiceSession) ListUserGroups(user string) ([]*irodsclient_types.IRODSUser, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "ListUserGroups",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.ListUserGroupsRequest{
 		SessionId: session.id,
 		UserName:  user,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.ListUserGroups(ctx, request, client.getLargeReadOption())
+	response, err := session.poolServiceClient.apiClient.ListUserGroups(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, client.statusToError(err)
+		return nil, statusToError(err)
 	}
 
 	irodsUsers := []*irodsclient_types.IRODSUser{}
@@ -442,32 +416,27 @@ func (client *PoolServiceClient) ListUserGroups(session *PoolServiceSession, use
 }
 
 // ListDirACLs lists iRODS collection ACLs
-func (client *PoolServiceClient) ListDirACLs(session *PoolServiceSession, path string) ([]*irodsclient_types.IRODSAccess, error) {
+func (session *PoolServiceSession) ListDirACLs(path string) ([]*irodsclient_types.IRODSAccess, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "ListDirACLs",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.ListDirACLsRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.ListDirACLs(ctx, request, client.getLargeReadOption())
+	response, err := session.poolServiceClient.apiClient.ListDirACLs(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, client.statusToError(err)
+		return nil, statusToError(err)
 	}
 
 	irodsAccesses := []*irodsclient_types.IRODSAccess{}
@@ -488,32 +457,27 @@ func (client *PoolServiceClient) ListDirACLs(session *PoolServiceSession, path s
 }
 
 // ListFileACLs lists iRODS data object ACLs
-func (client *PoolServiceClient) ListFileACLs(session *PoolServiceSession, path string) ([]*irodsclient_types.IRODSAccess, error) {
+func (session *PoolServiceSession) ListFileACLs(path string) ([]*irodsclient_types.IRODSAccess, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "ListFileACLs",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.ListFileACLsRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.ListFileACLs(ctx, request, client.getLargeReadOption())
+	response, err := session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, client.statusToError(err)
+		return nil, statusToError(err)
 	}
 
 	irodsAccesses := []*irodsclient_types.IRODSAccess{}
@@ -534,19 +498,14 @@ func (client *PoolServiceClient) ListFileACLs(session *PoolServiceSession, path 
 }
 
 // RemoveFile removes iRODS data object
-func (client *PoolServiceClient) RemoveFile(session *PoolServiceSession, path string, force bool) error {
+func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "RemoveFile",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.RemoveFileRequest{
 		SessionId: session.id,
@@ -554,32 +513,27 @@ func (client *PoolServiceClient) RemoveFile(session *PoolServiceSession, path st
 		Force:     force,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	_, err := client.apiClient.RemoveFile(ctx, request)
+	_, err := session.poolServiceClient.apiClient.RemoveFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return client.statusToError(err)
+		return statusToError(err)
 	}
 
 	return nil
 }
 
 // RemoveDir removes iRODS collection
-func (client *PoolServiceClient) RemoveDir(session *PoolServiceSession, path string, recurse bool, force bool) error {
+func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bool) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "RemoveDir",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.RemoveDirRequest{
 		SessionId: session.id,
@@ -588,32 +542,27 @@ func (client *PoolServiceClient) RemoveDir(session *PoolServiceSession, path str
 		Force:     force,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	_, err := client.apiClient.RemoveDir(ctx, request)
+	_, err := session.poolServiceClient.apiClient.RemoveDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return client.statusToError(err)
+		return statusToError(err)
 	}
 
 	return nil
 }
 
 // MakeDir creates a new iRODS collection
-func (client *PoolServiceClient) MakeDir(session *PoolServiceSession, path string, recurse bool) error {
+func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "MakeDir",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.MakeDirRequest{
 		SessionId: session.id,
@@ -621,32 +570,27 @@ func (client *PoolServiceClient) MakeDir(session *PoolServiceSession, path strin
 		Recurse:   recurse,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	_, err := client.apiClient.MakeDir(ctx, request)
+	_, err := session.poolServiceClient.apiClient.MakeDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return client.statusToError(err)
+		return statusToError(err)
 	}
 
 	return nil
 }
 
 // RenameDirToDir renames iRODS collection
-func (client *PoolServiceClient) RenameDirToDir(session *PoolServiceSession, srcPath string, destPath string) error {
+func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath string) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "RenameDirToDir",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.RenameDirToDirRequest{
 		SessionId:       session.id,
@@ -654,32 +598,27 @@ func (client *PoolServiceClient) RenameDirToDir(session *PoolServiceSession, src
 		DestinationPath: destPath,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	_, err := client.apiClient.RenameDirToDir(ctx, request)
+	_, err := session.poolServiceClient.apiClient.RenameDirToDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return client.statusToError(err)
+		return statusToError(err)
 	}
 
 	return nil
 }
 
 // RenameFileToFile renames iRODS data object
-func (client *PoolServiceClient) RenameFileToFile(session *PoolServiceSession, srcPath string, destPath string) error {
+func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath string) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "RenameFileToFile",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.RenameFileToFileRequest{
 		SessionId:       session.id,
@@ -687,55 +626,51 @@ func (client *PoolServiceClient) RenameFileToFile(session *PoolServiceSession, s
 		DestinationPath: destPath,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	_, err := client.apiClient.RenameFileToFile(ctx, request)
+	_, err := session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return client.statusToError(err)
+		return statusToError(err)
 	}
 
 	return nil
 }
 
 // CreateFile creates a new iRODS data object
-func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path string, resource string) (*PoolServiceFileHandle, error) {
+func (session *PoolServiceSession) CreateFile(path string, resource string, mode string) (irodsfs_common_irods.IRODSFSFileHandle, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "CreateFile",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.CreateFileRequest{
 		SessionId: session.id,
 		Path:      path,
 		Resource:  resource,
+		Mode:      mode,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.CreateFile(ctx, request)
+	response, err := session.poolServiceClient.apiClient.CreateFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return nil, client.statusToError(err)
+		return nil, statusToError(err)
 	}
 
-	createTime, err := utils.ParseTime(response.Entry.CreateTime)
+	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	modifyTime, err := utils.ParseTime(response.Entry.ModifyTime)
+	modifyTime, err := irodsfs_common_utils.ParseTime(response.Entry.ModifyTime)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -754,27 +689,23 @@ func (client *PoolServiceClient) CreateFile(session *PoolServiceSession, path st
 	}
 
 	return &PoolServiceFileHandle{
-		SessionID:    session.id,
-		Entry:        irodsEntry,
-		OpenMode:     string(irodsclient_types.FileOpenModeWriteOnly),
-		FileHandleID: response.FileHandleId,
+		id:                 response.FileHandleId,
+		poolServiceClient:  session.poolServiceClient,
+		poolServiceSession: session,
+		entry:              irodsEntry,
+		openMode:           irodsclient_types.FileOpenMode(mode),
 	}, nil
 }
 
 // OpenFile opens iRODS data object
-func (client *PoolServiceClient) OpenFile(session *PoolServiceSession, path string, resource string, mode string) (*PoolServiceFileHandle, error) {
+func (session *PoolServiceSession) OpenFile(path string, resource string, mode string) (irodsfs_common_irods.IRODSFSFileHandle, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "OpenFile",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.OpenFileRequest{
 		SessionId: session.id,
@@ -783,22 +714,22 @@ func (client *PoolServiceClient) OpenFile(session *PoolServiceSession, path stri
 		Mode:      mode,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.OpenFile(ctx, request)
+	response, err := session.poolServiceClient.apiClient.OpenFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return nil, client.statusToError(err)
+		return nil, statusToError(err)
 	}
 
-	createTime, err := utils.ParseTime(response.Entry.CreateTime)
+	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	modifyTime, err := utils.ParseTime(response.Entry.ModifyTime)
+	modifyTime, err := irodsfs_common_utils.ParseTime(response.Entry.ModifyTime)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
@@ -817,27 +748,23 @@ func (client *PoolServiceClient) OpenFile(session *PoolServiceSession, path stri
 	}
 
 	return &PoolServiceFileHandle{
-		SessionID:    session.id,
-		Entry:        irodsEntry,
-		OpenMode:     mode,
-		FileHandleID: response.FileHandleId,
+		id:                 response.FileHandleId,
+		poolServiceClient:  session.poolServiceClient,
+		poolServiceSession: session,
+		entry:              irodsEntry,
+		openMode:           irodsclient_types.FileOpenMode(mode),
 	}, nil
 }
 
 // TruncateFile truncates iRODS data object
-func (client *PoolServiceClient) TruncateFile(session *PoolServiceSession, path string, size int64) error {
+func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceSession",
 		"function": "TruncateFile",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.TruncateFileRequest{
 		SessionId: session.id,
@@ -845,42 +772,58 @@ func (client *PoolServiceClient) TruncateFile(session *PoolServiceSession, path 
 		Size:      size,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	_, err := client.apiClient.TruncateFile(ctx, request)
+	_, err := session.poolServiceClient.apiClient.TruncateFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return client.statusToError(err)
+		return statusToError(err)
 	}
 
 	return nil
 }
 
+// PoolServiceFileHandle implements IRODSFSFileHandle
+type PoolServiceFileHandle struct {
+	id                 string
+	poolServiceClient  *PoolServiceClient
+	poolServiceSession *PoolServiceSession
+	entry              *irodsclient_fs.Entry
+	openMode           irodsclient_types.FileOpenMode
+}
+
+func (handle *PoolServiceFileHandle) GetID() string {
+	return handle.id
+}
+
+func (handle *PoolServiceFileHandle) GetEntry() *irodsclient_fs.Entry {
+	return handle.entry
+}
+
+func (handle *PoolServiceFileHandle) GetOpenMode() irodsclient_types.FileOpenMode {
+	return handle.openMode
+}
+
 // GetOffset returns current offset
-func (client *PoolServiceClient) GetOffset(handle *PoolServiceFileHandle) int64 {
+func (handle *PoolServiceFileHandle) GetOffset() int64 {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceFileHandle",
 		"function": "GetOffset",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.GetOffsetRequest{
-		SessionId:    handle.SessionID,
-		FileHandleId: handle.FileHandleID,
+		SessionId:    handle.poolServiceSession.id,
+		FileHandleId: handle.id,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	response, err := client.apiClient.GetOffset(ctx, request)
+	response, err := handle.poolServiceClient.apiClient.GetOffset(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return -1
@@ -889,99 +832,75 @@ func (client *PoolServiceClient) GetOffset(handle *PoolServiceFileHandle) int64 
 	return response.Offset
 }
 
+func (handle *PoolServiceFileHandle) IsReadMode() bool {
+	return handle.openMode.IsRead()
+}
+
+func (handle *PoolServiceFileHandle) IsWriteMode() bool {
+	return handle.openMode.IsWrite()
+}
+
 // ReadAt reads iRODS data object
-func (client *PoolServiceClient) ReadAt(handle *PoolServiceFileHandle, offset int64, length int32) ([]byte, error) {
+func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceFileHandle",
 		"function": "ReadAt",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	if length <= FileRWLengthMax {
-		// do zero copy
-		request := &api.ReadAtRequest{
-			SessionId:    handle.SessionID,
-			FileHandleId: handle.FileHandleID,
-			Offset:       offset,
-			Length:       length,
-		}
-
-		ctx, cancel := client.getContextWithDeadline()
-		defer cancel()
-
-		response, err := client.apiClient.ReadAt(ctx, request, client.getLargeReadOption())
-		if err != nil {
-			logger.Error(err)
-			return nil, client.statusToError(err)
-		}
-
-		return response.Data, nil
-	}
-
-	// large data, use a buffer
-	remainLength := length
+	remainLength := len(buffer)
 	curOffset := offset
-	outputData := make([]byte, length)
 	totalReadLength := 0
 
 	for remainLength > 0 {
 		curLength := remainLength
-		if remainLength > FileRWLengthMax {
-			curLength = FileRWLengthMax
+		if remainLength > fileRWLengthMax {
+			curLength = fileRWLengthMax
 		}
 
 		request := &api.ReadAtRequest{
-			SessionId:    handle.SessionID,
-			FileHandleId: handle.FileHandleID,
+			SessionId:    handle.poolServiceSession.id,
+			FileHandleId: handle.id,
 			Offset:       curOffset,
-			Length:       curLength,
+			Length:       int32(curLength),
 		}
 
-		ctx, cancel := client.getContextWithDeadline()
+		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
 		defer cancel()
 
-		response, err := client.apiClient.ReadAt(ctx, request)
-		if err != nil {
+		response, err := handle.poolServiceClient.apiClient.ReadAt(ctx, request, getLargeReadOption())
+		svcErr := statusToError(err)
+		if err != nil && svcErr != io.EOF {
 			logger.Error(err)
-			return nil, client.statusToError(err)
+			return 0, svcErr
 		}
 
-		copy(outputData[totalReadLength:], response.Data)
+		copyLen := copy(buffer[totalReadLength:], response.Data)
 
-		remainLength -= int32(len(response.Data))
-		curOffset += int64(len(response.Data))
-		totalReadLength += len(response.Data)
+		remainLength -= copyLen
+		curOffset += int64(copyLen)
+		totalReadLength += copyLen
 
-		if len(response.Data) == 0 || len(response.Data) != int(curLength) {
+		if svcErr == io.EOF {
 			// EOF
-			break
+			return totalReadLength, io.EOF
 		}
 	}
 
-	return outputData[:totalReadLength], nil
+	return totalReadLength, nil
 }
 
 // WriteAt writes iRODS data object
-func (client *PoolServiceClient) WriteAt(handle *PoolServiceFileHandle, offset int64, data []byte) error {
+func (handle *PoolServiceFileHandle) WriteAt(data []byte, offset int64) (int, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceFileHandle",
 		"function": "WriteAt",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	remainLength := len(data)
 	curOffset := offset
@@ -989,24 +908,25 @@ func (client *PoolServiceClient) WriteAt(handle *PoolServiceFileHandle, offset i
 
 	for remainLength > 0 {
 		curLength := remainLength
-		if remainLength > int(FileRWLengthMax) {
-			curLength = int(FileRWLengthMax)
+		if remainLength > fileRWLengthMax {
+			curLength = fileRWLengthMax
 		}
 
 		request := &api.WriteAtRequest{
-			SessionId:    handle.SessionID,
-			FileHandleId: handle.FileHandleID,
+			SessionId:    handle.poolServiceSession.id,
+			FileHandleId: handle.id,
 			Offset:       curOffset,
 			Data:         data[totalWriteLength : totalWriteLength+curLength],
 		}
 
-		ctx, cancel := client.getContextWithDeadline()
+		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
 		defer cancel()
 
-		_, err := client.apiClient.WriteAt(ctx, request, client.getLargeWriteOption())
+		_, err := handle.poolServiceClient.apiClient.WriteAt(ctx, request, getLargeWriteOption())
+		svcErr := statusToError(err)
 		if err != nil {
 			logger.Error(err)
-			return client.statusToError(err)
+			return 0, svcErr
 		}
 
 		remainLength -= curLength
@@ -1014,68 +934,58 @@ func (client *PoolServiceClient) WriteAt(handle *PoolServiceFileHandle, offset i
 		totalWriteLength += int(curLength)
 	}
 
-	return nil
+	return totalWriteLength, nil
 }
 
 // Flush flushes iRODS data object handle
-func (client *PoolServiceClient) Flush(handle *PoolServiceFileHandle) error {
+func (handle *PoolServiceFileHandle) Flush() error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceFileHandle",
 		"function": "Flush",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.FlushRequest{
-		SessionId:    handle.SessionID,
-		FileHandleId: handle.FileHandleID,
+		SessionId:    handle.poolServiceSession.id,
+		FileHandleId: handle.id,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	_, err := client.apiClient.Flush(ctx, request)
+	_, err := handle.poolServiceClient.apiClient.Flush(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return client.statusToError(err)
+		return statusToError(err)
 	}
 
 	return nil
 }
 
 // Close closes iRODS data object handle
-func (client *PoolServiceClient) Close(handle *PoolServiceFileHandle) error {
+func (handle *PoolServiceFileHandle) Close() error {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
-		"struct":   "PoolServiceClient",
+		"struct":   "PoolServiceFileHandle",
 		"function": "Close",
 	})
 
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("stacktrace from panic: %s", string(debug.Stack()))
-			logger.Panic(r)
-		}
-	}()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	request := &api.CloseRequest{
-		SessionId:    handle.SessionID,
-		FileHandleId: handle.FileHandleID,
+		SessionId:    handle.poolServiceSession.id,
+		FileHandleId: handle.id,
 	}
 
-	ctx, cancel := client.getContextWithDeadline()
+	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	_, err := client.apiClient.Close(ctx, request)
+	_, err := handle.poolServiceClient.apiClient.Close(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return client.statusToError(err)
+		return statusToError(err)
 	}
 
 	return nil

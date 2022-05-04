@@ -17,9 +17,9 @@ message Account{
 	string client_zone = 7;
 	string proxy_user = 8;
 	string proxy_zone = 9;
-	string server_dn = 10;
-	string password = 11;
-	string ticket = 12;
+	string password = 10;
+	string ticket = 11;
+	string default_resource = 12;
 	int32 pam_ttl = 13;
 }
 
@@ -162,6 +162,7 @@ message CreateFileRequest {
 	string session_id = 1;
 	string path = 2;
 	string resource = 3;
+	string mode = 4;
 }
 
 message CreateFileResponse {

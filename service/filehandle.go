@@ -3,12 +3,15 @@ package service
 import (
 	"fmt"
 
-	"github.com/cyverse/go-irodsclient/irods/types"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	irodsfs_common_io "github.com/cyverse/irodsfs-common/io"
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 	log "github.com/sirupsen/logrus"
+)
+
+const (
+	fileBlockSize int = 1 * 1024 * 1024 // 1MB
 )
 
 // PoolFileHandle is a file handle managed by iRODSFS-Pool
@@ -47,7 +50,7 @@ func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsClie
 		// reader
 		if poolServer.cacheStore != nil {
 			syncReader := irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
-			reader = irodsfs_common_io.NewCachedReader(irodsFsFileHandle.GetEntry().CheckSum, poolServer.cacheStore, syncReader)
+			reader = irodsfs_common_io.NewCachedReader(irodsFsFileHandle.GetEntry().CheckSum, poolServer.cacheStore, syncReader, fileBlockSize)
 		} else {
 			reader = irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
 		}
@@ -132,7 +135,7 @@ func (handle *PoolFileHandle) Flush() error {
 	return nil
 }
 
-func (handle *PoolFileHandle) GetOpenMode() types.FileOpenMode {
+func (handle *PoolFileHandle) GetOpenMode() irodsclient_types.FileOpenMode {
 	return handle.irodsFsFileHandle.GetOpenMode()
 }
 

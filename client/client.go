@@ -874,11 +874,6 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 			return 0, statusToError(err)
 		}
 
-		logger.Info("testing")
-		logger.Infof("testing buffer %d", len(buffer))
-		logger.Infof("testing totalReadLength %d", totalReadLength)
-		logger.Infof("testing response data %d", len(response.Data))
-
 		if len(response.Data) > 0 {
 			copyLen := copy(buffer[totalReadLength:], response.Data)
 

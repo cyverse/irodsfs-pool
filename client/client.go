@@ -19,7 +19,8 @@ import (
 )
 
 const (
-	fileRWLengthMax int = 1024 * 1024 * 4 // 4MB
+	fileRWLengthMax    int = 1024 * 1024     // 1MB
+	messageRWLengthMax int = 8 * 1024 * 1024 // 8MB
 )
 
 // PoolServiceClient is a client of pool service
@@ -92,13 +93,11 @@ func (client *PoolServiceClient) getContextWithDeadline() (context.Context, cont
 }
 
 func getLargeReadOption() grpc.CallOption {
-	// set to 128MB
-	return grpc.MaxCallRecvMsgSize(128 * 1024 * 1024)
+	return grpc.MaxCallRecvMsgSize(messageRWLengthMax)
 }
 
 func getLargeWriteOption() grpc.CallOption {
-	// set to 128MB
-	return grpc.MaxCallSendMsgSize(128 * 1024 * 1024)
+	return grpc.MaxCallSendMsgSize(messageRWLengthMax)
 }
 func statusToError(err error) error {
 	if err == nil {

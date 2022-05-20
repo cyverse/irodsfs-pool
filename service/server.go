@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
-	irodsfs_common_io "github.com/cyverse/irodsfs-common/io"
+	irodsfs_common_cache "github.com/cyverse/irodsfs-common/io/cache"
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
@@ -22,10 +22,10 @@ const (
 
 // PoolServerConfig is a configuration for Server
 type PoolServerConfig struct {
-	BufferSizeMax        int64
 	CacheSizeMax         int64
 	CacheRootPath        string
 	CacheTimeoutSettings []commons.MetadataCacheTimeoutSetting
+	TempRootPath         string
 }
 
 // PoolServer is a struct for PoolServer
@@ -34,8 +34,7 @@ type PoolServer struct {
 
 	config *PoolServerConfig
 
-	buffer     irodsfs_common_io.Buffer
-	cacheStore irodsfs_common_io.CacheStore
+	cacheStore irodsfs_common_cache.CacheStore
 
 	poolSessions           map[string]*PoolSession           // key: pool session id
 	irodsFsClientInstances map[string]*IRODSFSClientInstance // key: iRODS FS Client instance id
@@ -43,15 +42,10 @@ type PoolServer struct {
 }
 
 func NewPoolServer(config *PoolServerConfig) (*PoolServer, error) {
-	var ramBuffer irodsfs_common_io.Buffer
 	var err error
-	if config.BufferSizeMax > 0 {
-		ramBuffer = irodsfs_common_io.NewRAMBuffer(config.BufferSizeMax)
-	}
-
-	var diskCacheStore irodsfs_common_io.CacheStore
+	var diskCacheStore irodsfs_common_cache.CacheStore
 	if config.CacheSizeMax > 0 {
-		diskCacheStore, err = irodsfs_common_io.NewDiskCacheStore(config.CacheSizeMax, cacheEntrySizeMax, config.CacheRootPath)
+		diskCacheStore, err = irodsfs_common_cache.NewDiskCacheStore(config.CacheSizeMax, cacheEntrySizeMax, config.CacheRootPath)
 		if err != nil {
 			return nil, err
 		}
@@ -60,7 +54,6 @@ func NewPoolServer(config *PoolServerConfig) (*PoolServer, error) {
 	return &PoolServer{
 		config: config,
 
-		buffer:     ramBuffer,
 		cacheStore: diskCacheStore,
 
 		poolSessions:           map[string]*PoolSession{},
@@ -99,11 +92,6 @@ func (server *PoolServer) Release() {
 	server.irodsFsClientInstances = map[string]*IRODSFSClientInstance{}
 
 	server.mutex.Unlock()
-
-	if server.buffer != nil {
-		server.buffer.Release()
-		server.buffer = nil
-	}
 
 	if server.cacheStore != nil {
 		server.cacheStore.Release()

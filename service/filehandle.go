@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	fileBlockSize int = 1 * 1024 * 1024 // 1MB
+	iRODSIOBlockSize int = 4 * 1024 * 1024 // 4MB
+	iRODSReadSize    int = 128 * 1024      // 128KB
 )
 
 // PoolFileHandle is a file handle managed by iRODSFS-Pool
@@ -33,26 +34,22 @@ func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsClie
 	switch irodsFsFileHandle.GetOpenMode() {
 	case irodsclient_types.FileOpenModeAppend, irodsclient_types.FileOpenModeWriteOnly, irodsclient_types.FileOpenModeWriteTruncate:
 		// writer
-		if poolServer.buffer != nil {
-			asyncWriter := irodsfs_common_io.NewAsyncWriter(irodsFsFileHandle, poolServer.buffer, nil)
-			writer = irodsfs_common_io.NewBufferedWriter(asyncWriter)
-		} else {
-			syncWriter := irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)
-			writer = irodsfs_common_io.NewBufferedWriter(syncWriter)
-		}
+		syncWriter := irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)
+		bufferedWriter := irodsfs_common_io.NewSyncBufferedWriter(syncWriter)
+		writer = irodsfs_common_io.NewAsyncWriter(bufferedWriter, iRODSIOBlockSize, poolServer.config.CacheRootPath)
 
 		// reader
-		reader = irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
+		reader = irodsfs_common_io.NewNilReader(irodsFsFileHandle)
 	case irodsclient_types.FileOpenModeReadOnly:
 		// writer
-		writer = irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)
+		writer = irodsfs_common_io.NewNilWriter(irodsFsFileHandle)
 
 		// reader
+		syncReader := irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
 		if poolServer.cacheStore != nil {
-			syncReader := irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
-			reader = irodsfs_common_io.NewCachedReader(irodsFsFileHandle.GetEntry().CheckSum, poolServer.cacheStore, syncReader, fileBlockSize)
+			reader = irodsfs_common_io.NewAsyncBlockReaderWithCache(syncReader, iRODSIOBlockSize, iRODSReadSize, irodsFsFileHandle.GetEntry().CheckSum, poolServer.cacheStore, poolServer.config.TempRootPath)
 		} else {
-			reader = irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
+			reader = irodsfs_common_io.NewAsyncBlockReader(syncReader, iRODSIOBlockSize, iRODSReadSize, poolServer.config.TempRootPath)
 		}
 	default:
 		writer = irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)

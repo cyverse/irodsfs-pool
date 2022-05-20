@@ -88,9 +88,9 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	poolServerConfig := &PoolServerConfig{
-		BufferSizeMax:        config.BufferSizeMax,
 		CacheSizeMax:         config.DataCacheSizeMax,
 		CacheRootPath:        config.DataCacheRootPath,
+		TempRootPath:         config.TempRootPath,
 		CacheTimeoutSettings: config.CacheTimeoutSettings,
 	}
 

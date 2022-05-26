@@ -11,10 +11,10 @@ import (
 
 const (
 	ServicePortDefault             int    = 12020
-	BufferSizeMaxDefault           int64  = 1024 * 1024 * 64        // 64MB
 	DataCacheSizeMaxDefault        int64  = 1024 * 1024 * 1024 * 20 // 20GB
-	DataCacheRootPathPrefixDefault string = "/tmp/irodsfs_pool"
+	DataCacheRootPathPrefixDefault string = "/tmp/irodsfs_pool_cache"
 	LogFilePathPrefixDefault       string = "/tmp/irodsfs_pool"
+	TempRootPathPrefixDefault      string = "/tmp/irodsfs_pool_temp"
 	ProfileServicePortDefault      int    = 12021
 )
 
@@ -41,12 +41,17 @@ func GetDefaultDataCacheRootPath() string {
 	return fmt.Sprintf("%s_%s", DataCacheRootPathPrefixDefault, getInstanceID())
 }
 
+// GetDefaultTempRootPath returns default temp root path
+func GetDefaultTempRootPath() string {
+	return fmt.Sprintf("%s_%s", TempRootPathPrefixDefault, getInstanceID())
+}
+
 // Config holds the parameters list which can be configured
 type Config struct {
 	ServicePort          int                           `yaml:"service_port"`
-	BufferSizeMax        int64                         `yaml:"buffer_size_max"`
 	DataCacheSizeMax     int64                         `yaml:"data_cache_size_max"`
 	DataCacheRootPath    string                        `yaml:"data_cache_root_path"`
+	TempRootPath         string                        `yaml:"temp_root_path"`
 	CacheTimeoutSettings []MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty"`
 
 	LogPath string `yaml:"log_path,omitempty"`
@@ -71,9 +76,9 @@ type MetadataCacheTimeoutSetting struct {
 func NewDefaultConfig() *Config {
 	return &Config{
 		ServicePort:          ServicePortDefault,
-		BufferSizeMax:        BufferSizeMaxDefault,
 		DataCacheSizeMax:     DataCacheSizeMaxDefault,
 		DataCacheRootPath:    GetDefaultDataCacheRootPath(),
+		TempRootPath:         GetDefaultTempRootPath(),
 		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
 
 		LogPath: "",
@@ -92,9 +97,9 @@ func NewDefaultConfig() *Config {
 func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 	config := Config{
 		ServicePort:          ServicePortDefault,
-		BufferSizeMax:        BufferSizeMaxDefault,
 		DataCacheSizeMax:     DataCacheSizeMaxDefault,
 		DataCacheRootPath:    GetDefaultDataCacheRootPath(),
+		TempRootPath:         GetDefaultTempRootPath(),
 		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
 
 		Profile:            false,

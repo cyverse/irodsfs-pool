@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	fileBlockSize int = 1 * 1024 * 1024 // 1MB
+	iRODSIOBlockSize int = 4 * 1024 * 1024 // 4MB
+	iRODSReadSize    int = 128 * 1024      // 128KB
 )
 
 // PoolFileHandle is a file handle managed by iRODSFS-Pool
@@ -30,31 +31,35 @@ func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsClie
 	var writer irodsfs_common_io.Writer
 	var reader irodsfs_common_io.Reader
 
-	switch irodsFsFileHandle.GetOpenMode() {
-	case irodsclient_types.FileOpenModeAppend, irodsclient_types.FileOpenModeWriteOnly, irodsclient_types.FileOpenModeWriteTruncate:
+	openMode := irodsFsFileHandle.GetOpenMode()
+	if openMode.IsReadOnly() {
 		// writer
-		if poolServer.buffer != nil {
-			asyncWriter := irodsfs_common_io.NewAsyncWriter(irodsFsFileHandle, poolServer.buffer, nil)
-			writer = irodsfs_common_io.NewBufferedWriter(asyncWriter)
-		} else {
-			syncWriter := irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)
-			writer = irodsfs_common_io.NewBufferedWriter(syncWriter)
-		}
+		writer = irodsfs_common_io.NewNilWriter(irodsFsFileHandle)
 
 		// reader
-		reader = irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
-	case irodsclient_types.FileOpenModeReadOnly:
-		// writer
-		writer = irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)
-
-		// reader
-		if poolServer.cacheStore != nil {
+		if len(poolServer.config.TempRootPath) > 0 {
 			syncReader := irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
-			reader = irodsfs_common_io.NewCachedReader(irodsFsFileHandle.GetEntry().CheckSum, poolServer.cacheStore, syncReader, fileBlockSize)
+			if poolServer.cacheStore != nil {
+				reader = irodsfs_common_io.NewAsyncBlockReaderWithCache(syncReader, iRODSIOBlockSize, iRODSReadSize, irodsFsFileHandle.GetEntry().CheckSum, poolServer.cacheStore, poolServer.config.TempRootPath)
+			} else {
+				reader = irodsfs_common_io.NewAsyncBlockReader(syncReader, iRODSIOBlockSize, iRODSReadSize, poolServer.config.TempRootPath)
+			}
 		} else {
 			reader = irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
 		}
-	default:
+	} else if openMode.IsWriteOnly() {
+		// writer
+		if len(poolServer.config.TempRootPath) > 0 {
+			syncWriter := irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)
+			writer = irodsfs_common_io.NewAsyncWriter(syncWriter, iRODSIOBlockSize, poolServer.config.TempRootPath)
+		} else {
+			syncWriter := irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)
+			writer = irodsfs_common_io.NewSyncBufferedWriter(syncWriter, iRODSIOBlockSize)
+		}
+
+		// reader
+		reader = irodsfs_common_io.NewNilReader(irodsFsFileHandle)
+	} else {
 		writer = irodsfs_common_io.NewSyncWriter(irodsFsFileHandle, nil)
 		reader = irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
 	}

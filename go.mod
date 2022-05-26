@@ -3,8 +3,8 @@ module github.com/cyverse/irodsfs-pool
 go 1.14
 
 require (
-	github.com/cyverse/go-irodsclient v0.9.3-0.20220518202739-8353b99b63e3
-	github.com/cyverse/irodsfs-common v0.0.0-20220520235213-d91458dec237
+	github.com/cyverse/go-irodsclient v0.9.3
+	github.com/cyverse/irodsfs-common v0.0.0-20220526200410-b92c55bf0c6b
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/pkg/profile v1.6.0
 	github.com/rs/xid v1.3.0

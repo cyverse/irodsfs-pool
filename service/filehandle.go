@@ -193,3 +193,19 @@ func (handle *PoolFileHandle) WriteAt(data []byte, offset int64) (int, error) {
 	}
 	return 0, fmt.Errorf("writer is not initialized")
 }
+
+func (handle *PoolFileHandle) Truncate(size int64) error {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolFileHandle",
+		"function": "Truncate",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	if handle.writer != nil {
+		handle.writer.Flush()
+	}
+
+	return handle.irodsFsFileHandle.Truncate(size)
+}

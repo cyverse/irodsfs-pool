@@ -43,6 +43,7 @@ type PoolAPIClient interface {
 	GetOffset(ctx context.Context, in *GetOffsetRequest, opts ...grpc.CallOption) (*GetOffsetResponse, error)
 	ReadAt(ctx context.Context, in *ReadAtRequest, opts ...grpc.CallOption) (*ReadAtResponse, error)
 	WriteAt(ctx context.Context, in *WriteAtRequest, opts ...grpc.CallOption) (*Empty, error)
+	Truncate(ctx context.Context, in *TruncateRequest, opts ...grpc.CallOption) (*Empty, error)
 	Flush(ctx context.Context, in *FlushRequest, opts ...grpc.CallOption) (*Empty, error)
 	Close(ctx context.Context, in *CloseRequest, opts ...grpc.CallOption) (*Empty, error)
 }
@@ -235,6 +236,15 @@ func (c *poolAPIClient) WriteAt(ctx context.Context, in *WriteAtRequest, opts ..
 	return out, nil
 }
 
+func (c *poolAPIClient) Truncate(ctx context.Context, in *TruncateRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/Truncate", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *poolAPIClient) Flush(ctx context.Context, in *FlushRequest, opts ...grpc.CallOption) (*Empty, error) {
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, "/api.PoolAPI/Flush", in, out, opts...)
@@ -278,6 +288,7 @@ type PoolAPIServer interface {
 	GetOffset(context.Context, *GetOffsetRequest) (*GetOffsetResponse, error)
 	ReadAt(context.Context, *ReadAtRequest) (*ReadAtResponse, error)
 	WriteAt(context.Context, *WriteAtRequest) (*Empty, error)
+	Truncate(context.Context, *TruncateRequest) (*Empty, error)
 	Flush(context.Context, *FlushRequest) (*Empty, error)
 	Close(context.Context, *CloseRequest) (*Empty, error)
 	mustEmbedUnimplementedPoolAPIServer()
@@ -346,6 +357,9 @@ func (UnimplementedPoolAPIServer) ReadAt(context.Context, *ReadAtRequest) (*Read
 }
 func (UnimplementedPoolAPIServer) WriteAt(context.Context, *WriteAtRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method WriteAt not implemented")
+}
+func (UnimplementedPoolAPIServer) Truncate(context.Context, *TruncateRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Truncate not implemented")
 }
 func (UnimplementedPoolAPIServer) Flush(context.Context, *FlushRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Flush not implemented")
@@ -726,6 +740,24 @@ func _PoolAPI_WriteAt_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PoolAPI_Truncate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TruncateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).Truncate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.PoolAPI/Truncate",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).Truncate(ctx, req.(*TruncateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _PoolAPI_Flush_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FlushRequest)
 	if err := dec(in); err != nil {
@@ -848,6 +880,10 @@ var PoolAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "WriteAt",
 			Handler:    _PoolAPI_WriteAt_Handler,
+		},
+		{
+			MethodName: "Truncate",
+			Handler:    _PoolAPI_Truncate_Handler,
 		},
 		{
 			MethodName: "Flush",

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	cacheEntrySizeMax int = 1 * 1024 * 1024 // 1MB
+	cacheEntrySizeMax int = 4 * 1024 * 1024 // 4MB
 )
 
 // PoolServerConfig is a configuration for Server
@@ -1087,6 +1087,33 @@ func (server *PoolServer) WriteAt(context context.Context, request *api.WriteAtR
 	}
 
 	_, err = poolFileHandle.WriteAt(request.Data, request.Offset)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	return &api.Empty{}, nil
+}
+
+func (server *PoolServer) Truncate(context context.Context, request *api.TruncateRequest) (*api.Empty, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolServer",
+		"function": "Truncate",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	logger.Infof("Truncate request from pool session id %s, pool file handle id %s, size %d", request.SessionId, request.FileHandleId, request.Size)
+	defer logger.Infof("Truncate response to pool session id %s, pool file handle id %s, size %d", request.SessionId, request.FileHandleId, request.Size)
+
+	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	err = poolFileHandle.Truncate(request.Size)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)

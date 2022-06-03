@@ -935,6 +935,34 @@ func (handle *PoolServiceFileHandle) WriteAt(data []byte, offset int64) (int, er
 	return totalWriteLength, nil
 }
 
+// Truncate truncates iRODS data object
+func (handle *PoolServiceFileHandle) Truncate(size int64) error {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceFileHandle",
+		"function": "Truncate",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	request := &api.TruncateRequest{
+		SessionId:    handle.poolServiceSession.id,
+		FileHandleId: handle.id,
+		Size:         size,
+	}
+
+	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	_, err := handle.poolServiceClient.apiClient.Truncate(ctx, request)
+	if err != nil {
+		logger.Error(err)
+		return statusToError(err)
+	}
+
+	return nil
+}
+
 // Flush flushes iRODS data object handle
 func (handle *PoolServiceFileHandle) Flush() error {
 	logger := log.WithFields(log.Fields{

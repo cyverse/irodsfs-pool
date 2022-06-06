@@ -38,7 +38,10 @@ func (w *NilWriter) Write(p []byte) (n int, err error) {
 }
 
 func main() {
-	log.SetLevel(log.DebugLevel)
+	log.SetLevel(log.InfoLevel)
+	log.SetFormatter(&log.TextFormatter{
+		TimestampFormat: "2006-01-02 15:04:05.000000",
+	})
 
 	// check if this is subprocess running in the background
 	isChildProc := false
@@ -75,9 +78,16 @@ func parentRun(irodsfsPoolExec string, config *commons.Config) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	err := config.Validate()
+	// make temp dir if required
+	err := config.MakeTempRootDir()
 	if err != nil {
-		logger.WithError(err).Error("invalid argument")
+		logger.WithError(err).Error("invalid configuration")
+		return err
+	}
+
+	err = config.Validate()
+	if err != nil {
+		logger.WithError(err).Error("invalid configuration")
 		return err
 	}
 
@@ -179,7 +189,7 @@ func parentMain() {
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	// parse argument
-	config, logWriter, err, exit := processArguments()
+	config, logWriter, exit, err := processArguments()
 	if err != nil {
 		logger.WithError(err).Error("failed to process arguments")
 		if exit {
@@ -248,6 +258,14 @@ func childMain() {
 		log.SetOutput(logWriter)
 	}
 
+	// make temp dir if required
+	err = config.MakeTempRootDir()
+	if err != nil {
+		logger.WithError(err).Error("invalid configuration")
+		fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
+		os.Exit(1)
+	}
+
 	err = config.Validate()
 	if err != nil {
 		logger.WithError(err).Error("invalid configuration")
@@ -289,6 +307,9 @@ func run(config *commons.Config, isChildProcess bool) error {
 		defer prof.Stop()
 	}
 
+	versionInfo := commons.GetVersion()
+	logger.Infof("iRODS FUSE Lite Pool Service version - %s, commit - %s", versionInfo.ServiceVersion, versionInfo.GitCommit)
+
 	// run a service
 	svc, err := service.NewPoolService(config)
 	if err != nil {
@@ -309,7 +330,7 @@ func run(config *commons.Config, isChildProcess bool) error {
 	}
 
 	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	go func() {
 		receivedSignal := <-signalChan
@@ -320,6 +341,10 @@ func run(config *commons.Config, isChildProcess bool) error {
 		}
 
 		svc.Destroy()
+
+		// remote temp dir
+		config.RemoveTempRootDir()
+
 		os.Exit(0)
 	}()
 
@@ -342,5 +367,9 @@ func run(config *commons.Config, isChildProcess bool) error {
 	// returns if fails, or stopped.
 	logger.Info("Service stopped, terminating iRODS FUSE Lite Pool Service")
 	svc.Destroy()
+
+	// remote temp dir
+	config.RemoveTempRootDir()
+
 	return nil
 }

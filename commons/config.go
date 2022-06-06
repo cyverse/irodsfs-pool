@@ -2,6 +2,7 @@ package commons
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/rs/xid"
 	yaml "gopkg.in/yaml.v2"
@@ -46,6 +47,13 @@ func GetDefaultTempRootPath() string {
 	return fmt.Sprintf("%s_%s", TempRootPathPrefixDefault, getInstanceID())
 }
 
+// MetadataCacheTimeoutSetting defines cache timeout for path
+type MetadataCacheTimeoutSetting struct {
+	Path    string                        `yaml:"path" json:"path"`
+	Timeout irodsfs_common_utils.Duration `yaml:"timeout" json:"timeout"`
+	Inherit bool                          `yaml:"inherit,omitempty" json:"inherit,omitempty"`
+}
+
 // Config holds the parameters list which can be configured
 type Config struct {
 	ServicePort          int                           `yaml:"service_port"`
@@ -63,13 +71,6 @@ type Config struct {
 	ChildProcess bool `yaml:"childprocess,omitempty"`
 
 	InstanceID string `yaml:"instanceid,omitempty"`
-}
-
-// MetadataCacheTimeoutSetting defines cache timeout for path
-type MetadataCacheTimeoutSetting struct {
-	Path    string                        `yaml:"path" json:"path"`
-	Timeout irodsfs_common_utils.Duration `yaml:"timeout" json:"timeout"`
-	Inherit bool                          `yaml:"inherit,omitempty" json:"inherit,omitempty"`
 }
 
 // NewDefaultConfig creates DefaultConfig
@@ -119,6 +120,48 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 	return &config, nil
 }
 
+// MakeTempRootDir makes temp root dir
+func (config *Config) MakeTempRootDir() error {
+	if len(config.TempRootPath) == 0 {
+		return nil
+	}
+
+	tempDirInfo, err := os.Stat(config.TempRootPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// make
+			mkdirErr := os.MkdirAll(config.TempRootPath, 0775)
+			if mkdirErr != nil {
+				return fmt.Errorf("making a temp root dir (%s) error - %v", config.TempRootPath, mkdirErr)
+			}
+
+			return nil
+		}
+
+		return fmt.Errorf("temp root dir (%s) error - %v", config.TempRootPath, err)
+	}
+
+	if !tempDirInfo.IsDir() {
+		return fmt.Errorf("temp root dir (%s) exist, but not a directory", config.TempRootPath)
+	}
+
+	tempDirPerm := tempDirInfo.Mode().Perm()
+	if tempDirPerm&0200 != 0200 {
+		return fmt.Errorf("temp root dir (%s) exist, but does not have write permission", config.TempRootPath)
+	}
+
+	return nil
+}
+
+// RemoveTempRootDir removes temp root dir
+func (config *Config) RemoveTempRootDir() error {
+	if len(config.TempRootPath) == 0 {
+		return nil
+	}
+
+	return os.RemoveAll(config.TempRootPath)
+}
+
 // Validate validates configuration
 func (config *Config) Validate() error {
 	if config.ServicePort <= 0 {
@@ -127,6 +170,22 @@ func (config *Config) Validate() error {
 
 	if config.Profile && config.ProfileServicePort <= 0 {
 		return fmt.Errorf("profile service port must be given")
+	}
+
+	if len(config.TempRootPath) > 0 {
+		tempDirInfo, err := os.Stat(config.TempRootPath)
+		if err != nil {
+			return fmt.Errorf("temp root dir (%s) error - %v", config.TempRootPath, err)
+		}
+
+		if !tempDirInfo.IsDir() {
+			return fmt.Errorf("temp root dir (%s) must be a directory", config.TempRootPath)
+		}
+
+		tempDirPerm := tempDirInfo.Mode().Perm()
+		if tempDirPerm&0200 != 0200 {
+			return fmt.Errorf("temp root (%s) must have write permission", config.TempRootPath)
+		}
 	}
 
 	return nil

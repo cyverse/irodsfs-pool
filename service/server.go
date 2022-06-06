@@ -1019,8 +1019,8 @@ func (server *PoolServer) GetOffset(context context.Context, request *api.GetOff
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("GetOffset request from pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
-	defer logger.Infof("GetOffset response to pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
+	logger.Debugf("GetOffset request from pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
+	defer logger.Debugf("GetOffset response to pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
 
 	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
@@ -1044,8 +1044,8 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("ReadAt request from pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
-	defer logger.Infof("ReadAt response to pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
+	logger.Debugf("ReadAt request from pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
+	defer logger.Debugf("ReadAt response to pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
 
 	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
@@ -1077,8 +1077,8 @@ func (server *PoolServer) WriteAt(context context.Context, request *api.WriteAtR
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("WriteAt request from pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
-	defer logger.Infof("WriteAt response to pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
+	logger.Debugf("WriteAt request from pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
+	defer logger.Debugf("WriteAt response to pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
 
 	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {

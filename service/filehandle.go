@@ -24,12 +24,16 @@ type PoolFileHandle struct {
 	writer            irodsfs_common_io.Writer
 	reader            irodsfs_common_io.Reader
 	irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle
+
+	readersForPrefetching            []irodsfs_common_io.Reader
+	irodsFsFileHandlesForPrefetching []irodsfs_common_irods.IRODSFSFileHandle
 }
 
 // NewPoolFileHandle creates a new pool file handle
-func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsClientInstanceID string, irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle) *PoolFileHandle {
+func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsClientInstanceID string, irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle, irodsFsFileHandlesForPrefetching []irodsfs_common_irods.IRODSFSFileHandle) *PoolFileHandle {
 	var writer irodsfs_common_io.Writer
 	var reader irodsfs_common_io.Reader
+	readersForPrefetching := []irodsfs_common_io.Reader{}
 
 	openMode := irodsFsFileHandle.GetOpenMode()
 	if openMode.IsReadOnly() {
@@ -40,7 +44,18 @@ func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsClie
 		if len(poolServer.config.TempRootPath) > 0 {
 			syncReader := irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
 			if poolServer.cacheStore != nil {
-				reader = irodsfs_common_io.NewAsyncBlockReaderWithCache(syncReader, iRODSIOBlockSize, iRODSReadSize, irodsFsFileHandle.GetEntry().CheckSum, poolServer.cacheStore, poolServer.config.TempRootPath)
+				// use prefetching
+				// requires multiple readers
+				readers := []irodsfs_common_io.Reader{}
+				readers = append(readers, syncReader)
+
+				for _, prefetchingHandle := range irodsFsFileHandlesForPrefetching {
+					readerForPrefetching := irodsfs_common_io.NewSyncReader(prefetchingHandle, nil)
+					readers = append(readers, readerForPrefetching)
+					readersForPrefetching = append(readersForPrefetching, readerForPrefetching)
+				}
+
+				reader = irodsfs_common_io.NewAsyncBlockReaderWithCache(readers, iRODSIOBlockSize, iRODSReadSize, irodsFsFileHandle.GetEntry().CheckSum, poolServer.cacheStore, poolServer.config.TempRootPath)
 			} else {
 				reader = irodsfs_common_io.NewAsyncBlockReader(syncReader, iRODSIOBlockSize, iRODSReadSize, poolServer.config.TempRootPath)
 			}
@@ -72,6 +87,9 @@ func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsClie
 		writer:            writer,
 		reader:            reader,
 		irodsFsFileHandle: irodsFsFileHandle,
+
+		readersForPrefetching:            readersForPrefetching,
+		irodsFsFileHandlesForPrefetching: irodsFsFileHandlesForPrefetching,
 	}
 }
 
@@ -113,6 +131,22 @@ func (handle *PoolFileHandle) Release() error {
 		}
 
 		handle.irodsFsFileHandle = nil
+	}
+
+	if handle.readersForPrefetching != nil {
+		for _, readerForPrefetching := range handle.readersForPrefetching {
+			readerForPrefetching.Release()
+		}
+
+		handle.readersForPrefetching = nil
+	}
+
+	if handle.irodsFsFileHandlesForPrefetching != nil {
+		for _, irodsFsFileHandleForPrefetching := range handle.irodsFsFileHandlesForPrefetching {
+			irodsFsFileHandleForPrefetching.Close()
+		}
+
+		handle.irodsFsFileHandlesForPrefetching = nil
 	}
 
 	if len(errs) > 0 {

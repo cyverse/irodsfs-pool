@@ -1,13 +1,14 @@
 package service
 
 import (
-	context "context"
+	"context"
 	"fmt"
 	"io"
 	"sync"
 
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	irodsfs_common_cache "github.com/cyverse/irodsfs-common/io/cache"
+	irodsfs_common "github.com/cyverse/irodsfs-common/irods"
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
@@ -882,7 +883,7 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 		server.cacheStore.DeleteAllEntriesForGroup(request.Path)
 	}
 
-	poolFileHandle := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFileHandle)
+	poolFileHandle := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFileHandle, nil)
 	poolSession.AddPoolFileHandle(poolFileHandle)
 
 	fsEntry := irodsFsFileHandle.GetEntry()
@@ -934,19 +935,34 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 		return nil, server.errorToStatus(err)
 	}
 
+	fileOpenMode := irodsclient_types.FileOpenMode(request.Mode)
+
+	// read-only mode requires multiple file handles for prefetching
+	irodsFsFlieHandlesForPrefetching := []irodsfs_common.IRODSFSFileHandle{}
+	if fileOpenMode.IsReadOnly() {
+		if len(server.config.TempRootPath) > 0 {
+			prefetchingIrodsFsFlieHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
+			if err != nil {
+				logger.Error(err)
+				return nil, server.errorToStatus(err)
+			}
+
+			irodsFsFlieHandlesForPrefetching = append(irodsFsFlieHandlesForPrefetching, prefetchingIrodsFsFlieHandle)
+		}
+	}
+
 	irodsFsFlieHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	fileOpenMode := irodsclient_types.FileOpenMode(request.Mode)
 	if fileOpenMode.IsWrite() {
 		// clear cache for the path if exists
 		server.cacheStore.DeleteAllEntriesForGroup(request.Path)
 	}
 
-	poolFileHandle := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFlieHandle)
+	poolFileHandle := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFlieHandle, irodsFsFlieHandlesForPrefetching)
 	poolSession.AddPoolFileHandle(poolFileHandle)
 
 	fsEntry := irodsFsFlieHandle.GetEntry()

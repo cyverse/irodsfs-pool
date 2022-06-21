@@ -941,13 +941,22 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 	irodsFsFlieHandlesForPrefetching := []irodsfs_common.IRODSFSFileHandle{}
 	if fileOpenMode.IsReadOnly() {
 		if len(server.config.TempRootPath) > 0 {
-			prefetchingIrodsFsFlieHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
+			entry, err := fsClient.Stat(request.Path)
 			if err != nil {
 				logger.Error(err)
 				return nil, server.errorToStatus(err)
 			}
 
-			irodsFsFlieHandlesForPrefetching = append(irodsFsFlieHandlesForPrefetching, prefetchingIrodsFsFlieHandle)
+			// the file must be large enough
+			if entry.Size > int64(iRODSIOBlockSize*3) {
+				prefetchingIrodsFsFlieHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
+				if err != nil {
+					logger.Error(err)
+					return nil, server.errorToStatus(err)
+				}
+
+				irodsFsFlieHandlesForPrefetching = append(irodsFsFlieHandlesForPrefetching, prefetchingIrodsFsFlieHandle)
+			}
 		}
 	}
 

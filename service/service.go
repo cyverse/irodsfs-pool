@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -137,10 +138,26 @@ func (svc *PoolService) Start() error {
 
 	logger.Info("Starting the iRODS FUSE Lite Pool service")
 
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", svc.config.ServicePort))
-	if err != nil {
-		logger.Error(err)
-		return err
+	var listener net.Listener
+	if len(svc.config.ServiceUnixSocketPath) > 0 {
+		unixListener, err := net.Listen("unix", svc.config.ServiceUnixSocketPath)
+		if err != nil {
+			logger.Error(err)
+			return err
+		}
+
+		logger.Infof("Listening unix socket: %s", svc.config.ServiceUnixSocketPath)
+		listener = unixListener
+	} else {
+		tcpAddress := fmt.Sprintf(":%d", svc.config.ServicePort)
+		tcpListener, err := net.Listen("tcp", tcpAddress)
+		if err != nil {
+			logger.Error(err)
+			return err
+		}
+
+		logger.Infof("Listening tcp socket: %s", tcpAddress)
+		listener = tcpListener
 	}
 
 	go func() {
@@ -163,19 +180,25 @@ func (svc *PoolService) Start() error {
 		}
 	}()
 
-	err = svc.grpcServer.Serve(listener)
+	svc.terminated = false
+	err := svc.grpcServer.Serve(listener)
 	if err != nil {
 		logger.Error(err)
 		return err
 	}
 
-	svc.terminated = false
 	// should not return
 	return nil
 }
 
 // Destroy destroys the service
 func (svc *PoolService) Destroy() {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolService",
+		"function": "Destroy",
+	})
+
 	svc.mutex.Lock()
 	defer svc.mutex.Unlock()
 
@@ -184,17 +207,12 @@ func (svc *PoolService) Destroy() {
 		return
 	}
 
-	svc.terminated = true
+	logger.Info("Destroying the iRODS FUSE Lite Pool service")
 
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolService",
-		"function": "Destroy",
-	})
+	svc.terminated = true
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Info("Destroying the iRODS FUSE Lite Pool service")
 	svc.terminateChan <- true
 
 	if svc.grpcServer != nil {
@@ -203,5 +221,9 @@ func (svc *PoolService) Destroy() {
 
 	if svc.poolServer != nil {
 		svc.poolServer.Release()
+	}
+
+	if len(svc.config.ServiceUnixSocketPath) > 0 {
+		os.Remove(svc.config.ServiceUnixSocketPath)
 	}
 }

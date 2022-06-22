@@ -72,9 +72,6 @@ func (server *PoolServer) Release() {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Info("Release")
-	defer logger.Info("Released")
-
 	server.mutex.Lock()
 
 	for _, session := range server.poolSessions {

@@ -3,6 +3,7 @@ package commons
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/rs/xid"
 	yaml "gopkg.in/yaml.v2"
@@ -56,11 +57,12 @@ type MetadataCacheTimeoutSetting struct {
 
 // Config holds the parameters list which can be configured
 type Config struct {
-	ServicePort          int                           `yaml:"service_port"`
-	DataCacheSizeMax     int64                         `yaml:"data_cache_size_max"`
-	DataCacheRootPath    string                        `yaml:"data_cache_root_path"`
-	TempRootPath         string                        `yaml:"temp_root_path"`
-	CacheTimeoutSettings []MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty"`
+	ServicePort           int                           `yaml:"service_port"`
+	ServiceUnixSocketPath string                        `yaml:"service_unix_socket_path"`
+	DataCacheSizeMax      int64                         `yaml:"data_cache_size_max"`
+	DataCacheRootPath     string                        `yaml:"data_cache_root_path"`
+	TempRootPath          string                        `yaml:"temp_root_path"`
+	CacheTimeoutSettings  []MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty"`
 
 	LogPath string `yaml:"log_path,omitempty"`
 
@@ -77,11 +79,12 @@ type Config struct {
 // NewDefaultConfig creates DefaultConfig
 func NewDefaultConfig() *Config {
 	return &Config{
-		ServicePort:          ServicePortDefault,
-		DataCacheSizeMax:     DataCacheSizeMaxDefault,
-		DataCacheRootPath:    GetDefaultDataCacheRootPath(),
-		TempRootPath:         GetDefaultTempRootPath(),
-		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
+		ServicePort:           ServicePortDefault,
+		ServiceUnixSocketPath: "",
+		DataCacheSizeMax:      DataCacheSizeMaxDefault,
+		DataCacheRootPath:     GetDefaultDataCacheRootPath(),
+		TempRootPath:          GetDefaultTempRootPath(),
+		CacheTimeoutSettings:  []MetadataCacheTimeoutSetting{},
 
 		LogPath: "",
 
@@ -99,11 +102,12 @@ func NewDefaultConfig() *Config {
 // NewConfigFromYAML creates Config from YAML
 func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 	config := Config{
-		ServicePort:          ServicePortDefault,
-		DataCacheSizeMax:     DataCacheSizeMaxDefault,
-		DataCacheRootPath:    GetDefaultDataCacheRootPath(),
-		TempRootPath:         GetDefaultTempRootPath(),
-		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
+		ServicePort:           ServicePortDefault,
+		ServiceUnixSocketPath: "",
+		DataCacheSizeMax:      DataCacheSizeMaxDefault,
+		DataCacheRootPath:     GetDefaultDataCacheRootPath(),
+		TempRootPath:          GetDefaultTempRootPath(),
+		CacheTimeoutSettings:  []MetadataCacheTimeoutSetting{},
 
 		Profile:            false,
 		ProfileServicePort: ProfileServicePortDefault,
@@ -167,8 +171,38 @@ func (config *Config) RemoveTempRootDir() error {
 
 // Validate validates configuration
 func (config *Config) Validate() error {
-	if config.ServicePort <= 0 {
-		return fmt.Errorf("service port must be given")
+	if len(config.ServiceUnixSocketPath) == 0 && config.ServicePort <= 0 {
+		return fmt.Errorf("either service port or service unix socket path must be given")
+	}
+
+	if len(config.ServiceUnixSocketPath) > 0 {
+		_, err := os.Stat(config.ServiceUnixSocketPath)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return fmt.Errorf("service unix socket file (%s) error - %v", config.ServiceUnixSocketPath, err)
+			}
+		} else {
+			// file exists
+			return fmt.Errorf("service unix socket file (%s) already exists", config.ServiceUnixSocketPath)
+		}
+
+		parentDir := filepath.Dir(config.ServiceUnixSocketPath)
+		unixSocketDirInfo, err := os.Stat(parentDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				err2 := os.MkdirAll(parentDir, os.FileMode(0777))
+				if err2 != nil {
+					return fmt.Errorf("failed to make a directory for unix socket (%s)", parentDir)
+				}
+			} else {
+				return fmt.Errorf("unix socket directory (%s) error - %v", parentDir, err)
+			}
+		} else {
+			unixSocketDirPerm := unixSocketDirInfo.Mode().Perm()
+			if unixSocketDirPerm&0200 != 0200 {
+				return fmt.Errorf("unix socket directory (%s) must have write permission", parentDir)
+			}
+		}
 	}
 
 	if config.Profile && config.ProfileServicePort <= 0 {

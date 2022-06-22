@@ -26,7 +26,7 @@ const (
 // PoolServiceClient is a client of pool service
 type PoolServiceClient struct {
 	id               string
-	host             string // host:port
+	address          string // host:port
 	operationTimeout time.Duration
 	grpcConnection   *grpc.ClientConn
 	apiClient        api.PoolAPIClient
@@ -42,14 +42,14 @@ type PoolServiceSession struct {
 }
 
 // NewPoolServiceClient creates a new pool service client
-func NewPoolServiceClient(poolHost string, operationTimeout time.Duration, clientID string) *PoolServiceClient {
+func NewPoolServiceClient(address string, operationTimeout time.Duration, clientID string) *PoolServiceClient {
 	if len(clientID) == 0 {
 		clientID = xid.New().String()
 	}
 
 	return &PoolServiceClient{
 		id:               clientID,
-		host:             poolHost,
+		address:          address,
 		operationTimeout: operationTimeout,
 		grpcConnection:   nil,
 	}
@@ -65,7 +65,7 @@ func (client *PoolServiceClient) Connect() error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	conn, err := grpc.Dial(client.host, grpc.WithInsecure())
+	conn, err := grpc.Dial(client.address, grpc.WithInsecure())
 	if err != nil {
 		logger.Error(err)
 		return err

@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/cyverse/go-irodsclient v0.9.3
-	github.com/cyverse/irodsfs-common v0.0.0-20220620233922-11e9e6a7ab2e
+	github.com/cyverse/irodsfs-common v0.0.0-20220622193303-fa0aaf82b6e6
 	github.com/pkg/profile v1.6.0
 	github.com/rs/xid v1.3.0
 	github.com/sirupsen/logrus v1.8.1
@@ -15,7 +15,7 @@ require (
 )
 
 require (
-	github.com/cyverse/irodsfs-monitor v0.0.0-20210917223838-2f6d5cbbde0a // indirect
+	github.com/cyverse/irodsfs-monitor v0.0.0-20220622193035-bcdf5ca735ca // indirect
 	github.com/eikenb/pipeat v0.0.0-20210730190139-06b3e6902001 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect

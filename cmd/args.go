@@ -40,6 +40,7 @@ func processArguments() (*commons.Config, io.WriteCloser, bool, error) {
 	flag.StringVar(&configFilePath, "config", "", "Set config YAML File")
 	flag.IntVar(&config.ServicePort, "p", commons.ServicePortDefault, "Set service port")
 	flag.BoolVar(&config.Foreground, "f", false, "Run in foreground")
+	flag.BoolVar(&config.Debug, "d", false, "Run in debug mode")
 	flag.BoolVar(&config.ChildProcess, ChildProcessArgument, false, "")
 	flag.Int64Var(&config.DataCacheSizeMax, "cache_size_max", commons.DataCacheSizeMaxDefault, "Set file cache max size")
 	flag.StringVar(&config.DataCacheRootPath, "cache_root", commons.GetDefaultDataCacheRootPath(), "Set file cache root path")

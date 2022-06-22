@@ -68,6 +68,7 @@ type Config struct {
 	ProfileServicePort int  `yaml:"profile_service_port,omitempty"`
 
 	Foreground   bool `yaml:"foreground,omitempty"`
+	Debug        bool `yaml:"debug,omitempty"`
 	ChildProcess bool `yaml:"childprocess,omitempty"`
 
 	InstanceID string `yaml:"instanceid,omitempty"`
@@ -88,6 +89,7 @@ func NewDefaultConfig() *Config {
 		ProfileServicePort: ProfileServicePortDefault,
 
 		Foreground:   false,
+		Debug:        false,
 		ChildProcess: false,
 
 		InstanceID: getInstanceID(),
@@ -107,6 +109,7 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 		ProfileServicePort: ProfileServicePortDefault,
 
 		Foreground:   false,
+		Debug:        false,
 		ChildProcess: false,
 
 		InstanceID: getInstanceID(),

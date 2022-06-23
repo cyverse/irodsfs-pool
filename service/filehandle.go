@@ -155,6 +155,21 @@ func (handle *PoolFileHandle) Release() error {
 	return nil
 }
 
+func (handle *PoolFileHandle) AddFileHandlesForPrefetching(irodsFsFileHandles []irodsfs_common_irods.IRODSFSFileHandle) {
+	readersForPrefetching := []irodsfs_common_io.Reader{}
+
+	if reader, ok := handle.reader.(*irodsfs_common_io.AsyncBlockReader); ok {
+		for _, irodsFsFileHandle := range irodsFsFileHandles {
+			readerForPrefetching := irodsfs_common_io.NewSyncReader(irodsFsFileHandle, nil)
+			readersForPrefetching = append(readersForPrefetching, readerForPrefetching)
+		}
+
+		if len(readersForPrefetching) > 0 {
+			reader.AddReadersForPrefetching(readersForPrefetching)
+		}
+	}
+}
+
 func (handle *PoolFileHandle) GetID() string {
 	return handle.irodsFsFileHandle.GetID()
 }

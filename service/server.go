@@ -934,29 +934,6 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 
 	fileOpenMode := irodsclient_types.FileOpenMode(request.Mode)
 
-	// read-only mode requires multiple file handles for prefetching
-	irodsFsFlieHandlesForPrefetching := []irodsfs_common.IRODSFSFileHandle{}
-	if fileOpenMode.IsReadOnly() {
-		if len(server.config.TempRootPath) > 0 {
-			entry, err := fsClient.Stat(request.Path)
-			if err != nil {
-				logger.Error(err)
-				return nil, server.errorToStatus(err)
-			}
-
-			// the file must be large enough
-			if entry.Size > int64(iRODSIOBlockSize*3) {
-				prefetchingIrodsFsFlieHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
-				if err != nil {
-					logger.Error(err)
-					return nil, server.errorToStatus(err)
-				}
-
-				irodsFsFlieHandlesForPrefetching = append(irodsFsFlieHandlesForPrefetching, prefetchingIrodsFsFlieHandle)
-			}
-		}
-	}
-
 	irodsFsFlieHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
 	if err != nil {
 		logger.Error(err)
@@ -968,8 +945,33 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 		server.cacheStore.DeleteAllEntriesForGroup(request.Path)
 	}
 
-	poolFileHandle := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFlieHandle, irodsFsFlieHandlesForPrefetching)
+	poolFileHandle := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFlieHandle, nil)
 	poolSession.AddPoolFileHandle(poolFileHandle)
+
+	// read-only mode requires multiple file handles for prefetching
+	go func() {
+		if fileOpenMode.IsReadOnly() {
+			if len(server.config.TempRootPath) > 0 {
+				entry, err := fsClient.Stat(request.Path)
+				if err != nil {
+					logger.Error(err)
+					return
+				}
+
+				// the file must be large enough
+				if entry.Size > int64(iRODSIOBlockSize*3) {
+					prefetchingIrodsFsFlieHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
+					if err != nil {
+						logger.Error(err)
+						return
+					}
+
+					irodsFsFlieHandlesForPrefetching := []irodsfs_common.IRODSFSFileHandle{prefetchingIrodsFsFlieHandle}
+					poolFileHandle.AddFileHandlesForPrefetching(irodsFsFlieHandlesForPrefetching)
+				}
+			}
+		}
+	}()
 
 	fsEntry := irodsFsFlieHandle.GetEntry()
 

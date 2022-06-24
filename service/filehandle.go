@@ -228,6 +228,15 @@ func (handle *PoolFileHandle) ReadAt(buffer []byte, offset int64) (int, error) {
 	return 0, fmt.Errorf("reader is not initialized")
 }
 
+func (handle *PoolFileHandle) GetAvailable(offset int64) int64 {
+	if handle.reader != nil {
+		return handle.reader.GetAvailable(offset)
+	}
+
+	// unknown
+	return -1
+}
+
 func (handle *PoolFileHandle) WriteAt(data []byte, offset int64) (int, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",

@@ -1085,8 +1085,11 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 		return nil, server.errorToStatus(err)
 	}
 
+	available := poolFileHandle.GetAvailable(request.Offset + int64(readLen))
+
 	response := &api.ReadAtResponse{
-		Data: buffer[:readLen],
+		Data:      buffer[:readLen],
+		Available: available,
 	}
 
 	return response, nil

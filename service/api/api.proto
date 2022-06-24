@@ -206,6 +206,7 @@ message ReadAtRequest {
 
 message ReadAtResponse {
 	bytes data = 1;
+	int64 available = 2;
 }
 
 message WriteAtRequest {

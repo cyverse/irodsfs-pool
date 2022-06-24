@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/cyverse/go-irodsclient v0.9.3
-	github.com/cyverse/irodsfs-common v0.0.0-20220623000018-546e29abe69c
+	github.com/cyverse/irodsfs-common v0.0.0-20220624221037-33086dc2a6ab
 	github.com/pkg/profile v1.6.0
 	github.com/rs/xid v1.3.0
 	github.com/sirupsen/logrus v1.8.1

@@ -788,6 +788,9 @@ type PoolServiceFileHandle struct {
 	poolServiceSession *PoolServiceSession
 	entry              *irodsclient_fs.Entry
 	openMode           irodsclient_types.FileOpenMode
+
+	availableOffset int64
+	availableLen    int64
 }
 
 func (handle *PoolServiceFileHandle) GetID() string {
@@ -881,6 +884,14 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 			totalReadLength += copyLen
 		}
 
+		if response.Available > 0 {
+			handle.availableOffset = curOffset
+			handle.availableLen = response.Available
+		} else {
+			handle.availableOffset = -1
+			handle.availableLen = -1
+		}
+
 		if len(response.Data) < curLength {
 			// EOF
 			return totalReadLength, io.EOF
@@ -888,6 +899,15 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 	}
 
 	return totalReadLength, nil
+}
+
+// GetAvailable returns available len for read
+func (handle *PoolServiceFileHandle) GetAvailable(offset int64) int64 {
+	if handle.availableOffset == offset {
+		return handle.availableLen
+	}
+
+	return -1
 }
 
 // WriteAt writes iRODS data object

@@ -139,25 +139,34 @@ func (svc *PoolService) Start() error {
 	logger.Info("Starting the iRODS FUSE Lite Pool service")
 
 	var listener net.Listener
-	if len(svc.config.ServiceUnixSocketPath) > 0 {
-		unixListener, err := net.Listen("unix", svc.config.ServiceUnixSocketPath)
+	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.ServiceEndpoint)
+	if err != nil {
+		logger.Error(err)
+		return err
+	}
+
+	switch scheme {
+	case "unix":
+		unixListener, err := net.Listen("unix", endpoint)
 		if err != nil {
 			logger.Error(err)
 			return err
 		}
 
-		logger.Infof("Listening unix socket: %s", svc.config.ServiceUnixSocketPath)
+		logger.Infof("Listening unix socket: %s", endpoint)
 		listener = unixListener
-	} else {
-		tcpAddress := fmt.Sprintf(":%d", svc.config.ServicePort)
-		tcpListener, err := net.Listen("tcp", tcpAddress)
+	case "tcp":
+		tcpListener, err := net.Listen("tcp", endpoint)
 		if err != nil {
 			logger.Error(err)
 			return err
 		}
 
-		logger.Infof("Listening tcp socket: %s", tcpAddress)
+		logger.Infof("Listening tcp socket: %s", endpoint)
 		listener = tcpListener
+	default:
+		logger.Error("unknown protocol")
+		return fmt.Errorf("unknown protocol")
 	}
 
 	go func() {
@@ -181,7 +190,7 @@ func (svc *PoolService) Start() error {
 	}()
 
 	svc.terminated = false
-	err := svc.grpcServer.Serve(listener)
+	err = svc.grpcServer.Serve(listener)
 	if err != nil {
 		logger.Error(err)
 		return err
@@ -223,7 +232,10 @@ func (svc *PoolService) Destroy() {
 		svc.poolServer.Release()
 	}
 
-	if len(svc.config.ServiceUnixSocketPath) > 0 {
-		os.Remove(svc.config.ServiceUnixSocketPath)
+	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.ServiceEndpoint)
+	if err == nil {
+		if scheme == "unix" {
+			os.Remove(endpoint)
+		}
 	}
 }

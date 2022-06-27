@@ -2,8 +2,11 @@ package commons
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/rs/xid"
 	yaml "gopkg.in/yaml.v2"
@@ -12,11 +15,11 @@ import (
 )
 
 const (
-	ServicePortDefault             int    = 12020
 	DataCacheSizeMaxDefault        int64  = 1024 * 1024 * 1024 * 20 // 20GB
 	DataCacheRootPathPrefixDefault string = "/tmp/irodsfs_pool_cache"
 	LogFilePathPrefixDefault       string = "/tmp/irodsfs_pool"
 	TempRootPathPrefixDefault      string = "/tmp/irodsfs_pool_temp"
+	ServiceEndpointDefault         string = "unix:///tmp/irodsfs_pool_comm.sock"
 	ProfileServicePortDefault      int    = 12021
 )
 
@@ -57,12 +60,11 @@ type MetadataCacheTimeoutSetting struct {
 
 // Config holds the parameters list which can be configured
 type Config struct {
-	ServicePort           int                           `yaml:"service_port"`
-	ServiceUnixSocketPath string                        `yaml:"service_unix_socket_path"`
-	DataCacheSizeMax      int64                         `yaml:"data_cache_size_max"`
-	DataCacheRootPath     string                        `yaml:"data_cache_root_path"`
-	TempRootPath          string                        `yaml:"temp_root_path"`
-	CacheTimeoutSettings  []MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty"`
+	ServiceEndpoint      string                        `yaml:"service_endpoint"`
+	DataCacheSizeMax     int64                         `yaml:"data_cache_size_max"`
+	DataCacheRootPath    string                        `yaml:"data_cache_root_path"`
+	TempRootPath         string                        `yaml:"temp_root_path"`
+	CacheTimeoutSettings []MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty"`
 
 	LogPath string `yaml:"log_path,omitempty"`
 
@@ -79,12 +81,11 @@ type Config struct {
 // NewDefaultConfig creates DefaultConfig
 func NewDefaultConfig() *Config {
 	return &Config{
-		ServicePort:           ServicePortDefault,
-		ServiceUnixSocketPath: "",
-		DataCacheSizeMax:      DataCacheSizeMaxDefault,
-		DataCacheRootPath:     GetDefaultDataCacheRootPath(),
-		TempRootPath:          GetDefaultTempRootPath(),
-		CacheTimeoutSettings:  []MetadataCacheTimeoutSetting{},
+		ServiceEndpoint:      ServiceEndpointDefault,
+		DataCacheSizeMax:     DataCacheSizeMaxDefault,
+		DataCacheRootPath:    GetDefaultDataCacheRootPath(),
+		TempRootPath:         GetDefaultTempRootPath(),
+		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
 
 		LogPath: "",
 
@@ -102,12 +103,11 @@ func NewDefaultConfig() *Config {
 // NewConfigFromYAML creates Config from YAML
 func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 	config := Config{
-		ServicePort:           ServicePortDefault,
-		ServiceUnixSocketPath: "",
-		DataCacheSizeMax:      DataCacheSizeMaxDefault,
-		DataCacheRootPath:     GetDefaultDataCacheRootPath(),
-		TempRootPath:          GetDefaultTempRootPath(),
-		CacheTimeoutSettings:  []MetadataCacheTimeoutSetting{},
+		ServiceEndpoint:      ServiceEndpointDefault,
+		DataCacheSizeMax:     DataCacheSizeMaxDefault,
+		DataCacheRootPath:    GetDefaultDataCacheRootPath(),
+		TempRootPath:         GetDefaultTempRootPath(),
+		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
 
 		Profile:            false,
 		ProfileServicePort: ProfileServicePortDefault,
@@ -171,22 +171,24 @@ func (config *Config) RemoveTempRootDir() error {
 
 // Validate validates configuration
 func (config *Config) Validate() error {
-	if len(config.ServiceUnixSocketPath) == 0 && config.ServicePort <= 0 {
-		return fmt.Errorf("either service port or service unix socket path must be given")
+	scheme, endpoint, err := ParsePoolServiceEndpoint(config.ServiceEndpoint)
+	if err != nil {
+		return err
 	}
 
-	if len(config.ServiceUnixSocketPath) > 0 {
-		_, err := os.Stat(config.ServiceUnixSocketPath)
+	if scheme == "unix" {
+		// endpoint is a file
+		_, err := os.Stat(endpoint)
 		if err != nil {
 			if !os.IsNotExist(err) {
-				return fmt.Errorf("service unix socket file (%s) error - %v", config.ServiceUnixSocketPath, err)
+				return fmt.Errorf("service unix socket file (%s) error - %v", endpoint, err)
 			}
 		} else {
 			// file exists
-			return fmt.Errorf("service unix socket file (%s) already exists", config.ServiceUnixSocketPath)
+			return fmt.Errorf("service unix socket file (%s) already exists", endpoint)
 		}
 
-		parentDir := filepath.Dir(config.ServiceUnixSocketPath)
+		parentDir := filepath.Dir(endpoint)
 		unixSocketDirInfo, err := os.Stat(parentDir)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -226,4 +228,28 @@ func (config *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// ParsePoolServiceEndpoint parses endpoint string
+func ParsePoolServiceEndpoint(endpoint string) (string, string, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return "", "", fmt.Errorf("could not parse endpoint: %v", err)
+	}
+
+	scheme := strings.ToLower(u.Scheme)
+	switch scheme {
+	case "tcp":
+		return "tcp", u.Host, nil
+	case "unix":
+		path := path.Join("/", u.Path)
+		return "unix", path, nil
+	case "":
+		if len(u.Host) > 0 {
+			return "tcp", u.Host, nil
+		}
+		return "", "", fmt.Errorf("unknown host: %s", u.Host)
+	default:
+		return "", "", fmt.Errorf("unsupported protocol: %s", scheme)
+	}
 }

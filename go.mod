@@ -3,7 +3,7 @@ module github.com/cyverse/irodsfs-pool
 go 1.18
 
 require (
-	github.com/cyverse/go-irodsclient v0.9.3
+	github.com/cyverse/go-irodsclient v0.9.4
 	github.com/cyverse/irodsfs-common v0.0.0-20220624221037-33086dc2a6ab
 	github.com/pkg/profile v1.6.0
 	github.com/rs/xid v1.3.0
@@ -19,6 +19,7 @@ require (
 	github.com/eikenb/pipeat v0.0.0-20210730190139-06b3e6902001 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	golang.org/x/net v0.0.0-20200822124328-c89045814202 // indirect
 	golang.org/x/sys v0.0.0-20210823070655-63515b42dcdf // indirect

@@ -31,6 +31,7 @@ type PoolAPIClient interface {
 	ListUserGroups(ctx context.Context, in *ListUserGroupsRequest, opts ...grpc.CallOption) (*ListUserGroupsResponse, error)
 	ListDirACLs(ctx context.Context, in *ListDirACLsRequest, opts ...grpc.CallOption) (*ListDirACLsResponse, error)
 	ListFileACLs(ctx context.Context, in *ListFileACLsRequest, opts ...grpc.CallOption) (*ListFileACLsResponse, error)
+	ListACLsForEntries(ctx context.Context, in *ListACLsForEntriesRequest, opts ...grpc.CallOption) (*ListACLsForEntriesResponse, error)
 	RemoveFile(ctx context.Context, in *RemoveFileRequest, opts ...grpc.CallOption) (*Empty, error)
 	RemoveDir(ctx context.Context, in *RemoveDirRequest, opts ...grpc.CallOption) (*Empty, error)
 	MakeDir(ctx context.Context, in *MakeDirRequest, opts ...grpc.CallOption) (*Empty, error)
@@ -131,6 +132,15 @@ func (c *poolAPIClient) ListDirACLs(ctx context.Context, in *ListDirACLsRequest,
 func (c *poolAPIClient) ListFileACLs(ctx context.Context, in *ListFileACLsRequest, opts ...grpc.CallOption) (*ListFileACLsResponse, error) {
 	out := new(ListFileACLsResponse)
 	err := c.cc.Invoke(ctx, "/api.PoolAPI/ListFileACLs", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *poolAPIClient) ListACLsForEntries(ctx context.Context, in *ListACLsForEntriesRequest, opts ...grpc.CallOption) (*ListACLsForEntriesResponse, error) {
+	out := new(ListACLsForEntriesResponse)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/ListACLsForEntries", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -276,6 +286,7 @@ type PoolAPIServer interface {
 	ListUserGroups(context.Context, *ListUserGroupsRequest) (*ListUserGroupsResponse, error)
 	ListDirACLs(context.Context, *ListDirACLsRequest) (*ListDirACLsResponse, error)
 	ListFileACLs(context.Context, *ListFileACLsRequest) (*ListFileACLsResponse, error)
+	ListACLsForEntries(context.Context, *ListACLsForEntriesRequest) (*ListACLsForEntriesResponse, error)
 	RemoveFile(context.Context, *RemoveFileRequest) (*Empty, error)
 	RemoveDir(context.Context, *RemoveDirRequest) (*Empty, error)
 	MakeDir(context.Context, *MakeDirRequest) (*Empty, error)
@@ -324,6 +335,9 @@ func (UnimplementedPoolAPIServer) ListDirACLs(context.Context, *ListDirACLsReque
 }
 func (UnimplementedPoolAPIServer) ListFileACLs(context.Context, *ListFileACLsRequest) (*ListFileACLsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListFileACLs not implemented")
+}
+func (UnimplementedPoolAPIServer) ListACLsForEntries(context.Context, *ListACLsForEntriesRequest) (*ListACLsForEntriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListACLsForEntries not implemented")
 }
 func (UnimplementedPoolAPIServer) RemoveFile(context.Context, *RemoveFileRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveFile not implemented")
@@ -538,6 +552,24 @@ func _PoolAPI_ListFileACLs_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(PoolAPIServer).ListFileACLs(ctx, req.(*ListFileACLsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PoolAPI_ListACLsForEntries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListACLsForEntriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).ListACLsForEntries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.PoolAPI/ListACLsForEntries",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).ListACLsForEntries(ctx, req.(*ListACLsForEntriesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -836,6 +868,10 @@ var PoolAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListFileACLs",
 			Handler:    _PoolAPI_ListFileACLs_Handler,
+		},
+		{
+			MethodName: "ListACLsForEntries",
+			Handler:    _PoolAPI_ListACLsForEntries_Handler,
 		},
 		{
 			MethodName: "RemoveFile",

@@ -30,9 +30,10 @@ message Entry {
 	string path = 4;
 	string owner = 5;
 	int64 size = 6;
-	string create_time = 7; // RFC3339 format
-	string modify_time = 8; // RFC3339 format
-	string checksum = 9;
+	string data_type = 7;
+	string create_time = 8; // RFC3339 format
+	string modify_time = 9; // RFC3339 format
+	string checksum = 10;
 }
 
 message Access {
@@ -124,6 +125,15 @@ message ListFileACLsRequest {
 }
 
 message ListFileACLsResponse {
+	repeated Access accesses = 1;
+}
+
+message ListACLsForEntriesRequest {
+	string session_id = 1;
+    string path = 2;
+}
+
+message ListACLsForEntriesResponse {
 	repeated Access accesses = 1;
 }
 
@@ -243,6 +253,7 @@ service PoolAPI {
 	rpc ListUserGroups(ListUserGroupsRequest) returns (ListUserGroupsResponse) {}
 	rpc ListDirACLs(ListDirACLsRequest) returns (ListDirACLsResponse) {}
 	rpc ListFileACLs(ListFileACLsRequest) returns (ListFileACLsResponse) {}
+	rpc ListACLsForEntries(ListACLsForEntriesRequest) returns (ListACLsForEntriesResponse) {}
 	rpc RemoveFile(RemoveFileRequest) returns (Empty) {}
 	rpc RemoveDir(RemoveDirRequest) returns (Empty) {}
 	rpc MakeDir(MakeDirRequest) returns (Empty) {}

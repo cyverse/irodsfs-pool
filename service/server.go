@@ -366,6 +366,7 @@ func (server *PoolServer) List(context context.Context, request *api.ListRequest
 			Path:       entry.Path,
 			Owner:      entry.Owner,
 			Size:       entry.Size,
+			DataType:   entry.DataType,
 			CreateTime: irodsfs_common_utils.MakeTimeToString(entry.CreateTime),
 			ModifyTime: irodsfs_common_utils.MakeTimeToString(entry.ModifyTime),
 			Checksum:   entry.CheckSum,
@@ -420,6 +421,7 @@ func (server *PoolServer) Stat(context context.Context, request *api.StatRequest
 		Path:       entry.Path,
 		Owner:      entry.Owner,
 		Size:       entry.Size,
+		DataType:   entry.DataType,
 		CreateTime: irodsfs_common_utils.MakeTimeToString(entry.CreateTime),
 		ModifyTime: irodsfs_common_utils.MakeTimeToString(entry.ModifyTime),
 		Checksum:   entry.CheckSum,
@@ -646,6 +648,58 @@ func (server *PoolServer) ListFileACLs(context context.Context, request *api.Lis
 	}
 
 	response := &api.ListFileACLsResponse{
+		Accesses: responseAccesses,
+	}
+
+	return response, nil
+}
+
+func (server *PoolServer) ListACLsForEntries(context context.Context, request *api.ListACLsForEntriesRequest) (*api.ListACLsForEntriesResponse, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolServer",
+		"function": "ListACLsForEntries",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	logger.Infof("ListACLsForEntries request from pool session id %s, path %s", request.SessionId, request.Path)
+	defer logger.Infof("ListACLsForEntries response to pool session id %s, path %s", request.SessionId, request.Path)
+
+	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	poolSession.UpdateLastAccessTime()
+
+	fsClient := irodsFsClientInstance.GetFSClient()
+	if fsClient == nil {
+		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	accesses, err := fsClient.ListACLsForEntries(request.Path)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	responseAccesses := []*api.Access{}
+	for _, access := range accesses {
+		responseAccess := &api.Access{
+			Path:        access.Path,
+			UserName:    access.UserName,
+			UserZone:    access.UserZone,
+			UserType:    string(access.UserType),
+			AccessLevel: string(access.AccessLevel),
+		}
+		responseAccesses = append(responseAccesses, responseAccess)
+	}
+
+	response := &api.ListACLsForEntriesResponse{
 		Accesses: responseAccesses,
 	}
 
@@ -892,6 +946,7 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 		Path:       fsEntry.Path,
 		Owner:      fsEntry.Owner,
 		Size:       fsEntry.Size,
+		DataType:   fsEntry.DataType,
 		CreateTime: irodsfs_common_utils.MakeTimeToString(fsEntry.CreateTime),
 		ModifyTime: irodsfs_common_utils.MakeTimeToString(fsEntry.ModifyTime),
 		Checksum:   fsEntry.CheckSum,
@@ -982,6 +1037,7 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 		Path:       fsEntry.Path,
 		Owner:      fsEntry.Owner,
 		Size:       fsEntry.Size,
+		DataType:   fsEntry.DataType,
 		CreateTime: irodsfs_common_utils.MakeTimeToString(fsEntry.CreateTime),
 		ModifyTime: irodsfs_common_utils.MakeTimeToString(fsEntry.ModifyTime),
 		Checksum:   fsEntry.CheckSum,

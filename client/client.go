@@ -257,6 +257,7 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 			Path:       entry.Path,
 			Owner:      entry.Owner,
 			Size:       entry.Size,
+			DataType:   entry.DataType,
 			CreateTime: createTime,
 			ModifyTime: modifyTime,
 			CheckSum:   entry.Checksum,
@@ -311,6 +312,7 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 		Path:       response.Entry.Path,
 		Owner:      response.Entry.Owner,
 		Size:       response.Entry.Size,
+		DataType:   response.Entry.DataType,
 		CreateTime: createTime,
 		ModifyTime: modifyTime,
 		CheckSum:   response.Entry.Checksum,
@@ -472,6 +474,47 @@ func (session *PoolServiceSession) ListFileACLs(path string) ([]*irodsclient_typ
 	defer cancel()
 
 	response, err := session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
+	if err != nil {
+		logger.Error(err)
+		return nil, statusToError(err)
+	}
+
+	irodsAccesses := []*irodsclient_types.IRODSAccess{}
+
+	for _, access := range response.Accesses {
+		irodsAccess := &irodsclient_types.IRODSAccess{
+			Path:        access.Path,
+			UserName:    access.UserName,
+			UserZone:    access.UserZone,
+			UserType:    irodsclient_types.IRODSUserType(access.UserType),
+			AccessLevel: irodsclient_types.IRODSAccessLevelType(access.AccessLevel),
+		}
+
+		irodsAccesses = append(irodsAccesses, irodsAccess)
+	}
+
+	return irodsAccesses, nil
+}
+
+// ListACLsForEntries lists ACLs for entries in an iRODS collection
+func (session *PoolServiceSession) ListACLsForEntries(path string) ([]*irodsclient_types.IRODSAccess, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceSession",
+		"function": "ListACLsForEntries",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	request := &api.ListACLsForEntriesRequest{
+		SessionId: session.id,
+		Path:      path,
+	}
+
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	response, err := session.poolServiceClient.apiClient.ListACLsForEntries(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
 		return nil, statusToError(err)
@@ -680,6 +723,7 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 		Path:       response.Entry.Path,
 		Owner:      response.Entry.Owner,
 		Size:       response.Entry.Size,
+		DataType:   response.Entry.DataType,
 		CreateTime: createTime,
 		ModifyTime: modifyTime,
 		CheckSum:   response.Entry.Checksum,
@@ -739,6 +783,7 @@ func (session *PoolServiceSession) OpenFile(path string, resource string, mode s
 		Path:       response.Entry.Path,
 		Owner:      response.Entry.Owner,
 		Size:       response.Entry.Size,
+		DataType:   response.Entry.DataType,
 		CreateTime: createTime,
 		ModifyTime: modifyTime,
 		CheckSum:   response.Entry.Checksum,

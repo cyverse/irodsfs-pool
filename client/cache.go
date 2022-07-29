@@ -10,11 +10,12 @@ import (
 
 // MetadataCache manages filesystem metadata caches
 type MetadataCache struct {
-	cacheTimeout   time.Duration
-	cleanupTimeout time.Duration
-	entryCache     *gocache.Cache
-	dirCache       *gocache.Cache
-	aclCache       *gocache.Cache
+	cacheTimeout     time.Duration
+	cleanupTimeout   time.Duration
+	entryCache       *gocache.Cache
+	dirCache         *gocache.Cache
+	aclCache         *gocache.Cache
+	dirEntryAclCache *gocache.Cache
 }
 
 // NewMetadataCache creates a new MetadataCache
@@ -22,13 +23,15 @@ func NewMetadataCache(cacheTimeout time.Duration, cleanup time.Duration) *Metada
 	entryCache := gocache.New(cacheTimeout, cleanup)
 	dirCache := gocache.New(cacheTimeout, cleanup)
 	aclCache := gocache.New(cacheTimeout, cleanup)
+	dirEntryAclCache := gocache.New(cacheTimeout, cleanup)
 
 	return &MetadataCache{
-		cacheTimeout:   cacheTimeout,
-		cleanupTimeout: cleanup,
-		entryCache:     entryCache,
-		dirCache:       dirCache,
-		aclCache:       aclCache,
+		cacheTimeout:     cacheTimeout,
+		cleanupTimeout:   cleanup,
+		entryCache:       entryCache,
+		dirCache:         dirCache,
+		aclCache:         aclCache,
+		dirEntryAclCache: dirEntryAclCache,
 	}
 }
 
@@ -126,4 +129,30 @@ func (cache *MetadataCache) GetACLsCache(path string) []*types.IRODSAccess {
 // ClearACLsCache clears all ACLs caches
 func (cache *MetadataCache) ClearACLsCache() {
 	cache.aclCache.Flush()
+}
+
+// AddDirEntryACLsCache adds a ACLs cache
+func (cache *MetadataCache) AddDirEntryACLsCache(path string, accesses []*types.IRODSAccess) {
+	cache.dirEntryAclCache.Set(path, accesses, 0)
+}
+
+// RemoveDirEntryACLsCache removes a ACLs cache
+func (cache *MetadataCache) RemoveDirEntryACLsCache(path string) {
+	cache.dirEntryAclCache.Delete(path)
+}
+
+// GetDirEntryACLsCache retrives a ACLs cache
+func (cache *MetadataCache) GetDirEntryACLsCache(path string) []*types.IRODSAccess {
+	data, exist := cache.dirEntryAclCache.Get(path)
+	if exist {
+		if entries, ok := data.([]*types.IRODSAccess); ok {
+			return entries
+		}
+	}
+	return nil
+}
+
+// ClearDirEntryACLsCache clears all ACLs caches
+func (cache *MetadataCache) ClearDirEntryACLsCache() {
+	cache.dirEntryAclCache.Flush()
 }

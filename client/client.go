@@ -570,6 +570,13 @@ func (session *PoolServiceSession) ListACLsForEntries(path string) ([]*irodsclie
 	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
+	// if there's a cache
+	cachedACLs := session.poolServiceClient.fsCache.GetDirEntryACLsCache(path)
+	if cachedACLs != nil {
+		return cachedACLs, nil
+	}
+
+	// no cache
 	request := &api.ListACLsForEntriesRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -594,6 +601,10 @@ func (session *PoolServiceSession) ListACLsForEntries(path string) ([]*irodsclie
 
 		irodsAccesses = append(irodsAccesses, irodsAccess)
 	}
+
+	// put to cache
+	session.poolServiceClient.fsCache.AddDirEntryACLsCache(path, irodsAccesses)
+	session.poolServiceClient.fsCache.AddACLsCacheMulti(irodsAccesses)
 
 	return irodsAccesses, nil
 }
@@ -675,6 +686,7 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 			}
 
 			session.poolServiceClient.fsCache.RemoveDirCache(front.Path)
+			session.poolServiceClient.fsCache.RemoveDirEntryACLsCache(front.Path)
 		}
 
 		session.poolServiceClient.fsCache.RemoveEntryCache(front.Path)

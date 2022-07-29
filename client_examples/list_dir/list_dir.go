@@ -46,7 +46,7 @@ func main() {
 
 	logger.Debugf("Account : %v", account.MaskSensitiveData())
 
-	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, "test_client_1")
+	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, time.Minute*5, "test_client_1")
 	err = poolClient.Connect()
 	if err != nil {
 		logger.Errorf("err - %v", err)

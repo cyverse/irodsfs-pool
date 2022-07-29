@@ -21,6 +21,8 @@ import (
 const (
 	fileRWLengthMax    int = 1024 * 1024     // 1MB
 	messageRWLengthMax int = 8 * 1024 * 1024 // 8MB
+
+	localMetadataCacheTiemout time.Duration = 1 * time.Minute
 )
 
 // PoolServiceClient is a client of pool service
@@ -30,6 +32,7 @@ type PoolServiceClient struct {
 	operationTimeout time.Duration
 	grpcConnection   *grpc.ClientConn
 	apiClient        api.PoolAPIClient
+	fsCache          *MetadataCache
 }
 
 // PoolServiceSession is a service session
@@ -52,6 +55,7 @@ func NewPoolServiceClient(address string, operationTimeout time.Duration, client
 		address:          address,
 		operationTimeout: operationTimeout,
 		grpcConnection:   nil,
+		fsCache:          NewMetadataCache(localMetadataCacheTiemout, localMetadataCacheTiemout),
 	}
 }
 
@@ -132,6 +136,9 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
 	request := &api.LoginRequest{
 		Account: &api.Account{
 			AuthenticationScheme:    string(account.AuthenticationScheme),
@@ -151,9 +158,6 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 		ApplicationName: applicationName,
 		ClientId:        client.id,
 	}
-
-	ctx, cancel := client.getContextWithDeadline()
-	defer cancel()
 
 	response, err := client.apiClient.Login(ctx, request)
 	if err != nil {
@@ -179,12 +183,12 @@ func (session *PoolServiceSession) Release() {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
 	request := &api.LogoutRequest{
 		SessionId: session.id,
 	}
-
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
 
 	_, err := session.poolServiceClient.apiClient.Logout(ctx, request)
 	if err != nil {
@@ -221,21 +225,28 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	// if there's a cache
+	cachedDirEntries := session.poolServiceClient.fsCache.GetDirCache(path)
+	if cachedDirEntries != nil {
+		return cachedDirEntries, nil
+	}
+
+	// no cache
 	request := &api.ListRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
+	irodsEntries := []*irodsclient_fs.Entry{}
 
 	response, err := session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
 		return nil, statusToError(err)
 	}
-
-	irodsEntries := []*irodsclient_fs.Entry{}
 
 	for _, entry := range response.Entries {
 		createTime, err := irodsfs_common_utils.ParseTime(entry.CreateTime)
@@ -266,6 +277,12 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 		irodsEntries = append(irodsEntries, irodsEntry)
 	}
 
+	// put to cache
+	session.poolServiceClient.fsCache.AddDirCache(path, irodsEntries)
+	for _, irodsEntry := range irodsEntries {
+		session.poolServiceClient.fsCache.AddEntryCache(irodsEntry)
+	}
+
 	return irodsEntries, nil
 }
 
@@ -279,13 +296,20 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	// if there's a cache
+	cachedEntry := session.poolServiceClient.fsCache.GetEntryCache(path)
+	if cachedEntry != nil {
+		return cachedEntry, nil
+	}
+
+	// no cache
 	request := &api.StatRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
-
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
 
 	response, err := session.poolServiceClient.apiClient.Stat(ctx, request)
 	if err != nil {
@@ -318,6 +342,9 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 		CheckSum:   response.Entry.Checksum,
 	}
 
+	// put to cache
+	session.poolServiceClient.fsCache.AddEntryCache(irodsEntry)
+
 	return irodsEntry, nil
 }
 
@@ -331,13 +358,20 @@ func (session *PoolServiceSession) ExistsDir(path string) bool {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	// if there's a cache
+	cachedEntry := session.poolServiceClient.fsCache.GetEntryCache(path)
+	if cachedEntry != nil && cachedEntry.Type == irodsclient_fs.DirectoryEntry {
+		return true
+	}
+
+	// no cache
 	request := &api.ExistsDirRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
-
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
 
 	response, err := session.poolServiceClient.apiClient.ExistsDir(ctx, request)
 	if err != nil {
@@ -358,13 +392,20 @@ func (session *PoolServiceSession) ExistsFile(path string) bool {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	// if there's a cache
+	cachedEntry := session.poolServiceClient.fsCache.GetEntryCache(path)
+	if cachedEntry != nil && cachedEntry.Type == irodsclient_fs.FileEntry {
+		return true
+	}
+
+	// no cache
 	request := &api.ExistsFileRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
-
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
 
 	response, err := session.poolServiceClient.apiClient.ExistsFile(ctx, request)
 	if err != nil {
@@ -385,13 +426,13 @@ func (session *PoolServiceSession) ListUserGroups(user string) ([]*irodsclient_t
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
 	request := &api.ListUserGroupsRequest{
 		SessionId: session.id,
 		UserName:  user,
 	}
-
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
 
 	response, err := session.poolServiceClient.apiClient.ListUserGroups(ctx, request, getLargeReadOption())
 	if err != nil {
@@ -424,21 +465,28 @@ func (session *PoolServiceSession) ListDirACLs(path string) ([]*irodsclient_type
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	// if there's a cache
+	cachedACLs := session.poolServiceClient.fsCache.GetACLsCache(path)
+	if cachedACLs != nil {
+		return cachedACLs, nil
+	}
+
+	// no cache
 	request := &api.ListDirACLsRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
+	irodsAccesses := []*irodsclient_types.IRODSAccess{}
 
 	response, err := session.poolServiceClient.apiClient.ListDirACLs(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
 		return nil, statusToError(err)
 	}
-
-	irodsAccesses := []*irodsclient_types.IRODSAccess{}
 
 	for _, access := range response.Accesses {
 		irodsAccess := &irodsclient_types.IRODSAccess{
@@ -451,6 +499,9 @@ func (session *PoolServiceSession) ListDirACLs(path string) ([]*irodsclient_type
 
 		irodsAccesses = append(irodsAccesses, irodsAccess)
 	}
+
+	// put to cache
+	session.poolServiceClient.fsCache.AddACLsCache(path, irodsAccesses)
 
 	return irodsAccesses, nil
 }
@@ -465,21 +516,28 @@ func (session *PoolServiceSession) ListFileACLs(path string) ([]*irodsclient_typ
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	// if there's a cache
+	cachedACLs := session.poolServiceClient.fsCache.GetACLsCache(path)
+	if cachedACLs != nil {
+		return cachedACLs, nil
+	}
+
+	// no cache
 	request := &api.ListFileACLsRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
+	irodsAccesses := []*irodsclient_types.IRODSAccess{}
 
 	response, err := session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
 		return nil, statusToError(err)
 	}
-
-	irodsAccesses := []*irodsclient_types.IRODSAccess{}
 
 	for _, access := range response.Accesses {
 		irodsAccess := &irodsclient_types.IRODSAccess{
@@ -492,6 +550,9 @@ func (session *PoolServiceSession) ListFileACLs(path string) ([]*irodsclient_typ
 
 		irodsAccesses = append(irodsAccesses, irodsAccess)
 	}
+
+	// put to cache
+	session.poolServiceClient.fsCache.AddACLsCache(path, irodsAccesses)
 
 	return irodsAccesses, nil
 }
@@ -506,13 +567,13 @@ func (session *PoolServiceSession) ListACLsForEntries(path string) ([]*irodsclie
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
 	request := &api.ListACLsForEntriesRequest{
 		SessionId: session.id,
 		Path:      path,
 	}
-
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
 
 	response, err := session.poolServiceClient.apiClient.ListACLsForEntries(ctx, request, getLargeReadOption())
 	if err != nil {
@@ -547,20 +608,26 @@ func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
 	request := &api.RemoveFileRequest{
 		SessionId: session.id,
 		Path:      path,
 		Force:     force,
 	}
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	_, err := session.poolServiceClient.apiClient.RemoveFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return statusToError(err)
 	}
+
+	// remove cache
+	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(path)
+	session.poolServiceClient.fsCache.RemoveACLsCache(path)
 
 	return nil
 }
@@ -575,6 +642,9 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
 	request := &api.RemoveDirRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -582,14 +652,41 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 		Force:     force,
 	}
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	_, err := session.poolServiceClient.apiClient.RemoveDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return statusToError(err)
 	}
+
+	// remove cache
+	removeTarget := []*irodsclient_fs.Entry{}
+	dirCache := session.poolServiceClient.fsCache.GetDirCache(path)
+	if dirCache != nil {
+		removeTarget = append(removeTarget, dirCache...)
+	}
+
+	for len(removeTarget) > 0 {
+		front := removeTarget[0]
+
+		if front.Type == irodsclient_fs.DirectoryEntry {
+			frontDirCache := session.poolServiceClient.fsCache.GetDirCache(front.Path)
+			if frontDirCache != nil {
+				removeTarget = append(removeTarget, frontDirCache...)
+			}
+
+			session.poolServiceClient.fsCache.RemoveDirCache(front.Path)
+		}
+
+		session.poolServiceClient.fsCache.RemoveEntryCache(front.Path)
+		session.poolServiceClient.fsCache.RemoveACLsCache(front.Path)
+
+		removeTarget = removeTarget[1:]
+	}
+
+	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(path)
+	session.poolServiceClient.fsCache.RemoveACLsCache(path)
 
 	return nil
 }
@@ -619,6 +716,12 @@ func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
 		return statusToError(err)
 	}
 
+	// remove cache
+	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(path)
+	session.poolServiceClient.fsCache.RemoveACLsCache(path)
+
 	return nil
 }
 
@@ -647,6 +750,43 @@ func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath strin
 		return statusToError(err)
 	}
 
+	// remove cache
+	removeTarget := []*irodsclient_fs.Entry{}
+	dirCache := session.poolServiceClient.fsCache.GetDirCache(srcPath)
+	if dirCache != nil {
+		removeTarget = append(removeTarget, dirCache...)
+	}
+
+	for len(removeTarget) > 0 {
+		front := removeTarget[0]
+
+		if front.Type == irodsclient_fs.DirectoryEntry {
+			frontDirCache := session.poolServiceClient.fsCache.GetDirCache(front.Path)
+			if frontDirCache != nil {
+				removeTarget = append(removeTarget, frontDirCache...)
+			}
+
+			session.poolServiceClient.fsCache.RemoveDirCache(front.Path)
+		}
+
+		session.poolServiceClient.fsCache.RemoveEntryCache(front.Path)
+		session.poolServiceClient.fsCache.RemoveACLsCache(front.Path)
+
+		removeTarget = removeTarget[1:]
+	}
+
+	srcParentDirPath := irodsfs_common_utils.GetDirname(srcPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(srcParentDirPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(srcPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(srcPath)
+	session.poolServiceClient.fsCache.RemoveACLsCache(srcPath)
+
+	destParentDirPath := irodsfs_common_utils.GetDirname(destPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(destParentDirPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(destPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(destPath)
+	session.poolServiceClient.fsCache.RemoveACLsCache(destPath)
+
 	return nil
 }
 
@@ -660,20 +800,31 @@ func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath str
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
 	request := &api.RenameFileToFileRequest{
 		SessionId:       session.id,
 		SourcePath:      srcPath,
 		DestinationPath: destPath,
 	}
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	_, err := session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return statusToError(err)
 	}
+
+	// remove cache
+	srcParentDirPath := irodsfs_common_utils.GetDirname(srcPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(srcParentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(srcPath)
+	session.poolServiceClient.fsCache.RemoveACLsCache(srcPath)
+
+	destParentDirPath := irodsfs_common_utils.GetDirname(destPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(destParentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(destPath)
+	session.poolServiceClient.fsCache.RemoveACLsCache(destPath)
 
 	return nil
 }
@@ -688,15 +839,15 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
 	request := &api.CreateFileRequest{
 		SessionId: session.id,
 		Path:      path,
 		Resource:  resource,
 		Mode:      mode,
 	}
-
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
 
 	response, err := session.poolServiceClient.apiClient.CreateFile(ctx, request)
 	if err != nil {
@@ -729,6 +880,12 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 		CheckSum:   response.Entry.Checksum,
 	}
 
+	// remove cache
+	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(path)
+	session.poolServiceClient.fsCache.RemoveACLsCache(path)
+
 	return &PoolServiceFileHandle{
 		id:                 response.FileHandleId,
 		poolServiceClient:  session.poolServiceClient,
@@ -748,15 +905,15 @@ func (session *PoolServiceSession) OpenFile(path string, resource string, mode s
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
 	request := &api.OpenFileRequest{
 		SessionId: session.id,
 		Path:      path,
 		Resource:  resource,
 		Mode:      mode,
 	}
-
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
 
 	response, err := session.poolServiceClient.apiClient.OpenFile(ctx, request)
 	if err != nil {
@@ -822,6 +979,10 @@ func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 		logger.Error(err)
 		return statusToError(err)
 	}
+
+	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(path)
 
 	return nil
 }
@@ -1010,14 +1171,14 @@ func (handle *PoolServiceFileHandle) Truncate(size int64) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
 	request := &api.TruncateRequest{
 		SessionId:    handle.poolServiceSession.id,
 		FileHandleId: handle.id,
 		Size:         size,
 	}
-
-	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-	defer cancel()
 
 	_, err := handle.poolServiceClient.apiClient.Truncate(ctx, request)
 	if err != nil {
@@ -1038,19 +1199,23 @@ func (handle *PoolServiceFileHandle) Flush() error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
 	request := &api.FlushRequest{
 		SessionId:    handle.poolServiceSession.id,
 		FileHandleId: handle.id,
 	}
-
-	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-	defer cancel()
 
 	_, err := handle.poolServiceClient.apiClient.Flush(ctx, request)
 	if err != nil {
 		logger.Error(err)
 		return statusToError(err)
 	}
+
+	parentDirPath := irodsfs_common_utils.GetDirname(handle.entry.Path)
+	handle.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+	handle.poolServiceClient.fsCache.RemoveEntryCache(handle.entry.Path)
 
 	return nil
 }
@@ -1077,6 +1242,12 @@ func (handle *PoolServiceFileHandle) Close() error {
 	if err != nil {
 		logger.Error(err)
 		return statusToError(err)
+	}
+
+	if handle.openMode.IsWrite() {
+		parentDirPath := irodsfs_common_utils.GetDirname(handle.entry.Path)
+		handle.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+		handle.poolServiceClient.fsCache.RemoveEntryCache(handle.entry.Path)
 	}
 
 	return nil

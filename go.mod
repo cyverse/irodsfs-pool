@@ -16,7 +16,7 @@ require (
 )
 
 require (
-	github.com/cyverse/irodsfs-monitor v0.0.0-20220622193035-bcdf5ca735ca // indirect
+	github.com/cyverse/irodsfs-monitor v0.0.0-20220809235922-daf13261a2dc // indirect
 	github.com/eikenb/pipeat v0.0.0-20210730190139-06b3e6902001 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect

@@ -117,7 +117,7 @@ func processArguments() (*commons.Config, io.WriteCloser, bool, error) {
 			return nil, logWriter, true, err
 		}
 
-		err = yaml.Unmarshal(yamlBytes, &config)
+		err = yaml.Unmarshal(yamlBytes, config)
 		if err != nil {
 			return nil, logWriter, true, fmt.Errorf("failed to unmarshal YAML - %v", err)
 		}

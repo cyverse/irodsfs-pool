@@ -185,7 +185,11 @@ func (config *Config) Validate() error {
 			}
 		} else {
 			// file exists
-			return fmt.Errorf("service unix socket file (%s) already exists", endpoint)
+			// remove
+			err2 := os.Remove(endpoint)
+			if err2 != nil {
+				return fmt.Errorf("failed to remove the existing unix socket file (%s) - %v", endpoint, err2)
+			}
 		}
 
 		parentDir := filepath.Dir(endpoint)

@@ -10,10 +10,10 @@ github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDk
 github.com/cncf/udpa/go v0.0.0-20191209042840-269d4d468f6f/go.mod h1:M8M6+tZqaGXZJjfX53e64911xZQV5JYwmTeXPW+k8Sc=
 github.com/cncf/udpa/go v0.0.0-20201120205902-5459f2c99403/go.mod h1:WmhPx2Nbnhtbo57+VJT5O0JRkEi1Wbu0z5j0R8u5Hbk=
 github.com/cncf/xds/go v0.0.0-20210312221358-fbca930ec8ed/go.mod h1:eXthEFrGJvWHgFFCl3hGmgk+/aYT6PnTQLykKQRLhEs=
-github.com/cyverse/go-irodsclient v0.9.6 h1:WVnnQD1WwGozQj+GO2Alt0y/ec/VWbznPB/bETHlR84=
-github.com/cyverse/go-irodsclient v0.9.6/go.mod h1:UaBJ8f9cRQYx3kkmbfWMDlZGQ4AF5k5oV2X27BGiO4o=
-github.com/cyverse/irodsfs-common v0.0.0-20220812235828-658e0c201f88 h1:sgC/vL5+2aPAeGGRHEakasqrxBvW0iTdfFocCsI9/ss=
-github.com/cyverse/irodsfs-common v0.0.0-20220812235828-658e0c201f88/go.mod h1:VL2YKsDHEE2gMUVoq3v8+0LhWE3SUlBBCs4yPs1Y4DQ=
+github.com/cyverse/go-irodsclient v0.9.7 h1:2+gnXFok/nKqzavht5E6Kplh5NtP9ewCe6rWUaQ+AR4=
+github.com/cyverse/go-irodsclient v0.9.7/go.mod h1:UaBJ8f9cRQYx3kkmbfWMDlZGQ4AF5k5oV2X27BGiO4o=
+github.com/cyverse/irodsfs-common v0.0.0-20220829223605-d1fa89a4e216 h1:qV95J4jOanUibrMEZBfRghaQS9Xcc4oWdKUcBfDXPDk=
+github.com/cyverse/irodsfs-common v0.0.0-20220829223605-d1fa89a4e216/go.mod h1:pASueos5eaVIjlkUhgAt00UxFB/fRe+rld9e3j0f7Dw=
 github.com/cyverse/irodsfs-monitor v0.0.0-20220809235922-daf13261a2dc h1:gIpG0ETQOEZloFwB5iU2zljVsoUDTpUEl/3WF19gLNk=
 github.com/cyverse/irodsfs-monitor v0.0.0-20220809235922-daf13261a2dc/go.mod h1:8UE1mT26+0vAsqS9UJ6Q/vlKq3da6FLdt5p6Tt1AIC4=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

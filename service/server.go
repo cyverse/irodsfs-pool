@@ -934,7 +934,12 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 		server.cacheStore.DeleteAllEntriesForGroup(request.Path)
 	}
 
-	poolFileHandle := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFileHandle, nil)
+	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFileHandle, nil)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
 	poolSession.AddPoolFileHandle(poolFileHandle)
 
 	fsEntry := irodsFsFileHandle.GetEntry()
@@ -1000,7 +1005,12 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 		server.cacheStore.DeleteAllEntriesForGroup(request.Path)
 	}
 
-	poolFileHandle := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFlieHandle, nil)
+	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFlieHandle, nil)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
 	poolSession.AddPoolFileHandle(poolFileHandle)
 
 	// read-only mode requires multiple file handles for prefetching

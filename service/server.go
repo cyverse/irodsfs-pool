@@ -183,6 +183,9 @@ func (server *PoolServer) Logout(context context.Context, request *api.LogoutReq
 		poolSession.Release()
 		delete(server.poolSessions, request.SessionId)
 
+		// collect metrics before release
+		server.CollectPrometheusMetrics()
+
 		if irodsFsClientInstance, ok := server.irodsFsClientInstances[irodsFsClientInstanceID]; ok {
 			irodsFsClientInstance.RemovePoolSession(request.SessionId)
 			if irodsFsClientInstance.ReleaseIfNoPoolSession() {

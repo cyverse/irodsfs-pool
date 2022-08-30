@@ -14,10 +14,10 @@ import (
 	"syscall"
 
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service"
-	"github.com/pkg/profile"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -300,19 +300,28 @@ func run(config *commons.Config, isChildProcess bool) error {
 		log.SetLevel(log.DebugLevel)
 	}
 
-	// profile
-	if config.Profile {
-		go func() {
-			profileServiceAddr := fmt.Sprintf(":%d", config.ProfileServicePort)
-			http.ListenAndServe(profileServiceAddr, nil)
-		}()
-
-		prof := profile.Start(profile.MemProfile)
-		defer prof.Stop()
-	}
-
 	versionInfo := commons.GetVersion()
 	logger.Infof("iRODS FUSE Lite Pool Service version - %s, commit - %s", versionInfo.ServiceVersion, versionInfo.GitCommit)
+
+	// profile
+	if config.Profile && config.ProfileServicePort > 0 {
+		go func() {
+			profileServiceAddr := fmt.Sprintf(":%d", config.ProfileServicePort)
+
+			logger.Infof("Starting profile service at %s", profileServiceAddr)
+			http.ListenAndServe(profileServiceAddr, nil)
+		}()
+	}
+
+	if config.PrometheusExporterPort > 0 {
+		go func() {
+			prometheusExporterAddr := fmt.Sprintf(":%d", config.PrometheusExporterPort)
+			http.Handle("/metrics", promhttp.Handler())
+
+			logger.Infof("Starting prometheus exporter at %s", prometheusExporterAddr)
+			http.ListenAndServe(prometheusExporterAddr, nil)
+		}()
+	}
 
 	// run a service
 	svc, err := service.NewPoolService(config)

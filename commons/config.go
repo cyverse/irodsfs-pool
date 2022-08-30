@@ -21,6 +21,7 @@ const (
 	TempRootPathPrefixDefault      string = "/tmp/irodsfs_pool_temp"
 	ServiceEndpointDefault         string = "unix:///tmp/irodsfs_pool_comm.sock"
 	ProfileServicePortDefault      int    = 12021
+	PrometheusExporterPortDefault  int    = 12022
 )
 
 var (
@@ -68,8 +69,9 @@ type Config struct {
 
 	LogPath string `yaml:"log_path,omitempty"`
 
-	Profile            bool `yaml:"profile,omitempty"`
-	ProfileServicePort int  `yaml:"profile_service_port,omitempty"`
+	Profile                bool `yaml:"profile,omitempty"`
+	ProfileServicePort     int  `yaml:"profile_service_port,omitempty"`
+	PrometheusExporterPort int  `yaml:"prometheus_exporter_port,omitempty"`
 
 	Foreground   bool `yaml:"foreground,omitempty"`
 	Debug        bool `yaml:"debug,omitempty"`
@@ -89,8 +91,9 @@ func NewDefaultConfig() *Config {
 
 		LogPath: "",
 
-		Profile:            false,
-		ProfileServicePort: ProfileServicePortDefault,
+		Profile:                false,
+		ProfileServicePort:     ProfileServicePortDefault,
+		PrometheusExporterPort: PrometheusExporterPortDefault,
 
 		Foreground:   false,
 		Debug:        false,
@@ -109,8 +112,9 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 		TempRootPath:         GetDefaultTempRootPath(),
 		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
 
-		Profile:            false,
-		ProfileServicePort: ProfileServicePortDefault,
+		Profile:                false,
+		ProfileServicePort:     ProfileServicePortDefault,
+		PrometheusExporterPort: PrometheusExporterPortDefault,
 
 		Foreground:   false,
 		Debug:        false,
@@ -213,6 +217,10 @@ func (config *Config) Validate() error {
 
 	if config.Profile && config.ProfileServicePort <= 0 {
 		return fmt.Errorf("profile service port must be given")
+	}
+
+	if config.PrometheusExporterPort <= 0 {
+		return fmt.Errorf("prometheus exporter port must be given")
 	}
 
 	if len(config.TempRootPath) > 0 {

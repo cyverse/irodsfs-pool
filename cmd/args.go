@@ -48,6 +48,7 @@ func processArguments() (*commons.Config, io.WriteCloser, bool, error) {
 	flag.StringVar(&config.LogPath, "log", commons.GetDefaultLogFilePath(), "Set log file path")
 	flag.BoolVar(&config.Profile, "profile", false, "Enable profiling")
 	flag.IntVar(&config.ProfileServicePort, "profile_port", commons.ProfileServicePortDefault, "Set profile service port")
+	flag.IntVar(&config.PrometheusExporterPort, "prometheus_exporter_port", commons.PrometheusExporterPortDefault, "Set prometheus exporter port")
 	flag.StringVar(&cacheTimeoutSettingsJSON, "cache_timeout_settings", "", "Set cache timeout settings using JSON")
 
 	flag.Parse()

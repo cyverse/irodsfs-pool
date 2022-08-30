@@ -175,16 +175,19 @@ func (svc *PoolService) Start() error {
 			"struct":  "PoolService",
 		})
 
-		ticker := time.NewTicker(1 * time.Minute)
-		defer ticker.Stop()
+		tickerConnDisplay := time.NewTicker(1 * time.Minute)
+		tickerMetricsCollection := time.NewTicker(5 * time.Second)
+		defer tickerConnDisplay.Stop()
 
 		for {
 			select {
 			case <-svc.terminateChan:
 				// terminate
 				return
-			case <-ticker.C:
+			case <-tickerConnDisplay.C:
 				logger.Infof("Total %d pool sessions, %d FS client instances, %d iRODS connections", svc.poolServer.GetPoolSessions(), svc.poolServer.GetIRODSFSClientInstanceCount(), svc.poolServer.GetIRODSConnections())
+			case <-tickerMetricsCollection.C:
+				svc.poolServer.CollectPrometheusMetrics()
 			}
 		}
 	}()

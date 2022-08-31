@@ -177,6 +177,9 @@ func (server *PoolServer) Logout(context context.Context, request *api.LogoutReq
 
 	promCounterForGRPCCalls.Inc()
 
+	// collect metrics before release
+	server.CollectPrometheusMetrics()
+
 	server.mutex.Lock()
 	defer server.mutex.Unlock()
 
@@ -186,9 +189,6 @@ func (server *PoolServer) Logout(context context.Context, request *api.LogoutReq
 		irodsFsClientInstanceID := poolSession.GetIRODSFSClientInstanceID()
 		poolSession.Release()
 		delete(server.poolSessions, request.SessionId)
-
-		// collect metrics before release
-		server.CollectPrometheusMetrics()
 
 		if irodsFsClientInstance, ok := server.irodsFsClientInstances[irodsFsClientInstanceID]; ok {
 			irodsFsClientInstance.RemovePoolSession(request.SessionId)

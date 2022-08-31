@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -313,13 +314,15 @@ func run(config *commons.Config, isChildProcess bool) error {
 		}()
 	}
 
+	var prometheusExporterServer *http.Server
 	if config.PrometheusExporterPort > 0 {
 		go func() {
 			prometheusExporterAddr := fmt.Sprintf(":%d", config.PrometheusExporterPort)
 			http.Handle("/metrics", promhttp.Handler())
 
 			logger.Infof("Starting prometheus exporter at %s", prometheusExporterAddr)
-			http.ListenAndServe(prometheusExporterAddr, nil)
+			prometheusExporterServer = &http.Server{Addr: prometheusExporterAddr, Handler: nil}
+			prometheusExporterServer.ListenAndServe()
 		}()
 	}
 
@@ -351,6 +354,10 @@ func run(config *commons.Config, isChildProcess bool) error {
 		logger.Infof("received signal (%s), terminating iRODS FUSE Lite Pool Service", receivedSignal.String())
 		if isChildProcess {
 			fmt.Fprintln(os.Stderr, InterProcessCommunicationFinishError)
+		}
+
+		if prometheusExporterServer != nil {
+			prometheusExporterServer.Shutdown(context.TODO())
 		}
 
 		svc.Destroy()

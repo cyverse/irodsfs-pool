@@ -179,6 +179,9 @@ func (handle *PoolFileHandle) AddFileHandlesForPrefetching(irodsFsFileHandles []
 			reader.AddReadersForPrefetching(readersForPrefetching)
 		}
 	}
+
+	handle.readersForPrefetching = append(handle.readersForPrefetching, readersForPrefetching...)
+	handle.irodsFsFileHandlesForPrefetching = append(handle.irodsFsFileHandlesForPrefetching, irodsFsFileHandles...)
 }
 
 func (handle *PoolFileHandle) GetID() string {

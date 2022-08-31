@@ -7,6 +7,7 @@ import (
 	"time"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
+	irodsclient_metrics "github.com/cyverse/go-irodsclient/irods/metrics"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
@@ -210,9 +211,9 @@ func (session *PoolServiceSession) GetConnections() int {
 	return 1
 }
 
-func (session *PoolServiceSession) GetTransferMetrics() irodsclient_types.TransferMetrics {
+func (session *PoolServiceSession) GetMetrics() *irodsclient_metrics.IRODSMetrics {
 	// return empty
-	return irodsclient_types.TransferMetrics{}
+	return &irodsclient_metrics.IRODSMetrics{}
 }
 
 // List lists iRODS collection entries

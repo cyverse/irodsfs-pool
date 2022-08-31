@@ -105,16 +105,16 @@ var (
 		Help: "The total number of cache miss",
 	})
 	promGaugeForOpenFileHandles = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "irodsfs_pool_open_file_handles_total",
-		Help: "The total number of open file handles",
+		Name: "irodsfs_pool_open_file_handles",
+		Help: "The number of open file handles",
 	})
 	promGaugeForConnectionsOpened = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "irodsfs_pool_open_connections_total",
-		Help: "The total number of open connections",
+		Name: "irodsfs_pool_open_connections",
+		Help: "The number of open connections",
 	})
 	promGaugeForConnectionsOccupied = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "irodsfs_pool_occupied_connections_total",
-		Help: "The total number of occupied connections",
+		Name: "irodsfs_pool_occupied_connections",
+		Help: "The number of occupied connections",
 	})
 	promCounterForRequestResponseFailures = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "irodsfs_pool_request_response_failures_total",
@@ -127,6 +127,16 @@ var (
 	promCounterForConnectionPoolFailures = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "irodsfs_pool_connection_pool_failures_total",
 		Help: "The total number of connection pool failures",
+	})
+
+	// iRODSFS-Pool metrics
+	promCounterForGRPCCalls = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "irodsfs_pool_grpc_calls_total",
+		Help: "The total number of GRPC calls",
+	})
+	promCounterForGRPCClients = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "irodsfs_pool_grpc_clients",
+		Help: "The number of GRPC clients",
 	})
 )
 

@@ -124,6 +124,8 @@ func (server *PoolServer) Login(context context.Context, request *api.LoginReque
 	logger.Infof("Login request from client id %s, host %s, user %s", request.ClientId, request.Account.Host, request.Account.ClientUser)
 	defer logger.Infof("Login response to client id %s, host %s, user %s", request.ClientId, request.Account.Host, request.Account.ClientUser)
 
+	promCounterForGRPCCalls.Inc()
+
 	server.mutex.Lock()
 	defer server.mutex.Unlock()
 
@@ -172,6 +174,8 @@ func (server *PoolServer) Logout(context context.Context, request *api.LogoutReq
 
 	logger.Infof("Logout request from client, pool session id %s", request.SessionId)
 	defer logger.Infof("Logout response to client, pool session id %s", request.SessionId)
+
+	promCounterForGRPCCalls.Inc()
 
 	server.mutex.Lock()
 	defer server.mutex.Unlock()
@@ -339,6 +343,8 @@ func (server *PoolServer) List(context context.Context, request *api.ListRequest
 	logger.Infof("List request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("List response to pool session id %s, path %s", request.SessionId, request.Path)
 
+	promCounterForGRPCCalls.Inc()
+
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
 		logger.Error(err)
@@ -396,6 +402,8 @@ func (server *PoolServer) Stat(context context.Context, request *api.StatRequest
 	logger.Infof("Stat request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("Stat response to pool session id %s, path %s", request.SessionId, request.Path)
 
+	promCounterForGRPCCalls.Inc()
+
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
 		logger.Error(err)
@@ -449,6 +457,8 @@ func (server *PoolServer) ExistsDir(context context.Context, request *api.Exists
 	logger.Infof("ExistsDir request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("ExistsDir response to pool session id %s, path %s", request.SessionId, request.Path)
 
+	promCounterForGRPCCalls.Inc()
+
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
 		logger.Error(err)
@@ -482,6 +492,8 @@ func (server *PoolServer) ExistsFile(context context.Context, request *api.Exist
 	logger.Infof("ExistsFile request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("ExistsFile response to pool session id %s, path %s", request.SessionId, request.Path)
 
+	promCounterForGRPCCalls.Inc()
+
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
 		logger.Error(err)
@@ -514,6 +526,8 @@ func (server *PoolServer) ListUserGroups(context context.Context, request *api.L
 
 	logger.Infof("ListUserGroups request from pool session id %s, user name %s", request.SessionId, request.UserName)
 	defer logger.Infof("ListUserGroups response to pool session id %s, user name %s", request.SessionId, request.UserName)
+
+	promCounterForGRPCCalls.Inc()
 
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
@@ -564,6 +578,8 @@ func (server *PoolServer) ListDirACLs(context context.Context, request *api.List
 
 	logger.Infof("ListDirACLs request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("ListDirACLs response to pool session id %s, path %s", request.SessionId, request.Path)
+
+	promCounterForGRPCCalls.Inc()
 
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
@@ -617,6 +633,8 @@ func (server *PoolServer) ListFileACLs(context context.Context, request *api.Lis
 	logger.Infof("ListFileACLs request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("ListFileACLs response to pool session id %s, path %s", request.SessionId, request.Path)
 
+	promCounterForGRPCCalls.Inc()
+
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
 		logger.Error(err)
@@ -668,6 +686,8 @@ func (server *PoolServer) ListACLsForEntries(context context.Context, request *a
 
 	logger.Infof("ListACLsForEntries request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("ListACLsForEntries response to pool session id %s, path %s", request.SessionId, request.Path)
+
+	promCounterForGRPCCalls.Inc()
 
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
@@ -721,6 +741,8 @@ func (server *PoolServer) RemoveFile(context context.Context, request *api.Remov
 	logger.Infof("RemoveFile request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("RemoveFile response to pool session id %s, path %s", request.SessionId, request.Path)
 
+	promCounterForGRPCCalls.Inc()
+
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
 		logger.Error(err)
@@ -760,6 +782,8 @@ func (server *PoolServer) RemoveDir(context context.Context, request *api.Remove
 	logger.Infof("RemoveDir request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("RemoveDir response to pool session id %s, path %s", request.SessionId, request.Path)
 
+	promCounterForGRPCCalls.Inc()
+
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
 		logger.Error(err)
@@ -795,6 +819,8 @@ func (server *PoolServer) MakeDir(context context.Context, request *api.MakeDirR
 
 	logger.Infof("MakeDir request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("MakeDir response to pool session id %s, path %s", request.SessionId, request.Path)
+
+	promCounterForGRPCCalls.Inc()
 
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
@@ -832,6 +858,8 @@ func (server *PoolServer) RenameDirToDir(context context.Context, request *api.R
 	logger.Infof("RenameDirToDir request from pool session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
 	defer logger.Infof("RenameDirToDir response to pool session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
 
+	promCounterForGRPCCalls.Inc()
+
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
 		logger.Error(err)
@@ -867,6 +895,8 @@ func (server *PoolServer) RenameFileToFile(context context.Context, request *api
 
 	logger.Infof("RenameFileToFile request from pool session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
 	defer logger.Infof("RenameFileToFile response to pool session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
+
+	promCounterForGRPCCalls.Inc()
 
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
@@ -906,6 +936,8 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 
 	logger.Infof("CreateFile request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("CreateFile response to pool session id %s, path %s", request.SessionId, request.Path)
+
+	promCounterForGRPCCalls.Inc()
 
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
@@ -979,6 +1011,8 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 
 	logger.Infof("OpenFile request from pool session id %s, path %s, mode(%s)", request.SessionId, request.Path, request.Mode)
 	defer logger.Infof("OpenFile response to pool session id %s, path %s, mode(%s)", request.SessionId, request.Path, request.Mode)
+
+	promCounterForGRPCCalls.Inc()
 
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
@@ -1076,6 +1110,8 @@ func (server *PoolServer) TruncateFile(context context.Context, request *api.Tru
 	logger.Infof("TruncateFile request from pool session id %s, path %s", request.SessionId, request.Path)
 	defer logger.Infof("TruncateFile response to pool session id %s, path %s", request.SessionId, request.Path)
 
+	promCounterForGRPCCalls.Inc()
+
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
 		logger.Error(err)
@@ -1115,6 +1151,8 @@ func (server *PoolServer) GetOffset(context context.Context, request *api.GetOff
 	logger.Debugf("GetOffset request from pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
 	defer logger.Debugf("GetOffset response to pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
 
+	promCounterForGRPCCalls.Inc()
+
 	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
 		logger.Error(err)
@@ -1139,6 +1177,8 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 
 	logger.Debugf("ReadAt request from pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
 	defer logger.Debugf("ReadAt response to pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
+
+	promCounterForGRPCCalls.Inc()
 
 	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
@@ -1176,6 +1216,8 @@ func (server *PoolServer) WriteAt(context context.Context, request *api.WriteAtR
 	logger.Debugf("WriteAt request from pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
 	defer logger.Debugf("WriteAt response to pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
 
+	promCounterForGRPCCalls.Inc()
+
 	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
 		logger.Error(err)
@@ -1202,6 +1244,8 @@ func (server *PoolServer) Truncate(context context.Context, request *api.Truncat
 
 	logger.Infof("Truncate request from pool session id %s, pool file handle id %s, size %d", request.SessionId, request.FileHandleId, request.Size)
 	defer logger.Infof("Truncate response to pool session id %s, pool file handle id %s, size %d", request.SessionId, request.FileHandleId, request.Size)
+
+	promCounterForGRPCCalls.Inc()
 
 	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
@@ -1230,6 +1274,8 @@ func (server *PoolServer) Flush(context context.Context, request *api.FlushReque
 	logger.Infof("Flush request from pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
 	defer logger.Infof("Flush response to pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
 
+	promCounterForGRPCCalls.Inc()
+
 	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
 	if err != nil {
 		logger.Error(err)
@@ -1256,6 +1302,8 @@ func (server *PoolServer) Close(context context.Context, request *api.CloseReque
 
 	logger.Infof("Close request from pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
 	defer logger.Infof("Close response to pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
+
+	promCounterForGRPCCalls.Inc()
 
 	poolSession, _, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {

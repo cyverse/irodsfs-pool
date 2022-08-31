@@ -62,6 +62,8 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 
 		handler.liveConnections--
 
+		promCounterForGRPCClients.Dec()
+
 		logger.Infof("Client is disconnected - total %d live connections", handler.liveConnections)
 
 		if handler.liveConnections <= 0 {
@@ -74,6 +76,8 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 		defer handler.mutex.Unlock()
 
 		handler.liveConnections++
+
+		promCounterForGRPCClients.Inc()
 
 		logger.Infof("Client is connected - total %d connections", handler.liveConnections)
 	}

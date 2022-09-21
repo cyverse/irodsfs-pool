@@ -26,6 +26,10 @@ type PoolAPIClient interface {
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*Empty, error)
 	List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (*ListResponse, error)
 	Stat(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
+	ListXattr(ctx context.Context, in *ListXattrRequest, opts ...grpc.CallOption) (*ListXattrResponse, error)
+	GetXattr(ctx context.Context, in *GetXattrRequest, opts ...grpc.CallOption) (*GetXattrResponse, error)
+	SetXattr(ctx context.Context, in *SetXattrRequest, opts ...grpc.CallOption) (*Empty, error)
+	RemoveXattr(ctx context.Context, in *RemoveXattrRequest, opts ...grpc.CallOption) (*Empty, error)
 	ExistsDir(ctx context.Context, in *ExistsDirRequest, opts ...grpc.CallOption) (*ExistsDirResponse, error)
 	ExistsFile(ctx context.Context, in *ExistsFileRequest, opts ...grpc.CallOption) (*ExistsFileResponse, error)
 	ListUserGroups(ctx context.Context, in *ListUserGroupsRequest, opts ...grpc.CallOption) (*ListUserGroupsResponse, error)
@@ -87,6 +91,42 @@ func (c *poolAPIClient) List(ctx context.Context, in *ListRequest, opts ...grpc.
 func (c *poolAPIClient) Stat(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error) {
 	out := new(StatResponse)
 	err := c.cc.Invoke(ctx, "/api.PoolAPI/Stat", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *poolAPIClient) ListXattr(ctx context.Context, in *ListXattrRequest, opts ...grpc.CallOption) (*ListXattrResponse, error) {
+	out := new(ListXattrResponse)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/ListXattr", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *poolAPIClient) GetXattr(ctx context.Context, in *GetXattrRequest, opts ...grpc.CallOption) (*GetXattrResponse, error) {
+	out := new(GetXattrResponse)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/GetXattr", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *poolAPIClient) SetXattr(ctx context.Context, in *SetXattrRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/SetXattr", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *poolAPIClient) RemoveXattr(ctx context.Context, in *RemoveXattrRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/RemoveXattr", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -281,6 +321,10 @@ type PoolAPIServer interface {
 	Logout(context.Context, *LogoutRequest) (*Empty, error)
 	List(context.Context, *ListRequest) (*ListResponse, error)
 	Stat(context.Context, *StatRequest) (*StatResponse, error)
+	ListXattr(context.Context, *ListXattrRequest) (*ListXattrResponse, error)
+	GetXattr(context.Context, *GetXattrRequest) (*GetXattrResponse, error)
+	SetXattr(context.Context, *SetXattrRequest) (*Empty, error)
+	RemoveXattr(context.Context, *RemoveXattrRequest) (*Empty, error)
 	ExistsDir(context.Context, *ExistsDirRequest) (*ExistsDirResponse, error)
 	ExistsFile(context.Context, *ExistsFileRequest) (*ExistsFileResponse, error)
 	ListUserGroups(context.Context, *ListUserGroupsRequest) (*ListUserGroupsResponse, error)
@@ -320,6 +364,18 @@ func (UnimplementedPoolAPIServer) List(context.Context, *ListRequest) (*ListResp
 }
 func (UnimplementedPoolAPIServer) Stat(context.Context, *StatRequest) (*StatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Stat not implemented")
+}
+func (UnimplementedPoolAPIServer) ListXattr(context.Context, *ListXattrRequest) (*ListXattrResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListXattr not implemented")
+}
+func (UnimplementedPoolAPIServer) GetXattr(context.Context, *GetXattrRequest) (*GetXattrResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetXattr not implemented")
+}
+func (UnimplementedPoolAPIServer) SetXattr(context.Context, *SetXattrRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetXattr not implemented")
+}
+func (UnimplementedPoolAPIServer) RemoveXattr(context.Context, *RemoveXattrRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveXattr not implemented")
 }
 func (UnimplementedPoolAPIServer) ExistsDir(context.Context, *ExistsDirRequest) (*ExistsDirResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExistsDir not implemented")
@@ -462,6 +518,78 @@ func _PoolAPI_Stat_Handler(srv interface{}, ctx context.Context, dec func(interf
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(PoolAPIServer).Stat(ctx, req.(*StatRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PoolAPI_ListXattr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListXattrRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).ListXattr(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.PoolAPI/ListXattr",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).ListXattr(ctx, req.(*ListXattrRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PoolAPI_GetXattr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetXattrRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).GetXattr(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.PoolAPI/GetXattr",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).GetXattr(ctx, req.(*GetXattrRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PoolAPI_SetXattr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetXattrRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).SetXattr(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.PoolAPI/SetXattr",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).SetXattr(ctx, req.(*SetXattrRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PoolAPI_RemoveXattr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveXattrRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).RemoveXattr(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.PoolAPI/RemoveXattr",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).RemoveXattr(ctx, req.(*RemoveXattrRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -848,6 +976,22 @@ var PoolAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Stat",
 			Handler:    _PoolAPI_Stat_Handler,
+		},
+		{
+			MethodName: "ListXattr",
+			Handler:    _PoolAPI_ListXattr_Handler,
+		},
+		{
+			MethodName: "GetXattr",
+			Handler:    _PoolAPI_GetXattr_Handler,
+		},
+		{
+			MethodName: "SetXattr",
+			Handler:    _PoolAPI_SetXattr_Handler,
+		},
+		{
+			MethodName: "RemoveXattr",
+			Handler:    _PoolAPI_RemoveXattr_Handler,
 		},
 		{
 			MethodName: "ExistsDir",

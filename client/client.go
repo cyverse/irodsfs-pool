@@ -349,6 +349,138 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 	return irodsEntry, nil
 }
 
+// ListXattr lists iRODS metadata (xattr)
+func (session *PoolServiceSession) ListXattr(path string) ([]*irodsclient_types.IRODSMeta, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceSession",
+		"function": "ListXattr",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.ListXattrRequest{
+		SessionId: session.id,
+		Path:      path,
+	}
+
+	irodsMetadata := []*irodsclient_types.IRODSMeta{}
+
+	response, err := session.poolServiceClient.apiClient.ListXattr(ctx, request, getLargeReadOption())
+	if err != nil {
+		logger.Error(err)
+		return nil, statusToError(err)
+	}
+
+	for _, metadata := range response.Metadata {
+		irodsMeta := &irodsclient_types.IRODSMeta{
+			AVUID: metadata.Id,
+			Name:  metadata.Name,
+			Value: metadata.Value,
+			Units: metadata.Unit,
+		}
+
+		irodsMetadata = append(irodsMetadata, irodsMeta)
+	}
+
+	return irodsMetadata, nil
+}
+
+// GetXattr returns iRODS metadata (xattr)
+func (session *PoolServiceSession) GetXattr(path string, name string) (*irodsclient_types.IRODSMeta, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceSession",
+		"function": "GetXattr",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.GetXattrRequest{
+		SessionId: session.id,
+		Path:      path,
+		Name:      name,
+	}
+
+	response, err := session.poolServiceClient.apiClient.GetXattr(ctx, request)
+	if err != nil {
+		logger.Error(err)
+		return nil, statusToError(err)
+	}
+
+	irodsMeta := &irodsclient_types.IRODSMeta{
+		AVUID: response.Metadata.Id,
+		Name:  response.Metadata.Name,
+		Value: response.Metadata.Value,
+		Units: response.Metadata.Unit,
+	}
+
+	return irodsMeta, nil
+}
+
+// SetXattr sets iRODS metadata (xattr)
+func (session *PoolServiceSession) SetXattr(path string, name string, value string) error {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceSession",
+		"function": "SetXattr",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.SetXattrRequest{
+		SessionId: session.id,
+		Path:      path,
+		Name:      name,
+		Value:     value,
+	}
+
+	_, err := session.poolServiceClient.apiClient.SetXattr(ctx, request)
+	if err != nil {
+		logger.Error(err)
+		return statusToError(err)
+	}
+
+	return nil
+}
+
+// RemoveXattr removes iRODS metadata (xattr)
+func (session *PoolServiceSession) RemoveXattr(path string, name string) error {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceSession",
+		"function": "RemoveXattr",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.RemoveXattrRequest{
+		SessionId: session.id,
+		Path:      path,
+		Name:      name,
+	}
+
+	_, err := session.poolServiceClient.apiClient.RemoveXattr(ctx, request)
+	if err != nil {
+		logger.Error(err)
+		return statusToError(err)
+	}
+
+	return nil
+}
+
 // ExistsDir checks existence of Dir
 func (session *PoolServiceSession) ExistsDir(path string) bool {
 	logger := log.WithFields(log.Fields{

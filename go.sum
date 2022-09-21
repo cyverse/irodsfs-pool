@@ -59,8 +59,8 @@ github.com/cncf/udpa/go v0.0.0-20201120205902-5459f2c99403/go.mod h1:WmhPx2Nbnht
 github.com/cncf/xds/go v0.0.0-20210312221358-fbca930ec8ed/go.mod h1:eXthEFrGJvWHgFFCl3hGmgk+/aYT6PnTQLykKQRLhEs=
 github.com/cyverse/go-irodsclient v0.9.8 h1:kWFCHGvh1TXcJkW27wagVNsLpvxKraIFtCAfPKPELPs=
 github.com/cyverse/go-irodsclient v0.9.8/go.mod h1:UaBJ8f9cRQYx3kkmbfWMDlZGQ4AF5k5oV2X27BGiO4o=
-github.com/cyverse/irodsfs-common v0.0.0-20220830234055-461b37ec8353 h1:I3sUwGB2MhJZK6OrTxhYuinmcmqXjiN0TXHT0m7AVow=
-github.com/cyverse/irodsfs-common v0.0.0-20220830234055-461b37ec8353/go.mod h1:kWHJcblyH6DRGDze6Y/yPkLp/kigCMTHf/JEcnKcigE=
+github.com/cyverse/irodsfs-common v0.0.0-20220921200727-cac26b6d5eaf h1:p5+YF4LRzId3EeI8w3u/v5KuJjOwJVVpZKO1o3niPdI=
+github.com/cyverse/irodsfs-common v0.0.0-20220921200727-cac26b6d5eaf/go.mod h1:kWHJcblyH6DRGDze6Y/yPkLp/kigCMTHf/JEcnKcigE=
 github.com/cyverse/irodsfs-monitor v0.0.0-20220809235922-daf13261a2dc h1:gIpG0ETQOEZloFwB5iU2zljVsoUDTpUEl/3WF19gLNk=
 github.com/cyverse/irodsfs-monitor v0.0.0-20220809235922-daf13261a2dc/go.mod h1:8UE1mT26+0vAsqS9UJ6Q/vlKq3da6FLdt5p6Tt1AIC4=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

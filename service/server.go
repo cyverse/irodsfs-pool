@@ -445,6 +445,184 @@ func (server *PoolServer) Stat(context context.Context, request *api.StatRequest
 	return response, nil
 }
 
+func (server *PoolServer) ListXattr(context context.Context, request *api.ListXattrRequest) (*api.ListXattrResponse, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolServer",
+		"function": "ListXattr",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	logger.Infof("ListXattr request from pool session id %s, path %s", request.SessionId, request.Path)
+	defer logger.Infof("ListXattr response to pool session id %s, path %s", request.SessionId, request.Path)
+
+	promCounterForGRPCCalls.Inc()
+
+	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	poolSession.UpdateLastAccessTime()
+
+	fsClient := irodsFsClientInstance.GetFSClient()
+	if fsClient == nil {
+		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	irodsMetadata, err := fsClient.ListXattr(request.Path)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	responseMetadata := []*api.Metadata{}
+	for _, irodsMeta := range irodsMetadata {
+		responseMeta := &api.Metadata{
+			Id:    irodsMeta.AVUID,
+			Name:  irodsMeta.Name,
+			Value: irodsMeta.Value,
+			Unit:  irodsMeta.Units,
+		}
+		responseMetadata = append(responseMetadata, responseMeta)
+	}
+
+	response := &api.ListXattrResponse{
+		Metadata: responseMetadata,
+	}
+
+	return response, nil
+}
+
+func (server *PoolServer) GetXattr(context context.Context, request *api.GetXattrRequest) (*api.GetXattrResponse, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolServer",
+		"function": "GetXattr",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	logger.Infof("GetXattr request from pool session id %s, path %s", request.SessionId, request.Path)
+	defer logger.Infof("GetXattr response to pool session id %s, path %s", request.SessionId, request.Path)
+
+	promCounterForGRPCCalls.Inc()
+
+	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	poolSession.UpdateLastAccessTime()
+
+	fsClient := irodsFsClientInstance.GetFSClient()
+	if fsClient == nil {
+		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	irodsMeta, err := fsClient.GetXattr(request.Path, request.Name)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	responseMeta := &api.Metadata{
+		Id:    irodsMeta.AVUID,
+		Name:  irodsMeta.Name,
+		Value: irodsMeta.Value,
+		Unit:  irodsMeta.Units,
+	}
+
+	response := &api.GetXattrResponse{
+		Metadata: responseMeta,
+	}
+
+	return response, nil
+}
+
+func (server *PoolServer) SetXattr(context context.Context, request *api.SetXattrRequest) (*api.Empty, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolServer",
+		"function": "SetXattr",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	logger.Infof("SetXattr request from pool session id %s, path %s", request.SessionId, request.Path)
+	defer logger.Infof("SetXattr response to pool session id %s, path %s", request.SessionId, request.Path)
+
+	promCounterForGRPCCalls.Inc()
+
+	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	poolSession.UpdateLastAccessTime()
+
+	fsClient := irodsFsClientInstance.GetFSClient()
+	if fsClient == nil {
+		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	err = fsClient.SetXattr(request.Path, request.Name, request.Value)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	return &api.Empty{}, nil
+}
+
+func (server *PoolServer) RemoveXattr(context context.Context, request *api.RemoveXattrRequest) (*api.Empty, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolServer",
+		"function": "RemoveXattr",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	logger.Infof("RemoveXattr request from pool session id %s, path %s", request.SessionId, request.Path)
+	defer logger.Infof("RemoveXattr response to pool session id %s, path %s", request.SessionId, request.Path)
+
+	promCounterForGRPCCalls.Inc()
+
+	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	poolSession.UpdateLastAccessTime()
+
+	fsClient := irodsFsClientInstance.GetFSClient()
+	if fsClient == nil {
+		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	err = fsClient.RemoveXattr(request.Path, request.Name)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	return &api.Empty{}, nil
+}
+
 func (server *PoolServer) ExistsDir(context context.Context, request *api.ExistsDirRequest) (*api.ExistsDirResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",

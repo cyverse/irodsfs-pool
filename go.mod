@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/cyverse/go-irodsclient v0.9.8
-	github.com/cyverse/irodsfs-common v0.0.0-20220921200727-cac26b6d5eaf
+	github.com/cyverse/irodsfs-common v0.0.0-20220922170421-88555d525eee
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/prometheus/client_golang v1.13.0
 	github.com/rs/xid v1.3.0

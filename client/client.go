@@ -411,6 +411,15 @@ func (session *PoolServiceSession) GetXattr(path string, name string) (*irodscli
 	response, err := session.poolServiceClient.apiClient.GetXattr(ctx, request)
 	if err != nil {
 		logger.Error(err)
+
+		st, ok := status.FromError(err)
+		if ok {
+			if st.Code() == codes.NotFound {
+				// xattr not found
+				return nil, nil
+			}
+		}
+
 		return nil, statusToError(err)
 	}
 

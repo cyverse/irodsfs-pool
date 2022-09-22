@@ -533,6 +533,12 @@ func (server *PoolServer) GetXattr(context context.Context, request *api.GetXatt
 		return nil, server.errorToStatus(err)
 	}
 
+	if irodsMeta == nil {
+		// not exist
+		errorMessage := fmt.Sprintf("failed to find xattr - %s", request.Name)
+		return nil, status.Error(codes.NotFound, errorMessage)
+	}
+
 	responseMeta := &api.Metadata{
 		Id:    irodsMeta.AVUID,
 		Name:  irodsMeta.Name,

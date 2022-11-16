@@ -182,6 +182,7 @@ func (svc *PoolService) Start() error {
 		tickerConnDisplay := time.NewTicker(1 * time.Minute)
 		tickerMetricsCollection := time.NewTicker(5 * time.Second)
 		defer tickerConnDisplay.Stop()
+		defer tickerMetricsCollection.Stop()
 
 		for {
 			select {

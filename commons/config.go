@@ -105,30 +105,14 @@ func NewDefaultConfig() *Config {
 
 // NewConfigFromYAML creates Config from YAML
 func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
-	config := Config{
-		ServiceEndpoint:      ServiceEndpointDefault,
-		DataCacheSizeMax:     DataCacheSizeMaxDefault,
-		DataCacheRootPath:    GetDefaultDataCacheRootPath(),
-		TempRootPath:         GetDefaultTempRootPath(),
-		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
+	config := NewDefaultConfig()
 
-		Profile:                false,
-		ProfileServicePort:     ProfileServicePortDefault,
-		PrometheusExporterPort: PrometheusExporterPortDefault,
-
-		Foreground:   false,
-		Debug:        false,
-		ChildProcess: false,
-
-		InstanceID: getInstanceID(),
-	}
-
-	err := yaml.Unmarshal(yamlBytes, &config)
+	err := yaml.Unmarshal(yamlBytes, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal YAML - %v", err)
 	}
 
-	return &config, nil
+	return config, nil
 }
 
 // MakeTempRootDir makes temp root dir

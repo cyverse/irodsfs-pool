@@ -219,8 +219,7 @@ func run(config *commons.Config, isChildProcess bool) error {
 
 	err = svc.Start()
 	if err != nil {
-		logger.WithError(err).Error("failed to start the service, terminating iRODS FUSE Lite Pool Service")
-		svc.Destroy()
+		logger.WithError(err).Error("failed to start the service")
 		if isChildProcess {
 			cmd_commons.ReportChildProcessError()
 		}
@@ -239,7 +238,8 @@ func run(config *commons.Config, isChildProcess bool) error {
 			prometheusExporterServer.Shutdown(context.TODO())
 		}
 
-		svc.Destroy()
+		svc.Stop()
+		svc.Release()
 
 		// remove work dir
 		config.CleanWorkDirs()

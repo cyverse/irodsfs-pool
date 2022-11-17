@@ -125,6 +125,35 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 	return service, nil
 }
 
+// Release releases the service
+func (svc *PoolService) Release() {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolService",
+		"function": "Release",
+	})
+
+	logger.Info("Releasing the iRODS FUSE Lite Pool service")
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	if svc.grpcServer != nil {
+		svc.grpcServer = nil
+	}
+
+	if svc.poolServer != nil {
+		svc.poolServer.Release()
+		svc.poolServer = nil
+	}
+
+	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.ServiceEndpoint)
+	if err == nil {
+		if scheme == "unix" {
+			os.Remove(endpoint)
+		}
+	}
+}
+
 // Start starts the service
 func (svc *PoolService) Start() error {
 	logger := log.WithFields(log.Fields{
@@ -202,15 +231,15 @@ func (svc *PoolService) Start() error {
 	return nil
 }
 
-// Destroy destroys the service
-func (svc *PoolService) Destroy() {
+// Stop stops the service
+func (svc *PoolService) Stop() {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"struct":   "PoolService",
 		"function": "Destroy",
 	})
 
-	logger.Info("Destroying the iRODS FUSE Lite Pool service")
+	logger.Info("Stopping the iRODS FUSE Lite Pool service")
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
@@ -218,16 +247,5 @@ func (svc *PoolService) Destroy() {
 
 	if svc.grpcServer != nil {
 		svc.grpcServer.Stop()
-	}
-
-	if svc.poolServer != nil {
-		svc.poolServer.Release()
-	}
-
-	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.ServiceEndpoint)
-	if err == nil {
-		if scheme == "unix" {
-			os.Remove(endpoint)
-		}
 	}
 }

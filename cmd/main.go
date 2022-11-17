@@ -172,8 +172,8 @@ func run(config *commons.Config, isChildProcess bool) error {
 	versionInfo := commons.GetVersion()
 	logger.Infof("iRODS FUSE Lite Pool Service version - %s, commit - %s", versionInfo.ServiceVersion, versionInfo.GitCommit)
 
-	// make temp dir if required
-	err := config.MakeTempRootDir()
+	// make work dirs required
+	err := config.MakeWorkDirs()
 	if err != nil {
 		logger.WithError(err).Error("invalid configuration")
 		return err
@@ -217,15 +217,6 @@ func run(config *commons.Config, isChildProcess bool) error {
 		return err
 	}
 
-	err = svc.Init()
-	if err != nil {
-		logger.WithError(err).Error("failed to init the service")
-		if isChildProcess {
-			cmd_commons.ReportChildProcessError()
-		}
-		return err
-	}
-
 	err = svc.Start()
 	if err != nil {
 		logger.WithError(err).Error("failed to start the service, terminating iRODS FUSE Lite Pool Service")
@@ -250,8 +241,8 @@ func run(config *commons.Config, isChildProcess bool) error {
 
 		svc.Destroy()
 
-		// remove temp dir
-		config.RemoveTempRootDir()
+		// remove work dir
+		config.CleanWorkDirs()
 
 		os.Exit(0)
 	}()

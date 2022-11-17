@@ -18,13 +18,13 @@ import (
 
 // PoolService is a service object
 type PoolService struct {
-	config        *commons.Config
-	poolServer    *PoolServer
-	grpcServer    *grpc.Server
-	statHandler   *PoolServiceStatHandler
+	config *commons.Config
+
+	poolServer  *PoolServer
+	grpcServer  *grpc.Server
+	statHandler *PoolServiceStatHandler
+
 	terminateChan chan bool
-	terminated    bool
-	mutex         sync.Mutex // for termination
 }
 
 type PoolServiceStatHandler struct {
@@ -113,19 +113,16 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 	api.RegisterPoolAPIServer(grpcServer, poolServer)
 
 	service := &PoolService{
-		config:        config,
-		poolServer:    poolServer,
-		grpcServer:    grpcServer,
-		statHandler:   statHandler,
+		config: config,
+
+		poolServer:  poolServer,
+		grpcServer:  grpcServer,
+		statHandler: statHandler,
+
 		terminateChan: make(chan bool),
 	}
 
 	return service, nil
-}
-
-// Init initializes the service
-func (svc *PoolService) Init() error {
-	return nil
 }
 
 // Start starts the service
@@ -135,8 +132,6 @@ func (svc *PoolService) Start() error {
 		"struct":   "PoolService",
 		"function": "Start",
 	})
-
-	svc.terminated = true
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
@@ -197,14 +192,13 @@ func (svc *PoolService) Start() error {
 		}
 	}()
 
-	svc.terminated = false
-	err = svc.grpcServer.Serve(listener)
-	if err != nil {
-		logger.Error(err)
-		return err
-	}
+	go func() {
+		err = svc.grpcServer.Serve(listener)
+		if err != nil {
+			logger.Error(err)
+		}
+	}()
 
-	// should not return
 	return nil
 }
 
@@ -216,17 +210,7 @@ func (svc *PoolService) Destroy() {
 		"function": "Destroy",
 	})
 
-	svc.mutex.Lock()
-	defer svc.mutex.Unlock()
-
-	if svc.terminated {
-		// already terminated
-		return
-	}
-
 	logger.Info("Destroying the iRODS FUSE Lite Pool service")
-
-	svc.terminated = true
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 

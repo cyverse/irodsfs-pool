@@ -31,7 +31,7 @@ func SetCommonFlags(command *cobra.Command) {
 	command.Flags().Int64P("cache_size_max", "", commons.DataCacheSizeMaxDefault, "Set file cache max size")
 	command.Flags().StringP("cache_root", "", commons.GetDefaultDataCacheRootPath(), "Set file cache root path")
 	command.Flags().StringP("temp_root", "", commons.GetDefaultTempRootPath(), "Set temp file root path")
-	command.Flags().StringP("cache_timeout_settings", "", commons.GetDefaultTempRootPath(), "Set cache timeout settings in JSON string")
+	command.Flags().StringP("cache_timeout_settings", "", "", "Set cache timeout settings in JSON string")
 
 	command.Flags().IntP("profile_port", "", commons.ProfileServicePortDefault, "Set profile service port")
 	command.Flags().IntP("prometheus_exporter_port", "", commons.PrometheusExporterPortDefault, "Set prometheus exporter port")

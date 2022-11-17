@@ -80,7 +80,7 @@ type Config struct {
 	InstanceID string `yaml:"instanceid,omitempty"`
 }
 
-// NewDefaultConfig creates DefaultConfig
+// NewDefaultConfig returns a default config
 func NewDefaultConfig() *Config {
 	return &Config{
 		ServiceEndpoint:      ServiceEndpointDefault,
@@ -89,7 +89,7 @@ func NewDefaultConfig() *Config {
 		TempRootPath:         GetDefaultTempRootPath(),
 		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
 
-		LogPath: "",
+		LogPath: GetDefaultLogFilePath(),
 
 		Profile:                false,
 		ProfileServicePort:     ProfileServicePortDefault,
@@ -115,10 +115,54 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 	return config, nil
 }
 
-// MakeTempRootDir makes temp root dir
-func (config *Config) MakeTempRootDir() error {
+// MakeWorkDirs makes dirs required
+func (config *Config) MakeWorkDirs() error {
+	err := config.makeTempRootDir()
+	if err != nil {
+		return err
+	}
+
+	scheme, endpoint, err := ParsePoolServiceEndpoint(config.ServiceEndpoint)
+	if err != nil {
+		return err
+	}
+
+	if scheme == "unix" {
+		err = config.makeUnixSocketDir(endpoint)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// CleanWorkDirs cleans dirs used
+func (config *Config) CleanWorkDirs() error {
+	err := config.removeTempRootDir()
+	if err != nil {
+		return err
+	}
+
+	scheme, endpoint, err := ParsePoolServiceEndpoint(config.ServiceEndpoint)
+	if err != nil {
+		return err
+	}
+
+	if scheme == "unix" {
+		err = config.removeUnixSocketFile(endpoint)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// makeTempRootDir makes temp root dir
+func (config *Config) makeTempRootDir() error {
 	if len(config.TempRootPath) == 0 {
-		return nil
+		return fmt.Errorf("temp root dir must be given")
 	}
 
 	tempDirInfo, err := os.Stat(config.TempRootPath)
@@ -148,55 +192,69 @@ func (config *Config) MakeTempRootDir() error {
 	return nil
 }
 
-// RemoveTempRootDir removes temp root dir
-func (config *Config) RemoveTempRootDir() error {
+// removeTempRootDir removes temp root dir
+func (config *Config) removeTempRootDir() error {
 	if len(config.TempRootPath) == 0 {
-		return nil
+		return fmt.Errorf("temp root dir must be given")
 	}
 
 	return os.RemoveAll(config.TempRootPath)
 }
 
-// Validate validates configuration
-func (config *Config) Validate() error {
-	scheme, endpoint, err := ParsePoolServiceEndpoint(config.ServiceEndpoint)
+// makeUnixSocketDir makes unix socket dir
+func (config *Config) makeUnixSocketDir(endpoint string) error {
+	// endpoint is a file
+	_, err := os.Stat(endpoint)
 	if err != nil {
-		return err
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("service unix socket file (%s) error - %v", endpoint, err)
+		}
+	} else {
+		// file exists
+		// remove
+		err2 := os.Remove(endpoint)
+		if err2 != nil {
+			return fmt.Errorf("failed to remove the existing unix socket file (%s) - %v", endpoint, err2)
+		}
 	}
 
-	if scheme == "unix" {
-		// endpoint is a file
-		_, err := os.Stat(endpoint)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				return fmt.Errorf("service unix socket file (%s) error - %v", endpoint, err)
-			}
-		} else {
-			// file exists
-			// remove
-			err2 := os.Remove(endpoint)
+	parentDir := filepath.Dir(endpoint)
+	unixSocketDirInfo, err := os.Stat(parentDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			err2 := os.MkdirAll(parentDir, os.FileMode(0777))
 			if err2 != nil {
-				return fmt.Errorf("failed to remove the existing unix socket file (%s) - %v", endpoint, err2)
+				return fmt.Errorf("failed to make a directory for unix socket (%s)", parentDir)
 			}
-		}
-
-		parentDir := filepath.Dir(endpoint)
-		unixSocketDirInfo, err := os.Stat(parentDir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				err2 := os.MkdirAll(parentDir, os.FileMode(0777))
-				if err2 != nil {
-					return fmt.Errorf("failed to make a directory for unix socket (%s)", parentDir)
-				}
-			} else {
-				return fmt.Errorf("unix socket directory (%s) error - %v", parentDir, err)
-			}
+			// ok - fall
 		} else {
-			unixSocketDirPerm := unixSocketDirInfo.Mode().Perm()
-			if unixSocketDirPerm&0200 != 0200 {
-				return fmt.Errorf("unix socket directory (%s) must have write permission", parentDir)
-			}
+			return fmt.Errorf("unix socket directory (%s) error - %v", parentDir, err)
 		}
+	} else {
+		unixSocketDirPerm := unixSocketDirInfo.Mode().Perm()
+		if unixSocketDirPerm&0200 != 0200 {
+			return fmt.Errorf("unix socket directory (%s) must have write permission", parentDir)
+		}
+		// ok - fall
+	}
+
+	return nil
+}
+
+// removeUnixSocketFile removes unix socket file
+func (config *Config) removeUnixSocketFile(endpoint string) error {
+	if len(endpoint) == 0 {
+		return nil
+	}
+
+	return os.Remove(endpoint)
+}
+
+// Validate validates configuration
+func (config *Config) Validate() error {
+	_, _, err := ParsePoolServiceEndpoint(config.ServiceEndpoint)
+	if err != nil {
+		return err
 	}
 
 	if config.Profile && config.ProfileServicePort <= 0 {
@@ -207,20 +265,16 @@ func (config *Config) Validate() error {
 		return fmt.Errorf("prometheus exporter port must be given")
 	}
 
-	if len(config.TempRootPath) > 0 {
-		tempDirInfo, err := os.Stat(config.TempRootPath)
-		if err != nil {
-			return fmt.Errorf("temp root dir (%s) error - %v", config.TempRootPath, err)
-		}
+	if len(config.DataCacheRootPath) == 0 {
+		return fmt.Errorf("data cache root dir must be given")
+	}
 
-		if !tempDirInfo.IsDir() {
-			return fmt.Errorf("temp root dir (%s) must be a directory", config.TempRootPath)
-		}
+	if len(config.TempRootPath) == 0 {
+		return fmt.Errorf("temp root dir must be given")
+	}
 
-		tempDirPerm := tempDirInfo.Mode().Perm()
-		if tempDirPerm&0200 != 0200 {
-			return fmt.Errorf("temp root (%s) must have write permission", config.TempRootPath)
-		}
+	if config.DataCacheSizeMax < 0 {
+		return fmt.Errorf("data cache size max must be a positive value")
 	}
 
 	return nil

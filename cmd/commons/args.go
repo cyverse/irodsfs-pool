@@ -23,18 +23,17 @@ func SetCommonFlags(command *cobra.Command) {
 	command.Flags().BoolP("version", "v", false, "Print version")
 	command.Flags().BoolP("help", "h", false, "Print help")
 	command.Flags().BoolP("debug", "d", false, "Enable debug mode")
-	command.Flags().BoolP("profile", "", false, "Enable profiling")
+	command.Flags().Bool("profile", false, "Enable profiling")
 	command.Flags().BoolP("foreground", "f", false, "Run in foreground")
 
-	command.Flags().StringP("config", "", "", "Set config file (yaml)")
-	command.Flags().StringP("endpoint", "", commons.ServiceEndpointDefault, "Set service endpoint (host:port or unix:///file.sock)")
-	command.Flags().Int64P("cache_size_max", "", commons.DataCacheSizeMaxDefault, "Set file cache max size")
-	command.Flags().StringP("cache_root", "", commons.GetDefaultDataCacheRootPath(), "Set file cache root path")
-	command.Flags().StringP("temp_root", "", commons.GetDefaultTempRootPath(), "Set temp file root path")
-	command.Flags().StringP("cache_timeout_settings", "", "", "Set cache timeout settings in JSON string")
+	command.Flags().String("config", "", "Set config file (yaml)")
+	command.Flags().String("endpoint", "", "Set service endpoint (host:port or unix:///file.sock)")
+	command.Flags().Int64("cache_size_max", -1, "Set file cache max size")
+	command.Flags().String("data_root", "", "Set data root dir path")
+	command.Flags().String("cache_timeout_settings", "", "Set cache timeout settings in JSON string")
 
-	command.Flags().IntP("profile_port", "", commons.ProfileServicePortDefault, "Set profile service port")
-	command.Flags().IntP("prometheus_exporter_port", "", commons.PrometheusExporterPortDefault, "Set prometheus exporter port")
+	command.Flags().Int("profile_port", -1, "Set profile service port")
+	command.Flags().Int("prometheus_exporter_port", -1, "Set prometheus exporter port")
 
 	command.Flags().BoolP(ChildProcessArgument, "", false, "")
 }
@@ -171,22 +170,29 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 		return nil, nil, false, err // stop here
 	}
 
+	err = config.MakeLogDir()
+	if err != nil {
+		logger.Error(err)
+		return nil, nil, false, err // stop here
+	}
+
 	if config.Debug {
 		log.SetLevel(log.DebugLevel)
 	}
 
 	var logWriter io.WriteCloser
-	if config.LogPath == "-" || len(config.LogPath) == 0 {
+	logFilePath := config.GetLogFilePath()
+	if logFilePath == "-" || len(logFilePath) == 0 {
 		log.SetOutput(os.Stderr)
 	} else {
-		parentLogWriter, logFilePath := getLogWriterForParentProcess(config.LogPath)
+		parentLogWriter, parentLogFilePath := getLogWriterForParentProcess(logFilePath)
 		logWriter = parentLogWriter
 
 		// use multi output - to output to file and stdout
 		mw := io.MultiWriter(os.Stderr, parentLogWriter)
 		log.SetOutput(mw)
 
-		logger.Infof("Logging to %s", logFilePath)
+		logger.Infof("Logging to %s", parentLogFilePath)
 	}
 
 	endpointFlag := command.Flags().Lookup("endpoint")
@@ -210,19 +216,11 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 		}
 	}
 
-	cacheRootFlag := command.Flags().Lookup("cache_root")
-	if cacheRootFlag != nil {
-		cacheRoot := cacheRootFlag.Value.String()
-		if len(cacheRoot) > 0 {
-			config.DataCacheRootPath = cacheRoot
-		}
-	}
-
-	tempRootFlag := command.Flags().Lookup("temp_root")
-	if tempRootFlag != nil {
-		tempRoot := tempRootFlag.Value.String()
-		if len(tempRoot) > 0 {
-			config.TempRootPath = tempRoot
+	dataRootFlag := command.Flags().Lookup("data_root")
+	if dataRootFlag != nil {
+		dataRoot := dataRootFlag.Value.String()
+		if len(dataRoot) > 0 {
+			config.DataRootPath = dataRoot
 		}
 	}
 

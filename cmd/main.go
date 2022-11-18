@@ -228,7 +228,7 @@ func run(config *commons.Config, isChildProcess bool) error {
 
 	if isChildProcess {
 		cmd_commons.ReportChildProcessStartSuccessfully()
-		if len(config.LogPath) == 0 {
+		if len(config.GetLogFilePath()) == 0 {
 			cmd_commons.SetNilLogWriter()
 		}
 	}

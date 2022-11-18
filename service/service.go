@@ -94,8 +94,8 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 
 	poolServerConfig := &PoolServerConfig{
 		CacheSizeMax:         config.DataCacheSizeMax,
-		CacheRootPath:        config.DataCacheRootPath,
-		TempRootPath:         config.TempRootPath,
+		CacheRootPath:        config.GetDataCacheRootDirPath(),
+		TempRootPath:         config.GetTempRootDirPath(),
 		CacheTimeoutSettings: config.CacheTimeoutSettings,
 	}
 

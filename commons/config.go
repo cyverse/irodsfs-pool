@@ -8,20 +8,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rs/xid"
 	yaml "gopkg.in/yaml.v2"
 
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
+	"github.com/rs/xid"
 )
 
 const (
-	DataCacheSizeMaxDefault        int64  = 1024 * 1024 * 1024 * 20 // 20GB
-	DataCacheRootPathPrefixDefault string = "/tmp/irodsfs_pool_cache"
-	LogFilePathPrefixDefault       string = "/tmp/irodsfs_pool"
-	TempRootPathPrefixDefault      string = "/tmp/irodsfs_pool_temp"
-	ServiceEndpointDefault         string = "unix:///tmp/irodsfs_pool_comm.sock"
-	ProfileServicePortDefault      int    = 12021
-	PrometheusExporterPortDefault  int    = 12022
+	DataCacheSizeMaxDefault int64 = 1024 * 1024 * 1024 * 20 // 20GB
+
+	ProfileServicePortDefault     int = 12021
+	PrometheusExporterPortDefault int = 12022
 )
 
 var (
@@ -37,19 +34,21 @@ func getInstanceID() string {
 	return instanceID
 }
 
-// GetDefaultLogFilePath returns default log file path
-func GetDefaultLogFilePath() string {
-	return fmt.Sprintf("%s_%s.log", LogFilePathPrefixDefault, getInstanceID())
+func getLogFilename() string {
+	return fmt.Sprintf("%s.log", getInstanceID())
 }
 
-// GetDefaultDataCacheRootPath returns default data cache root path
-func GetDefaultDataCacheRootPath() string {
-	return fmt.Sprintf("%s_%s", DataCacheRootPathPrefixDefault, getInstanceID())
+func GetDefaultDataRootDirPath() string {
+	dirPath, err := os.Getwd()
+	if err != nil {
+		return "/var/lib/irodsfs_pool"
+	}
+	return dirPath
 }
 
-// GetDefaultTempRootPath returns default temp root path
-func GetDefaultTempRootPath() string {
-	return fmt.Sprintf("%s_%s", TempRootPathPrefixDefault, getInstanceID())
+func GetDefaultServiceEndpoint() string {
+	dataRoot := GetDefaultDataRootDirPath()
+	return fmt.Sprintf("unix://%s/comm.sock", dataRoot)
 }
 
 // MetadataCacheTimeoutSetting defines cache timeout for path
@@ -63,8 +62,7 @@ type MetadataCacheTimeoutSetting struct {
 type Config struct {
 	ServiceEndpoint      string                        `yaml:"service_endpoint"`
 	DataCacheSizeMax     int64                         `yaml:"data_cache_size_max"`
-	DataCacheRootPath    string                        `yaml:"data_cache_root_path"`
-	TempRootPath         string                        `yaml:"temp_root_path"`
+	DataRootPath         string                        `yaml:"data_root_path,omitempty"`
 	CacheTimeoutSettings []MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty"`
 
 	LogPath string `yaml:"log_path,omitempty"`
@@ -83,13 +81,12 @@ type Config struct {
 // NewDefaultConfig returns a default config
 func NewDefaultConfig() *Config {
 	return &Config{
-		ServiceEndpoint:      ServiceEndpointDefault,
+		ServiceEndpoint:      GetDefaultServiceEndpoint(),
 		DataCacheSizeMax:     DataCacheSizeMaxDefault,
-		DataCacheRootPath:    GetDefaultDataCacheRootPath(),
-		TempRootPath:         GetDefaultTempRootPath(),
+		DataRootPath:         GetDefaultDataRootDirPath(),
 		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
 
-		LogPath: GetDefaultLogFilePath(),
+		LogPath: "", // use default
 
 		Profile:                false,
 		ProfileServicePort:     ProfileServicePortDefault,
@@ -115,9 +112,48 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 	return config, nil
 }
 
+// GetLogFilePath returns log file path
+func (config *Config) GetLogFilePath() string {
+	if len(config.LogPath) > 0 {
+		return config.LogPath
+	}
+
+	// default
+	return path.Join(config.DataRootPath, getLogFilename())
+}
+
+func (config *Config) GetTempRootDirPath() string {
+	dirname := fmt.Sprintf("%s/temp", getInstanceID())
+	return path.Join(config.DataRootPath, dirname)
+}
+
+func (config *Config) GetDataCacheRootDirPath() string {
+	dirname := fmt.Sprintf("%s/cache", getInstanceID())
+	return path.Join(config.DataRootPath, dirname)
+}
+
+// MakeLogDir makes a log dir required
+func (config *Config) MakeLogDir() error {
+	logFilePath := config.GetLogFilePath()
+	logDirPath := filepath.Dir(logFilePath)
+	err := config.makeDir(logDirPath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // MakeWorkDirs makes dirs required
 func (config *Config) MakeWorkDirs() error {
-	err := config.makeTempRootDir()
+	tempDirPath := config.GetTempRootDirPath()
+	err := config.makeDir(tempDirPath)
+	if err != nil {
+		return err
+	}
+
+	cacheDirPath := config.GetDataCacheRootDirPath()
+	err = config.makeDir(cacheDirPath)
 	if err != nil {
 		return err
 	}
@@ -139,7 +175,14 @@ func (config *Config) MakeWorkDirs() error {
 
 // CleanWorkDirs cleans dirs used
 func (config *Config) CleanWorkDirs() error {
-	err := config.removeTempRootDir()
+	tempDirPath := config.GetTempRootDirPath()
+	err := config.removeDir(tempDirPath)
+	if err != nil {
+		return err
+	}
+
+	cacheDirPath := config.GetDataCacheRootDirPath()
+	err = config.removeDir(cacheDirPath)
 	if err != nil {
 		return err
 	}
@@ -159,46 +202,46 @@ func (config *Config) CleanWorkDirs() error {
 	return nil
 }
 
-// makeTempRootDir makes temp root dir
-func (config *Config) makeTempRootDir() error {
-	if len(config.TempRootPath) == 0 {
-		return fmt.Errorf("temp root dir must be given")
+// makeDir makes a dir for use
+func (config *Config) makeDir(path string) error {
+	if len(path) == 0 {
+		return fmt.Errorf("failed to create a dir with empty path")
 	}
 
-	tempDirInfo, err := os.Stat(config.TempRootPath)
+	dirInfo, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// make
-			mkdirErr := os.MkdirAll(config.TempRootPath, 0775)
+			mkdirErr := os.MkdirAll(path, 0775)
 			if mkdirErr != nil {
-				return fmt.Errorf("making a temp root dir (%s) error - %v", config.TempRootPath, mkdirErr)
+				return fmt.Errorf("making a dir (%s) error - %v", path, mkdirErr)
 			}
 
 			return nil
 		}
 
-		return fmt.Errorf("temp root dir (%s) error - %v", config.TempRootPath, err)
+		return fmt.Errorf("stating a dir (%s) error - %v", path, err)
 	}
 
-	if !tempDirInfo.IsDir() {
-		return fmt.Errorf("temp root dir (%s) exist, but not a directory", config.TempRootPath)
+	if !dirInfo.IsDir() {
+		return fmt.Errorf("a file (%s) exist, not a directory", path)
 	}
 
-	tempDirPerm := tempDirInfo.Mode().Perm()
-	if tempDirPerm&0200 != 0200 {
-		return fmt.Errorf("temp root dir (%s) exist, but does not have write permission", config.TempRootPath)
+	dirPerm := dirInfo.Mode().Perm()
+	if dirPerm&0200 != 0200 {
+		return fmt.Errorf("a dir (%s) exist, but does not have the write permission", path)
 	}
 
 	return nil
 }
 
-// removeTempRootDir removes temp root dir
-func (config *Config) removeTempRootDir() error {
-	if len(config.TempRootPath) == 0 {
-		return fmt.Errorf("temp root dir must be given")
+// removeDir removes a dir
+func (config *Config) removeDir(path string) error {
+	if len(path) == 0 {
+		return fmt.Errorf("failed to remove a dir with empty path")
 	}
 
-	return os.RemoveAll(config.TempRootPath)
+	return os.RemoveAll(path)
 }
 
 // makeUnixSocketDir makes unix socket dir
@@ -265,12 +308,8 @@ func (config *Config) Validate() error {
 		return fmt.Errorf("prometheus exporter port must be given")
 	}
 
-	if len(config.DataCacheRootPath) == 0 {
-		return fmt.Errorf("data cache root dir must be given")
-	}
-
-	if len(config.TempRootPath) == 0 {
-		return fmt.Errorf("temp root dir must be given")
+	if len(config.DataRootPath) == 0 {
+		return fmt.Errorf("data root dir must be given")
 	}
 
 	if config.DataCacheSizeMax < 0 {

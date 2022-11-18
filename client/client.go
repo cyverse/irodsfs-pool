@@ -104,6 +104,24 @@ func getLargeReadOption() grpc.CallOption {
 func getLargeWriteOption() grpc.CallOption {
 	return grpc.MaxCallSendMsgSize(messageRWLengthMax)
 }
+
+func isReloginRequiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	st, ok := status.FromError(err)
+	if ok {
+		switch st.Code() {
+		case codes.Unauthenticated:
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
 func statusToError(err error) error {
 	if err == nil {
 		return nil
@@ -198,6 +216,33 @@ func (session *PoolServiceSession) Release() {
 	}
 }
 
+// Relogin re-login iRODS service session
+func (session *PoolServiceSession) Relogin() error {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceSession",
+		"function": "Relogin",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	client := session.poolServiceClient
+
+	newSession, err := client.NewSession(session.account, session.applicationName)
+	if err != nil {
+		logger.Error(err)
+		return err
+	}
+
+	if newPoolServiceSession, ok := newSession.(*PoolServiceSession); ok {
+		// update session ID
+		session.id = newPoolServiceSession.id
+		return nil
+	}
+
+	return fmt.Errorf("cannot convert new session to PoolServiceSession type")
+}
+
 func (session *PoolServiceSession) GetAccount() *irodsclient_types.IRODSAccount {
 	return session.account
 }
@@ -246,7 +291,24 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 	response, err := session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return nil, err2
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
+			if err != nil {
+				logger.Error(err)
+				return nil, statusToError(err)
+			}
+		} else {
+			return nil, statusToError(err)
+		}
 	}
 
 	for _, entry := range response.Entries {
@@ -315,7 +377,24 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 	response, err := session.poolServiceClient.apiClient.Stat(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return nil, statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return nil, err2
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.Stat(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return nil, statusToError(err)
+			}
+		} else {
+			return nil, statusToError(err)
+		}
 	}
 
 	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
@@ -372,7 +451,24 @@ func (session *PoolServiceSession) ListXattr(path string) ([]*irodsclient_types.
 	response, err := session.poolServiceClient.apiClient.ListXattr(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return nil, err2
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.ListXattr(ctx, request, getLargeReadOption())
+			if err != nil {
+				logger.Error(err)
+				return nil, statusToError(err)
+			}
+		} else {
+			return nil, statusToError(err)
+		}
 	}
 
 	for _, metadata := range response.Metadata {
@@ -420,7 +516,32 @@ func (session *PoolServiceSession) GetXattr(path string, name string) (*irodscli
 			}
 		}
 
-		return nil, statusToError(err)
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return nil, err2
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.GetXattr(ctx, request)
+			if err != nil {
+				logger.Error(err)
+
+				st, ok := status.FromError(err)
+				if ok {
+					if st.Code() == codes.NotFound {
+						// xattr not found
+						return nil, nil
+					}
+				}
+
+				return nil, statusToError(err)
+			}
+		} else {
+			return nil, statusToError(err)
+		}
 	}
 
 	irodsMeta := &irodsclient_types.IRODSMeta{
@@ -456,7 +577,24 @@ func (session *PoolServiceSession) SetXattr(path string, name string, value stri
 	_, err := session.poolServiceClient.apiClient.SetXattr(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return err2
+			}
+
+			// retry
+			_, err = session.poolServiceClient.apiClient.SetXattr(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return statusToError(err)
+			}
+		} else {
+			return statusToError(err)
+		}
 	}
 
 	return nil
@@ -484,7 +622,24 @@ func (session *PoolServiceSession) RemoveXattr(path string, name string) error {
 	_, err := session.poolServiceClient.apiClient.RemoveXattr(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return err2
+			}
+
+			// retry
+			_, err := session.poolServiceClient.apiClient.RemoveXattr(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return statusToError(err)
+			}
+		} else {
+			return statusToError(err)
+		}
 	}
 
 	return nil
@@ -518,7 +673,24 @@ func (session *PoolServiceSession) ExistsDir(path string) bool {
 	response, err := session.poolServiceClient.apiClient.ExistsDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return false
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return false
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.ExistsDir(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return false
+			}
+		} else {
+			return false
+		}
 	}
 
 	return response.Exist
@@ -552,7 +724,24 @@ func (session *PoolServiceSession) ExistsFile(path string) bool {
 	response, err := session.poolServiceClient.apiClient.ExistsFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return false
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return false
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.ExistsFile(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return false
+			}
+		} else {
+			return false
+		}
 	}
 
 	return response.Exist
@@ -579,7 +768,24 @@ func (session *PoolServiceSession) ListUserGroups(user string) ([]*irodsclient_t
 	response, err := session.poolServiceClient.apiClient.ListUserGroups(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return nil, err2
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.ListUserGroups(ctx, request, getLargeReadOption())
+			if err != nil {
+				logger.Error(err)
+				return nil, statusToError(err)
+			}
+		} else {
+			return nil, statusToError(err)
+		}
 	}
 
 	irodsUsers := []*irodsclient_types.IRODSUser{}
@@ -627,7 +833,24 @@ func (session *PoolServiceSession) ListDirACLs(path string) ([]*irodsclient_type
 	response, err := session.poolServiceClient.apiClient.ListDirACLs(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return nil, err2
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.ListDirACLs(ctx, request, getLargeReadOption())
+			if err != nil {
+				logger.Error(err)
+				return nil, statusToError(err)
+			}
+		} else {
+			return nil, statusToError(err)
+		}
 	}
 
 	for _, access := range response.Accesses {
@@ -678,7 +901,24 @@ func (session *PoolServiceSession) ListFileACLs(path string) ([]*irodsclient_typ
 	response, err := session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return nil, err2
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
+			if err != nil {
+				logger.Error(err)
+				return nil, statusToError(err)
+			}
+		} else {
+			return nil, statusToError(err)
+		}
 	}
 
 	for _, access := range response.Accesses {
@@ -727,7 +967,24 @@ func (session *PoolServiceSession) ListACLsForEntries(path string) ([]*irodsclie
 	response, err := session.poolServiceClient.apiClient.ListACLsForEntries(ctx, request, getLargeReadOption())
 	if err != nil {
 		logger.Error(err)
-		return nil, statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return nil, err2
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.ListACLsForEntries(ctx, request, getLargeReadOption())
+			if err != nil {
+				logger.Error(err)
+				return nil, statusToError(err)
+			}
+		} else {
+			return nil, statusToError(err)
+		}
 	}
 
 	irodsAccesses := []*irodsclient_types.IRODSAccess{}
@@ -773,7 +1030,24 @@ func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
 	_, err := session.poolServiceClient.apiClient.RemoveFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return err2
+			}
+
+			// retry
+			_, err = session.poolServiceClient.apiClient.RemoveFile(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return statusToError(err)
+			}
+		} else {
+			return statusToError(err)
+		}
 	}
 
 	// remove cache
@@ -808,7 +1082,24 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 	_, err := session.poolServiceClient.apiClient.RemoveDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return err2
+			}
+
+			// retry
+			_, err := session.poolServiceClient.apiClient.RemoveDir(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return statusToError(err)
+			}
+		} else {
+			return statusToError(err)
+		}
 	}
 
 	// remove cache
@@ -867,7 +1158,24 @@ func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
 	_, err := session.poolServiceClient.apiClient.MakeDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return err2
+			}
+
+			// retry
+			_, err = session.poolServiceClient.apiClient.MakeDir(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return statusToError(err)
+			}
+		} else {
+			return statusToError(err)
+		}
 	}
 
 	// remove cache
@@ -901,7 +1209,24 @@ func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath strin
 	_, err := session.poolServiceClient.apiClient.RenameDirToDir(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return err2
+			}
+
+			// retry
+			_, err := session.poolServiceClient.apiClient.RenameDirToDir(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return statusToError(err)
+			}
+		} else {
+			return statusToError(err)
+		}
 	}
 
 	// remove cache
@@ -966,7 +1291,24 @@ func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath str
 	_, err := session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return err2
+			}
+
+			// retry
+			_, err = session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return statusToError(err)
+			}
+		} else {
+			return statusToError(err)
+		}
 	}
 
 	// remove cache
@@ -1006,7 +1348,24 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 	response, err := session.poolServiceClient.apiClient.CreateFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return nil, statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return nil, err2
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.CreateFile(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return nil, statusToError(err)
+			}
+		} else {
+			return nil, statusToError(err)
+		}
 	}
 
 	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
@@ -1072,7 +1431,24 @@ func (session *PoolServiceSession) OpenFile(path string, resource string, mode s
 	response, err := session.poolServiceClient.apiClient.OpenFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return nil, statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return nil, err2
+			}
+
+			// retry
+			response, err = session.poolServiceClient.apiClient.OpenFile(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return nil, statusToError(err)
+			}
+		} else {
+			return nil, statusToError(err)
+		}
 	}
 
 	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
@@ -1131,7 +1507,24 @@ func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 	_, err := session.poolServiceClient.apiClient.TruncateFile(ctx, request)
 	if err != nil {
 		logger.Error(err)
-		return statusToError(err)
+
+		if isReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				logger.Error(err)
+				return err2
+			}
+
+			// retry
+			_, err = session.poolServiceClient.apiClient.TruncateFile(ctx, request)
+			if err != nil {
+				logger.Error(err)
+				return statusToError(err)
+			}
+		} else {
+			return statusToError(err)
+		}
 	}
 
 	parentDirPath := irodsfs_common_utils.GetDirname(path)

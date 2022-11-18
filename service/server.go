@@ -102,7 +102,13 @@ func (server *PoolServer) errorToStatus(err error) error {
 		return nil
 	}
 
-	if irodsclient_types.IsFileNotFoundError(err) {
+	if IsSessionNotFoundError(err) {
+		return status.Error(codes.Unauthenticated, err.Error())
+	} else if IsIrodsFsClientInstanceNotFoundError(err) {
+		return status.Error(codes.Unauthenticated, err.Error())
+	} else if IsFileHandleNotFoundError(err) {
+		return status.Error(codes.Internal, err.Error())
+	} else if irodsclient_types.IsFileNotFoundError(err) {
 		return status.Error(codes.NotFound, err.Error())
 	} else if irodsclient_types.IsCollectionNotEmptyError(err) {
 		// there's no matching error type for not empty
@@ -283,7 +289,7 @@ func (server *PoolServer) getPoolSessionAndFsClientInstance(poolSessionID string
 
 	poolSession, ok := server.poolSessions[poolSessionID]
 	if !ok {
-		err := fmt.Errorf("cannot find pool session for id %s", poolSessionID)
+		err := NewSessionNotFoundErrorf("cannot find pool session for id %s", poolSessionID)
 		logger.Error(err)
 		return nil, nil, err
 	}
@@ -292,7 +298,7 @@ func (server *PoolServer) getPoolSessionAndFsClientInstance(poolSessionID string
 
 	irodsFsClientInstance, ok := server.irodsFsClientInstances[irodsFsClientInstanceID]
 	if !ok {
-		err := fmt.Errorf("cannot find irods fs client instance for id %s", irodsFsClientInstanceID)
+		err := NewIrodsFsClientInstanceNotFoundErrorf("cannot find irods fs client instance for id %s", irodsFsClientInstanceID)
 		logger.Error(err)
 		return nil, nil, err
 	}
@@ -314,7 +320,7 @@ func (server *PoolServer) getPoolFileHandle(poolSessionID string, poolFileHandle
 
 	poolSession, ok := server.poolSessions[poolSessionID]
 	if !ok {
-		err := fmt.Errorf("cannot find pool session for id %s", poolSessionID)
+		err := NewSessionNotFoundErrorf("cannot find pool session for id %s", poolSessionID)
 		logger.Error(err)
 		return nil, err
 	}
@@ -323,7 +329,7 @@ func (server *PoolServer) getPoolFileHandle(poolSessionID string, poolFileHandle
 
 	poolFileHandle := poolSession.GetPoolFileHandle(poolFileHandleID)
 	if poolFileHandle == nil {
-		err := fmt.Errorf("failed to find pool file handle %s", poolFileHandleID)
+		err := NewFileHandleNotFoundErrorf("cannot find pool file handle %s", poolFileHandleID)
 		logger.Error(err)
 		return nil, err
 	}
@@ -971,7 +977,7 @@ func (server *PoolServer) RemoveDir(context context.Context, request *api.Remove
 	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return nil, fmt.Errorf("failed to get FS Client from connection")
+		return nil, server.errorToStatus(err)
 	}
 
 	poolSession.UpdateLastAccessTime()

@@ -115,7 +115,7 @@ func parentMain(command *cobra.Command, args []string) {
 		// run foreground
 		err = run(config, false)
 		if err != nil {
-			logger.WithError(err).Error("failed to run iRODS Rule Async Exec Cmd Service")
+			logger.WithError(err).Error("failed to run iRODS FUSE Lite Pool Service")
 			os.Exit(1)
 		}
 	}

@@ -35,7 +35,7 @@ func SetCommonFlags(command *cobra.Command) {
 	command.Flags().Int("profile_port", -1, "Set profile service port")
 	command.Flags().Int("prometheus_exporter_port", -1, "Set prometheus exporter port")
 
-	command.Flags().BoolP(ChildProcessArgument, "", false, "")
+	command.Flags().Bool(ChildProcessArgument, false, "")
 }
 
 func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser, bool, error) {
@@ -47,45 +47,25 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 	debug := false
 	debugFlag := command.Flags().Lookup("debug")
 	if debugFlag != nil {
-		debugMode, err := strconv.ParseBool(debugFlag.Value.String())
-		if err != nil {
-			debug = false
-		}
-
-		debug = debugMode
+		debug, _ = strconv.ParseBool(debugFlag.Value.String())
 	}
 
 	foreground := false
 	foregroundFlag := command.Flags().Lookup("foreground")
 	if foregroundFlag != nil {
-		foregroundMode, err := strconv.ParseBool(foregroundFlag.Value.String())
-		if err != nil {
-			foreground = false
-		}
-
-		foreground = foregroundMode
+		foreground, _ = strconv.ParseBool(foregroundFlag.Value.String())
 	}
 
 	profile := false
 	profileFlag := command.Flags().Lookup("profile")
 	if profileFlag != nil {
-		profileMode, err := strconv.ParseBool(profileFlag.Value.String())
-		if err != nil {
-			profile = false
-		}
-
-		profile = profileMode
+		profile, _ = strconv.ParseBool(profileFlag.Value.String())
 	}
 
 	childProcess := false
 	childProcessFlag := command.Flags().Lookup(ChildProcessArgument)
 	if childProcessFlag != nil {
-		childProcessMode, err := strconv.ParseBool(childProcessFlag.Value.String())
-		if err != nil {
-			childProcess = false
-		}
-
-		childProcess = childProcessMode
+		childProcess, _ = strconv.ParseBool(childProcessFlag.Value.String())
 	}
 
 	if debug {
@@ -94,11 +74,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 
 	helpFlag := command.Flags().Lookup("help")
 	if helpFlag != nil {
-		help, err := strconv.ParseBool(helpFlag.Value.String())
-		if err != nil {
-			help = false
-		}
-
+		help, _ := strconv.ParseBool(helpFlag.Value.String())
 		if help {
 			PrintHelp(command)
 			return nil, nil, false, nil // stop here
@@ -107,11 +83,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 
 	versionFlag := command.Flags().Lookup("version")
 	if versionFlag != nil {
-		version, err := strconv.ParseBool(versionFlag.Value.String())
-		if err != nil {
-			version = false
-		}
-
+		version, _ := strconv.ParseBool(versionFlag.Value.String())
 		if version {
 			PrintVersion(command)
 			return nil, nil, false, nil // stop here
@@ -164,13 +136,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 
 	config.ChildProcess = childProcess
 
-	err := config.Validate()
-	if err != nil {
-		logger.Error(err)
-		return nil, nil, false, err // stop here
-	}
-
-	err = config.MakeLogDir()
+	err := config.MakeLogDir()
 	if err != nil {
 		logger.Error(err)
 		return nil, nil, false, err // stop here
@@ -264,6 +230,12 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 		if prometheusExporterPort > 0 {
 			config.PrometheusExporterPort = int(prometheusExporterPort)
 		}
+	}
+
+	err = config.Validate()
+	if err != nil {
+		logger.Error(err)
+		return nil, logWriter, false, err // stop here
 	}
 
 	return config, logWriter, true, nil // continue

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"sync"
 
+	"github.com/pkg/profile"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
@@ -193,6 +194,9 @@ func run(config *commons.Config, isChildProcess bool) error {
 			logger.Infof("Starting profile service at %s", profileServiceAddr)
 			http.ListenAndServe(profileServiceAddr, nil)
 		}()
+
+		prof := profile.Start(profile.MemProfile)
+		defer prof.Stop()
 	}
 
 	var prometheusExporterServer *http.Server

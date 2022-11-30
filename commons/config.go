@@ -132,6 +132,10 @@ func (config *Config) GetDataCacheRootDirPath() string {
 	return path.Join(config.DataRootPath, dirname)
 }
 
+func (config *Config) GetInstanceDataRootDirPath() string {
+	return path.Join(config.DataRootPath, getInstanceID())
+}
+
 // MakeLogDir makes a log dir required
 func (config *Config) MakeLogDir() error {
 	logFilePath := config.GetLogFilePath()
@@ -183,6 +187,12 @@ func (config *Config) CleanWorkDirs() error {
 
 	cacheDirPath := config.GetDataCacheRootDirPath()
 	err = config.removeDir(cacheDirPath)
+	if err != nil {
+		return err
+	}
+
+	instanceDataDirPath := config.GetInstanceDataRootDirPath()
+	err = config.removeDir(instanceDataDirPath)
 	if err != nil {
 		return err
 	}

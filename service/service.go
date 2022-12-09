@@ -146,7 +146,7 @@ func (svc *PoolService) Release() {
 		svc.poolServer = nil
 	}
 
-	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.ServiceEndpoint)
+	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.GetServiceEndpoint())
 	if err == nil {
 		if scheme == "unix" {
 			os.Remove(endpoint)
@@ -167,7 +167,7 @@ func (svc *PoolService) Start() error {
 	logger.Info("Starting the iRODS FUSE Lite Pool service")
 
 	var listener net.Listener
-	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.ServiceEndpoint)
+	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.GetServiceEndpoint())
 	if err != nil {
 		logger.Error(err)
 		return err

@@ -136,14 +136,30 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 
 	config.ChildProcess = childProcess
 
+	if config.Debug {
+		log.SetLevel(log.DebugLevel)
+	}
+
+	dataRootFlag := command.Flags().Lookup("data_root")
+	if dataRootFlag != nil {
+		dataRoot := dataRootFlag.Value.String()
+		if len(dataRoot) > 0 {
+			config.DataRootPath = dataRoot
+
+			if len(config.LogPath) == 0 {
+				config.LogPath = config.GetLogFilePath()
+			}
+
+			if len(config.ServiceEndpoint) == 0 {
+				config.ServiceEndpoint = config.GetServiceEndpoint()
+			}
+		}
+	}
+
 	err := config.MakeLogDir()
 	if err != nil {
 		logger.Error(err)
 		return nil, nil, false, err // stop here
-	}
-
-	if config.Debug {
-		log.SetLevel(log.DebugLevel)
 	}
 
 	var logWriter io.WriteCloser
@@ -179,14 +195,6 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 
 		if cacheSizeMax > 0 {
 			config.DataCacheSizeMax = cacheSizeMax
-		}
-	}
-
-	dataRootFlag := command.Flags().Lookup("data_root")
-	if dataRootFlag != nil {
-		dataRoot := dataRootFlag.Value.String()
-		if len(dataRoot) > 0 {
-			config.DataRootPath = dataRoot
 		}
 	}
 

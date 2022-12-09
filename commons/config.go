@@ -46,11 +46,6 @@ func GetDefaultDataRootDirPath() string {
 	return dirPath
 }
 
-func GetDefaultServiceEndpoint() string {
-	dataRoot := GetDefaultDataRootDirPath()
-	return fmt.Sprintf("unix://%s/comm.sock", dataRoot)
-}
-
 // MetadataCacheTimeoutSetting defines cache timeout for path
 type MetadataCacheTimeoutSetting struct {
 	Path    string                        `yaml:"path" json:"path"`
@@ -81,7 +76,7 @@ type Config struct {
 // NewDefaultConfig returns a default config
 func NewDefaultConfig() *Config {
 	return &Config{
-		ServiceEndpoint:      GetDefaultServiceEndpoint(),
+		ServiceEndpoint:      "",
 		DataCacheSizeMax:     DataCacheSizeMaxDefault,
 		DataRootPath:         GetDefaultDataRootDirPath(),
 		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
@@ -120,6 +115,14 @@ func (config *Config) GetLogFilePath() string {
 
 	// default
 	return path.Join(config.DataRootPath, getLogFilename())
+}
+
+func (config *Config) GetServiceEndpoint() string {
+	if len(config.ServiceEndpoint) > 0 {
+		return config.ServiceEndpoint
+	}
+
+	return fmt.Sprintf("unix://%s/comm.sock", config.DataRootPath)
 }
 
 func (config *Config) GetTempRootDirPath() string {
@@ -162,7 +165,7 @@ func (config *Config) MakeWorkDirs() error {
 		return err
 	}
 
-	scheme, endpoint, err := ParsePoolServiceEndpoint(config.ServiceEndpoint)
+	scheme, endpoint, err := ParsePoolServiceEndpoint(config.GetServiceEndpoint())
 	if err != nil {
 		return err
 	}
@@ -197,7 +200,7 @@ func (config *Config) CleanWorkDirs() error {
 		return err
 	}
 
-	scheme, endpoint, err := ParsePoolServiceEndpoint(config.ServiceEndpoint)
+	scheme, endpoint, err := ParsePoolServiceEndpoint(config.GetServiceEndpoint())
 	if err != nil {
 		return err
 	}
@@ -305,7 +308,7 @@ func (config *Config) removeUnixSocketFile(endpoint string) error {
 
 // Validate validates configuration
 func (config *Config) Validate() error {
-	_, _, err := ParsePoolServiceEndpoint(config.ServiceEndpoint)
+	_, _, err := ParsePoolServiceEndpoint(config.GetServiceEndpoint())
 	if err != nil {
 		return err
 	}

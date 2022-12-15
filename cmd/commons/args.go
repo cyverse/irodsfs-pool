@@ -26,7 +26,7 @@ func SetCommonFlags(command *cobra.Command) {
 	command.Flags().Bool("profile", false, "Enable profiling")
 	command.Flags().BoolP("foreground", "f", false, "Run in foreground")
 
-	command.Flags().String("config", "", "Set config file (yaml)")
+	command.Flags().StringP("config", "c", "", "Set config file (yaml)")
 	command.Flags().String("endpoint", "", "Set service endpoint (host:port or unix:///file.sock)")
 	command.Flags().Int64("cache_size_max", -1, "Set file cache max size")
 	command.Flags().String("data_root", "", "Set data root dir path")

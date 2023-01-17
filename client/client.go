@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
@@ -43,6 +44,9 @@ type PoolServiceSession struct {
 	poolServiceClient *PoolServiceClient
 	account           *irodsclient_types.IRODSAccount
 	applicationName   string
+
+	cacheEventHandlers map[string]irodsclient_fs.FilesystemCacheEventHandler
+	mutex              sync.RWMutex // mutex to access PoolServiceSession
 }
 
 // NewPoolServiceClient creates a new pool service client
@@ -184,12 +188,61 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 		return nil, statusToError(err)
 	}
 
-	return &PoolServiceSession{
+	// subscribe cache update event
+	subscribeRequest := &api.SubscribeCacheEventsRequest{
+		SessionId: response.SessionId,
+	}
+
+	cacheEventSubscriptionClient, err := client.apiClient.SubscribeCacheEvents(ctx, subscribeRequest)
+	if err != nil {
+		logger.Error(err)
+		return nil, statusToError(err)
+	}
+
+	session := &PoolServiceSession{
 		poolServiceClient: client,
 		id:                response.SessionId,
 		account:           account,
 		applicationName:   applicationName,
-	}, nil
+
+		cacheEventHandlers: map[string]irodsclient_fs.FilesystemCacheEventHandler{},
+		mutex:              sync.RWMutex{},
+	}
+
+	go session.cacheEventHandler(cacheEventSubscriptionClient)
+
+	return session, nil
+}
+
+func (session *PoolServiceSession) cacheEventHandler(eventClient api.PoolAPI_SubscribeCacheEventsClient) {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceSession",
+		"function": "cacheEventHandler",
+	})
+
+	// keep receiving the message
+	for {
+		eventResp := api.CacheEventsResponse{}
+		err := eventClient.RecvMsg(&eventResp)
+		if err != nil {
+			if err == io.EOF {
+				// abort
+				logger.Info("End of stream")
+				return
+			}
+
+			logger.WithError(err).Error("failed to receive a message, aborting the handler")
+			return
+		}
+
+		// distribute events to handlers registered
+		session.mutex.RLock()
+		for _, handler := range session.cacheEventHandlers {
+			handler(eventResp.Path, irodsclient_fs.FilesystemCacheEventType(eventResp.EventType))
+		}
+		session.mutex.RUnlock()
+	}
 }
 
 // Release logouts from iRODS service session
@@ -208,6 +261,10 @@ func (session *PoolServiceSession) Release() {
 	request := &api.LogoutRequest{
 		SessionId: session.id,
 	}
+
+	session.mutex.Lock()
+	session.cacheEventHandlers = map[string]irodsclient_fs.FilesystemCacheEventHandler{}
+	session.mutex.Unlock()
 
 	_, err := session.poolServiceClient.apiClient.Logout(ctx, request)
 	if err != nil {
@@ -1531,6 +1588,43 @@ func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
 	session.poolServiceClient.fsCache.RemoveEntryCache(path)
 
+	return nil
+}
+
+// AddCacheEventHandler adds a cache event handler
+func (session *PoolServiceSession) AddCacheEventHandler(handler irodsclient_fs.FilesystemCacheEventHandler) (string, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceSession",
+		"function": "AddCacheEventHandler",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	handlerID := xid.New().String()
+
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	session.cacheEventHandlers[handlerID] = handler
+
+	return handlerID, nil
+}
+
+// RemoveCacheEventHandler removes a cache event handler with the given handler ID
+func (session *PoolServiceSession) RemoveCacheEventHandler(handlerID string) error {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceSession",
+		"function": "RemoveCacheEventHandler",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	delete(session.cacheEventHandlers, handlerID)
 	return nil
 }
 

@@ -281,6 +281,19 @@ message CloseRequest {
 	string file_handle_id = 2;
 }
 
+message SubscribeCacheEventsRequest {
+	string session_id = 1;
+}
+
+message UnsubscribeCacheEventsRequest {
+	string session_id = 1;
+}
+
+message CacheEventsResponse {
+	string event_type = 1;
+	string path = 2;
+}
+
 service PoolAPI {
 	rpc Login(LoginRequest) returns (LoginResponse) {}
 	rpc Logout(LogoutRequest) returns (Empty) {}
@@ -313,4 +326,9 @@ service PoolAPI {
 	rpc Truncate(TruncateRequest) returns (Empty) {}
 	rpc Flush(FlushRequest) returns (Empty) {}
 	rpc Close(CloseRequest) returns (Empty) {}
+
+	// cache 
+	rpc SubscribeCacheEvents(SubscribeCacheEventsRequest) returns (stream CacheEventsResponse) {}
+	rpc UnsubscribeCacheEvents(UnsubscribeCacheEventsRequest) returns (Empty) {}
+
 }

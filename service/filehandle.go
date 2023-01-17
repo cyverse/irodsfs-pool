@@ -32,17 +32,19 @@ type PoolFileHandle struct {
 }
 
 // NewPoolFileHandle creates a new pool file handle
-func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsClientInstanceID string, irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle, irodsFsFileHandlesForPrefetching []irodsfs_common_irods.IRODSFSFileHandle) (*PoolFileHandle, error) {
+func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle, irodsFsFileHandlesForPrefetching []irodsfs_common_irods.IRODSFSFileHandle) (*PoolFileHandle, error) {
 	var writer irodsfs_common_io.Writer
 	var reader irodsfs_common_io.Reader
 	readersForPrefetching := []irodsfs_common_io.Reader{}
 
-	_, fsClientInstance, err := poolServer.getPoolSessionAndFsClientInstance(poolSessionID)
+	sessionManager := poolServer.GetSessionManager()
+
+	session, fsClient, err := sessionManager.GetSessionAndIRODSFSClient(poolSessionID)
 	if err != nil {
 		return nil, err
 	}
 
-	fsClient := fsClientInstance.GetFSClient()
+	session.UpdateLastAccessTime()
 
 	openMode := irodsFsFileHandle.GetOpenMode()
 	if openMode.IsReadOnly() {
@@ -91,7 +93,7 @@ func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsClie
 	return &PoolFileHandle{
 		poolServer:              poolServer,
 		poolSessionID:           poolSessionID,
-		irodsFsClientInstanceID: irodsFsClientInstanceID,
+		irodsFsClientInstanceID: session.GetIRODSFSClientInstanceID(),
 
 		fsClient: fsClient,
 

@@ -214,7 +214,7 @@ func (svc *PoolService) Start() error {
 				// terminate
 				return
 			case <-tickerConnDisplay.C:
-				logger.Infof("Total %d pool sessions, %d FS client instances, %d iRODS connections", svc.poolServer.GetPoolSessions(), svc.poolServer.GetIRODSFSClientInstanceCount(), svc.poolServer.GetIRODSConnections())
+				logger.Infof("Total %d pool sessions, %d FS client instances, %d iRODS connections", svc.poolServer.GetPoolSessions(), svc.poolServer.GetIRODSFSClientInstances(), svc.poolServer.GetIRODSConnections())
 			case <-tickerMetricsCollection.C:
 				svc.poolServer.CollectPrometheusMetrics()
 			}

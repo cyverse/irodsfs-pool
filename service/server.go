@@ -6,6 +6,7 @@ import (
 	"io"
 	"sync"
 
+	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	irodsfs_common_cache "github.com/cyverse/irodsfs-common/io/cache"
 	irodsfs_common "github.com/cyverse/irodsfs-common/irods"
@@ -29,17 +30,22 @@ type PoolServerConfig struct {
 	TempRootPath         string
 }
 
+type PoolServerCacheEventSubscription struct {
+	sessionID string
+	handlerID string
+	waitGroup sync.WaitGroup
+}
+
 // PoolServer is a struct for PoolServer
 type PoolServer struct {
 	api.UnimplementedPoolAPIServer
 
 	config *PoolServerConfig
 
-	cacheStore irodsfs_common_cache.CacheStore
-
-	poolSessions           map[string]*PoolSession           // key: pool session id
-	irodsFsClientInstances map[string]*IRODSFSClientInstance // key: iRODS FS Client instance id
-	mutex                  sync.RWMutex                      // mutex to access Sessions
+	cacheStore              irodsfs_common_cache.CacheStore
+	sessionManager          *PoolSessionManager
+	cacheEventSubscriptions map[string]*PoolServerCacheEventSubscription
+	mutex                   sync.RWMutex
 }
 
 func NewPoolServer(config *PoolServerConfig) (*PoolServer, error) {
@@ -55,11 +61,10 @@ func NewPoolServer(config *PoolServerConfig) (*PoolServer, error) {
 	return &PoolServer{
 		config: config,
 
-		cacheStore: diskCacheStore,
-
-		poolSessions:           map[string]*PoolSession{},
-		irodsFsClientInstances: map[string]*IRODSFSClientInstance{},
-		mutex:                  sync.RWMutex{},
+		cacheStore:              diskCacheStore,
+		sessionManager:          NewPoolSessionManager(config),
+		cacheEventSubscriptions: map[string]*PoolServerCacheEventSubscription{},
+		mutex:                   sync.RWMutex{},
 	}, nil
 }
 
@@ -74,20 +79,11 @@ func (server *PoolServer) Release() {
 
 	server.mutex.Lock()
 
-	for _, session := range server.poolSessions {
-		logger.Infof("Logout pool session for pool client id %s", session.GetPoolClientID())
-
-		session.Release()
+	for _, subscription := range server.cacheEventSubscriptions {
+		subscription.waitGroup.Done()
 	}
-	server.poolSessions = map[string]*PoolSession{}
 
-	for _, irodsFsClientInstance := range server.irodsFsClientInstances {
-		logger.Infof("Release irods fs client instance for id %s", irodsFsClientInstance.GetID())
-
-		// close file system for connection
-		irodsFsClientInstance.Release()
-	}
-	server.irodsFsClientInstances = map[string]*IRODSFSClientInstance{}
+	server.sessionManager.Release()
 
 	server.mutex.Unlock()
 
@@ -118,6 +114,13 @@ func (server *PoolServer) errorToStatus(err error) error {
 	return status.Error(codes.Internal, err.Error())
 }
 
+func (server *PoolServer) GetSessionManager() *PoolSessionManager {
+	server.mutex.RLock()
+	defer server.mutex.RUnlock()
+
+	return server.sessionManager
+}
+
 func (server *PoolServer) Login(context context.Context, request *api.LoginRequest) (*api.LoginResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
@@ -135,35 +138,14 @@ func (server *PoolServer) Login(context context.Context, request *api.LoginReque
 	server.mutex.Lock()
 	defer server.mutex.Unlock()
 
-	irodsFsClientInstanceID := MakeIRODSFSClientInstanceID(request.Account)
-
-	// create a poolSession
-	poolSession := NewPoolSession(request.ClientId)
-	poolSessionID := poolSession.GetID()
-
-	// find irods fs client instance for the same account if exists
-	if irodsFsClientInstance, ok := server.irodsFsClientInstances[irodsFsClientInstanceID]; ok {
-		logger.Infof("Reusing existing irods fs client instance: %s", irodsFsClientInstanceID)
-
-		irodsFsClientInstance.AddPoolSession(poolSession)
-	} else {
-		logger.Infof("Creating a new irods fs client instance: %s", irodsFsClientInstanceID)
-
-		// new irods fs client instance
-		newIrodsFsClientInstance, err := NewIRODSFSClientInstance(irodsFsClientInstanceID, request.Account, request.ApplicationName, server.config.CacheTimeoutSettings)
-		if err != nil {
-			logger.WithError(err).Error("failed to create a new irods fs client instance")
-			return nil, server.errorToStatus(err)
-		}
-
-		newIrodsFsClientInstance.AddPoolSession(poolSession)
-		server.irodsFsClientInstances[irodsFsClientInstanceID] = newIrodsFsClientInstance
+	session, err := server.sessionManager.NewSession(request.Account, request.ClientId, request.ApplicationName)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
 	}
 
-	server.poolSessions[poolSessionID] = poolSession
-
 	response := &api.LoginResponse{
-		SessionId: poolSessionID,
+		SessionId: session.GetID(),
 	}
 
 	return response, nil
@@ -189,24 +171,14 @@ func (server *PoolServer) Logout(context context.Context, request *api.LogoutReq
 	server.mutex.Lock()
 	defer server.mutex.Unlock()
 
-	if poolSession, ok := server.poolSessions[request.SessionId]; ok {
-		logger.Infof("Logout pool session for pool client id %s", poolSession.GetPoolClientID())
-
-		irodsFsClientInstanceID := poolSession.GetIRODSFSClientInstanceID()
-		poolSession.Release()
-		delete(server.poolSessions, request.SessionId)
-
-		if irodsFsClientInstance, ok := server.irodsFsClientInstances[irodsFsClientInstanceID]; ok {
-			irodsFsClientInstance.RemovePoolSession(request.SessionId)
-			if irodsFsClientInstance.ReleaseIfNoPoolSession() {
-				delete(server.irodsFsClientInstances, irodsFsClientInstanceID)
-			}
-		}
-
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		// session might be already closed due to timeout, so ignore error
+		logger.WithError(err).Error("failed to logout because the session for id %s is not found, ignoring...", request.SessionId)
 		return &api.Empty{}, nil
 	}
 
-	// session might be already closed due to timeout
+	server.sessionManager.ReleaseSession(session.GetID())
 	return &api.Empty{}, nil
 }
 
@@ -225,34 +197,21 @@ func (server *PoolServer) LogoutAll() {
 	server.mutex.Lock()
 	defer server.mutex.Unlock()
 
-	for _, session := range server.poolSessions {
-		logger.Infof("Logout pool session for pool client id %s", session.GetPoolClientID())
-
-		session.Release()
-	}
-	server.poolSessions = map[string]*PoolSession{}
-
-	for _, irodsFsClientInstance := range server.irodsFsClientInstances {
-		logger.Infof("Release irods fs client instances for instance id %s", irodsFsClientInstance.GetID())
-
-		// close fs client instance
-		irodsFsClientInstance.Release()
-	}
-	server.irodsFsClientInstances = map[string]*IRODSFSClientInstance{}
+	server.sessionManager.Release()
 }
 
 func (server *PoolServer) GetPoolSessions() int {
-	server.mutex.Lock()
-	defer server.mutex.Unlock()
+	server.mutex.RLock()
+	defer server.mutex.RUnlock()
 
-	return len(server.poolSessions)
+	return server.sessionManager.GetTotalSessions()
 }
 
-func (server *PoolServer) GetIRODSFSClientInstanceCount() int {
-	server.mutex.Lock()
-	defer server.mutex.Unlock()
+func (server *PoolServer) GetIRODSFSClientInstances() int {
+	server.mutex.RLock()
+	defer server.mutex.RUnlock()
 
-	return len(server.irodsFsClientInstances)
+	return server.sessionManager.GetTotalIRODSFSClientInstances()
 }
 
 func (server *PoolServer) GetIRODSConnections() int {
@@ -264,77 +223,10 @@ func (server *PoolServer) GetIRODSConnections() int {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	server.mutex.Lock()
-	defer server.mutex.Unlock()
-
-	connections := 0
-	for _, irodsFsClientInstance := range server.irodsFsClientInstances {
-		connections += irodsFsClientInstance.irodsFsClient.GetConnections()
-	}
-
-	return connections
-}
-
-func (server *PoolServer) getPoolSessionAndFsClientInstance(poolSessionID string) (*PoolSession, *IRODSFSClientInstance, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "getPoolSessionAndFsClientInstance",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
 	server.mutex.RLock()
 	defer server.mutex.RUnlock()
 
-	poolSession, ok := server.poolSessions[poolSessionID]
-	if !ok {
-		err := NewSessionNotFoundErrorf("cannot find pool session for id %s", poolSessionID)
-		logger.Error(err)
-		return nil, nil, err
-	}
-
-	irodsFsClientInstanceID := poolSession.GetIRODSFSClientInstanceID()
-
-	irodsFsClientInstance, ok := server.irodsFsClientInstances[irodsFsClientInstanceID]
-	if !ok {
-		err := NewIrodsFsClientInstanceNotFoundErrorf("cannot find irods fs client instance for id %s", irodsFsClientInstanceID)
-		logger.Error(err)
-		return nil, nil, err
-	}
-
-	return poolSession, irodsFsClientInstance, nil
-}
-
-func (server *PoolServer) getPoolFileHandle(poolSessionID string, poolFileHandleID string) (*PoolFileHandle, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "getPoolFileHandle",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	server.mutex.RLock()
-	defer server.mutex.RUnlock()
-
-	poolSession, ok := server.poolSessions[poolSessionID]
-	if !ok {
-		err := NewSessionNotFoundErrorf("cannot find pool session for id %s", poolSessionID)
-		logger.Error(err)
-		return nil, err
-	}
-
-	poolSession.UpdateLastAccessTime()
-
-	poolFileHandle := poolSession.GetPoolFileHandle(poolFileHandleID)
-	if poolFileHandle == nil {
-		err := NewFileHandleNotFoundErrorf("cannot find pool file handle %s", poolFileHandleID)
-		logger.Error(err)
-		return nil, err
-	}
-
-	return poolFileHandle, nil
+	return server.sessionManager.GetTotalIRODSFSClientConnections()
 }
 
 func (server *PoolServer) List(context context.Context, request *api.ListRequest) (*api.ListResponse, error) {
@@ -351,20 +243,13 @@ func (server *PoolServer) List(context context.Context, request *api.ListRequest
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	entries, err := fsClient.List(request.Path)
 	if err != nil {
@@ -372,9 +257,10 @@ func (server *PoolServer) List(context context.Context, request *api.ListRequest
 		return nil, server.errorToStatus(err)
 	}
 
-	responseEntries := []*api.Entry{}
+	responseEntries := make([]*api.Entry, len(entries))
+	idx := 0
 	for _, entry := range entries {
-		responseEntry := &api.Entry{
+		responseEntries[idx] = &api.Entry{
 			Id:         entry.ID,
 			Type:       string(entry.Type),
 			Name:       entry.Name,
@@ -386,7 +272,7 @@ func (server *PoolServer) List(context context.Context, request *api.ListRequest
 			ModifyTime: irodsfs_common_utils.MakeTimeToString(entry.ModifyTime),
 			Checksum:   entry.CheckSum,
 		}
-		responseEntries = append(responseEntries, responseEntry)
+		idx++
 	}
 
 	response := &api.ListResponse{
@@ -410,20 +296,13 @@ func (server *PoolServer) Stat(context context.Context, request *api.StatRequest
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	entry, err := fsClient.Stat(request.Path)
 	if err != nil {
@@ -465,20 +344,13 @@ func (server *PoolServer) ListXattr(context context.Context, request *api.ListXa
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	irodsMetadata, err := fsClient.ListXattr(request.Path)
 	if err != nil {
@@ -486,15 +358,16 @@ func (server *PoolServer) ListXattr(context context.Context, request *api.ListXa
 		return nil, server.errorToStatus(err)
 	}
 
-	responseMetadata := []*api.Metadata{}
+	responseMetadata := make([]*api.Metadata, len(irodsMetadata))
+	idx := 0
 	for _, irodsMeta := range irodsMetadata {
-		responseMeta := &api.Metadata{
+		responseMetadata[idx] = &api.Metadata{
 			Id:    irodsMeta.AVUID,
 			Name:  irodsMeta.Name,
 			Value: irodsMeta.Value,
 			Unit:  irodsMeta.Units,
 		}
-		responseMetadata = append(responseMetadata, responseMeta)
+		idx++
 	}
 
 	response := &api.ListXattrResponse{
@@ -518,20 +391,13 @@ func (server *PoolServer) GetXattr(context context.Context, request *api.GetXatt
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	irodsMeta, err := fsClient.GetXattr(request.Path, request.Name)
 	if err != nil {
@@ -573,20 +439,13 @@ func (server *PoolServer) SetXattr(context context.Context, request *api.SetXatt
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	err = fsClient.SetXattr(request.Path, request.Name, request.Value)
 	if err != nil {
@@ -611,20 +470,13 @@ func (server *PoolServer) RemoveXattr(context context.Context, request *api.Remo
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	err = fsClient.RemoveXattr(request.Path, request.Name)
 	if err != nil {
@@ -649,20 +501,13 @@ func (server *PoolServer) ExistsDir(context context.Context, request *api.Exists
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	exist := fsClient.ExistsDir(request.Path)
 	return &api.ExistsDirResponse{
@@ -684,20 +529,13 @@ func (server *PoolServer) ExistsFile(context context.Context, request *api.Exist
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	exist := fsClient.ExistsFile(request.Path)
 	return &api.ExistsFileResponse{
@@ -719,20 +557,13 @@ func (server *PoolServer) ListUserGroups(context context.Context, request *api.L
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	groups, err := fsClient.ListUserGroups(request.UserName)
 	if err != nil {
@@ -740,14 +571,15 @@ func (server *PoolServer) ListUserGroups(context context.Context, request *api.L
 		return nil, server.errorToStatus(err)
 	}
 
-	responseGroups := []*api.User{}
+	responseGroups := make([]*api.User, len(groups))
+	idx := 0
 	for _, group := range groups {
-		responseGroup := &api.User{
+		responseGroups[idx] = &api.User{
 			Name: group.Name,
 			Zone: group.Zone,
 			Type: string(group.Type),
 		}
-		responseGroups = append(responseGroups, responseGroup)
+		idx++
 	}
 
 	response := &api.ListUserGroupsResponse{
@@ -771,20 +603,13 @@ func (server *PoolServer) ListDirACLs(context context.Context, request *api.List
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	accesses, err := fsClient.ListDirACLs(request.Path)
 	if err != nil {
@@ -792,16 +617,17 @@ func (server *PoolServer) ListDirACLs(context context.Context, request *api.List
 		return nil, server.errorToStatus(err)
 	}
 
-	responseAccesses := []*api.Access{}
+	responseAccesses := make([]*api.Access, len(accesses))
+	idx := 0
 	for _, access := range accesses {
-		responseAccess := &api.Access{
+		responseAccesses[idx] = &api.Access{
 			Path:        access.Path,
 			UserName:    access.UserName,
 			UserZone:    access.UserZone,
 			UserType:    string(access.UserType),
 			AccessLevel: string(access.AccessLevel),
 		}
-		responseAccesses = append(responseAccesses, responseAccess)
+		idx++
 	}
 
 	response := &api.ListDirACLsResponse{
@@ -825,20 +651,13 @@ func (server *PoolServer) ListFileACLs(context context.Context, request *api.Lis
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	accesses, err := fsClient.ListFileACLs(request.Path)
 	if err != nil {
@@ -846,16 +665,17 @@ func (server *PoolServer) ListFileACLs(context context.Context, request *api.Lis
 		return nil, server.errorToStatus(err)
 	}
 
-	responseAccesses := []*api.Access{}
+	responseAccesses := make([]*api.Access, len(accesses))
+	idx := 0
 	for _, access := range accesses {
-		responseAccess := &api.Access{
+		responseAccesses[idx] = &api.Access{
 			Path:        access.Path,
 			UserName:    access.UserName,
 			UserZone:    access.UserZone,
 			UserType:    string(access.UserType),
 			AccessLevel: string(access.AccessLevel),
 		}
-		responseAccesses = append(responseAccesses, responseAccess)
+		idx++
 	}
 
 	response := &api.ListFileACLsResponse{
@@ -879,20 +699,13 @@ func (server *PoolServer) ListACLsForEntries(context context.Context, request *a
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	accesses, err := fsClient.ListACLsForEntries(request.Path)
 	if err != nil {
@@ -900,16 +713,17 @@ func (server *PoolServer) ListACLsForEntries(context context.Context, request *a
 		return nil, server.errorToStatus(err)
 	}
 
-	responseAccesses := []*api.Access{}
+	responseAccesses := make([]*api.Access, len(accesses))
+	idx := 0
 	for _, access := range accesses {
-		responseAccess := &api.Access{
+		responseAccesses[idx] = &api.Access{
 			Path:        access.Path,
 			UserName:    access.UserName,
 			UserZone:    access.UserZone,
 			UserType:    string(access.UserType),
 			AccessLevel: string(access.AccessLevel),
 		}
-		responseAccesses = append(responseAccesses, responseAccess)
+		idx++
 	}
 
 	response := &api.ListACLsForEntriesResponse{
@@ -933,20 +747,13 @@ func (server *PoolServer) RemoveFile(context context.Context, request *api.Remov
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	err = fsClient.RemoveFile(request.Path, request.Force)
 	if err != nil {
@@ -974,20 +781,13 @@ func (server *PoolServer) RemoveDir(context context.Context, request *api.Remove
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	err = fsClient.RemoveDir(request.Path, request.Recurse, request.Force)
 	if err != nil {
@@ -1012,20 +812,13 @@ func (server *PoolServer) MakeDir(context context.Context, request *api.MakeDirR
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	err = fsClient.MakeDir(request.Path, request.Recurse)
 	if err != nil {
@@ -1050,20 +843,13 @@ func (server *PoolServer) RenameDirToDir(context context.Context, request *api.R
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	err = fsClient.RenameDirToDir(request.SourcePath, request.DestinationPath)
 	if err != nil {
@@ -1088,20 +874,13 @@ func (server *PoolServer) RenameFileToFile(context context.Context, request *api
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	err = fsClient.RenameFileToFile(request.SourcePath, request.DestinationPath)
 	if err != nil {
@@ -1129,20 +908,13 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	// clear cache for the path if exists
 	server.cacheStore.DeleteAllEntriesForGroup(request.Path)
@@ -1159,13 +931,13 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 		server.cacheStore.DeleteAllEntriesForGroup(request.Path)
 	}
 
-	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFileHandle, nil)
+	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsFileHandle, nil)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.AddPoolFileHandle(poolFileHandle)
+	session.AddPoolFileHandle(poolFileHandle)
 
 	fsEntry := irodsFsFileHandle.GetEntry()
 
@@ -1204,20 +976,13 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	fileOpenMode := irodsclient_types.FileOpenMode(request.Mode)
 
@@ -1232,13 +997,13 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 		server.cacheStore.DeleteAllEntriesForGroup(request.Path)
 	}
 
-	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsClientInstance.GetID(), irodsFsFlieHandle, nil)
+	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsFlieHandle, nil)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.AddPoolFileHandle(poolFileHandle)
+	session.AddPoolFileHandle(poolFileHandle)
 
 	// read-only mode requires multiple file handles for prefetching
 	go func() {
@@ -1302,20 +1067,13 @@ func (server *PoolServer) TruncateFile(context context.Context, request *api.Tru
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, irodsFsClientInstance, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
-
-	fsClient := irodsFsClientInstance.GetFSClient()
-	if fsClient == nil {
-		err = fmt.Errorf("failed to get FS Client from irods fs client instance")
-		logger.Error(err)
-		return nil, server.errorToStatus(err)
-	}
+	session.UpdateLastAccessTime()
 
 	// clear cache for the path if exists
 	server.cacheStore.DeleteAllEntriesForGroup(request.Path)
@@ -1343,14 +1101,22 @@ func (server *PoolServer) GetOffset(context context.Context, request *api.GetOff
 
 	promCounterForGRPCCalls.Inc()
 
-	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	session.UpdateLastAccessTime()
+
+	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
 	response := &api.GetOffsetResponse{
-		Offset: poolFileHandle.GetOffset(),
+		Offset: handle.GetOffset(),
 	}
 
 	return response, nil
@@ -1370,7 +1136,15 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 
 	promCounterForGRPCCalls.Inc()
 
-	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	session.UpdateLastAccessTime()
+
+	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
@@ -1378,13 +1152,13 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 
 	buffer := make([]byte, request.Length)
 
-	readLen, err := poolFileHandle.ReadAt(buffer, request.Offset)
+	readLen, err := handle.ReadAt(buffer, request.Offset)
 	if err != nil && err != io.EOF {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	available := poolFileHandle.GetAvailable(request.Offset + int64(readLen))
+	available := handle.GetAvailable(request.Offset + int64(readLen))
 
 	response := &api.ReadAtResponse{
 		Data:      buffer[:readLen],
@@ -1408,13 +1182,21 @@ func (server *PoolServer) WriteAt(context context.Context, request *api.WriteAtR
 
 	promCounterForGRPCCalls.Inc()
 
-	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	_, err = poolFileHandle.WriteAt(request.Data, request.Offset)
+	session.UpdateLastAccessTime()
+
+	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	_, err = handle.WriteAt(request.Data, request.Offset)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
@@ -1437,13 +1219,21 @@ func (server *PoolServer) Truncate(context context.Context, request *api.Truncat
 
 	promCounterForGRPCCalls.Inc()
 
-	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	err = poolFileHandle.Truncate(request.Size)
+	session.UpdateLastAccessTime()
+
+	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	err = handle.Truncate(request.Size)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
@@ -1466,13 +1256,21 @@ func (server *PoolServer) Flush(context context.Context, request *api.FlushReque
 
 	promCounterForGRPCCalls.Inc()
 
-	poolFileHandle, err := server.getPoolFileHandle(request.SessionId, request.FileHandleId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	err = poolFileHandle.Flush()
+	session.UpdateLastAccessTime()
+
+	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	err = handle.Flush()
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
@@ -1495,33 +1293,133 @@ func (server *PoolServer) Close(context context.Context, request *api.CloseReque
 
 	promCounterForGRPCCalls.Inc()
 
-	poolSession, _, err := server.getPoolSessionAndFsClientInstance(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.UpdateLastAccessTime()
+	session.UpdateLastAccessTime()
 
-	poolFileHandle := poolSession.GetPoolFileHandle(request.FileHandleId)
-	if poolFileHandle == nil {
-		err := fmt.Errorf("failed to find pool file handle %s", request.FileHandleId)
+	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
 	}
 
-	poolSession.RemovePoolFileHandle(request.FileHandleId)
+	session.RemovePoolFileHandle(request.FileHandleId)
 
-	if poolFileHandle.GetOpenMode() != irodsclient_types.FileOpenModeReadOnly {
+	if handle.GetOpenMode() != irodsclient_types.FileOpenModeReadOnly {
 		// not read-only
 		// clear cache for the path if exists
-		server.cacheStore.DeleteAllEntriesForGroup(poolFileHandle.GetEntryPath())
+		server.cacheStore.DeleteAllEntriesForGroup(handle.GetEntryPath())
 	}
 
-	err = poolFileHandle.Release()
+	err = handle.Release()
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
+	}
+
+	return &api.Empty{}, nil
+}
+
+func (server *PoolServer) SubscribeCacheEvents(request *api.SubscribeCacheEventsRequest, srv api.PoolAPI_SubscribeCacheEventsServer) error {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolServer",
+		"function": "SubscribeCacheEvents",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	logger.Infof("SubscribeCacheEvents request from pool session id %s", request.SessionId)
+	defer logger.Infof("SubscribeCacheEvents response to pool session id %s", request.SessionId)
+
+	promCounterForGRPCCalls.Inc()
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return server.errorToStatus(err)
+	}
+
+	session.UpdateLastAccessTime()
+
+	// subscription
+	cacheEventHandler := func(path string, eventType irodsclient_fs.FilesystemCacheEventType) {
+		response := &api.CacheEventsResponse{
+			EventType: string(eventType),
+			Path:      path,
+		}
+
+		errSend := srv.Send(response)
+		if errSend != nil {
+			logger.WithError(errSend).Errorf("failed to send a response for event type %s, path %s", eventType, path)
+			// continue
+		}
+	}
+	cacheEventHandlerID := session.AddPoolCacheEventHandler(cacheEventHandler)
+
+	subscription := &PoolServerCacheEventSubscription{
+		sessionID: request.SessionId,
+		handlerID: cacheEventHandlerID,
+		waitGroup: sync.WaitGroup{},
+	}
+
+	subscription.waitGroup.Add(1)
+
+	server.mutex.Lock()
+
+	server.cacheEventSubscriptions[request.SessionId] = subscription
+
+	server.mutex.Unlock()
+
+	promCounterForCacheEventSubscriptions.Inc()
+
+	// unsubscribed
+	subscription.waitGroup.Wait()
+
+	session.RemovePoolCacheEventHandler(cacheEventHandlerID)
+
+	promCounterForCacheEventSubscriptions.Dec()
+
+	return nil
+}
+
+func (server *PoolServer) UnsubscribeCacheEvents(context context.Context, request *api.UnsubscribeCacheEventsRequest) (*api.Empty, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolServer",
+		"function": "UnsubscribeCacheEvents",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	logger.Infof("UnsubscribeCacheEvents request from pool session id %s", request.SessionId)
+	defer logger.Infof("UnsubscribeCacheEvents response to pool session id %s", request.SessionId)
+
+	promCounterForGRPCCalls.Inc()
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	session.UpdateLastAccessTime()
+
+	// unsubscribe
+	server.mutex.Lock()
+	subscription, ok := server.cacheEventSubscriptions[request.SessionId]
+	if ok {
+		delete(server.cacheEventSubscriptions, request.SessionId)
+	}
+	server.mutex.Unlock()
+
+	if ok {
+		subscription.waitGroup.Done()
+		session.RemovePoolCacheEventHandler(subscription.handlerID)
 	}
 
 	return &api.Empty{}, nil

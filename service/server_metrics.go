@@ -2,7 +2,6 @@ package service
 
 import (
 	irodsclient_metrics "github.com/cyverse/go-irodsclient/irods/metrics"
-	irodsfs_common "github.com/cyverse/irodsfs-common/irods"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -138,6 +137,10 @@ var (
 		Name: "irodsfs_pool_grpc_clients",
 		Help: "The number of GRPC clients",
 	})
+	promCounterForCacheEventSubscriptions = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "irodsfs_pool_cache_event_subscriptions",
+		Help: "The number of cache event subscriptions",
+	})
 )
 
 func (server *PoolServer) CollectPrometheusMetrics() {
@@ -236,50 +239,53 @@ func (server *PoolServer) CollectPrometheusMetrics() {
 }
 
 func (server *PoolServer) CollectMetrics() irodsclient_metrics.IRODSMetrics {
-	fsClients := []irodsfs_common.IRODSFSClient{}
 	server.mutex.Lock()
-	for _, fsClientInstance := range server.irodsFsClientInstances {
-		fsClient := fsClientInstance.GetFSClient()
-		fsClients = append(fsClients, fsClient)
+
+	instances := server.sessionManager.GetIRODSFSClientInstances()
+	metrics := make([]*irodsclient_metrics.IRODSMetrics, len(instances))
+
+	idx := 0
+	for _, instance := range instances {
+		metrics[idx] = instance.GetFSClient().GetMetrics()
+		idx++
 	}
 	server.mutex.Unlock()
 
 	// sum up
 	metricsTotal := irodsclient_metrics.IRODSMetrics{}
-	for _, fsClient := range fsClients {
-		metrics := fsClient.GetMetrics()
+	for _, metric := range metrics {
 		// sum
-		metricsTotal.IncreaseCounterForStat(metrics.GetAndClearCounterForStat())
-		metricsTotal.IncreaseCounterForList(metrics.GetAndClearCounterForList())
-		metricsTotal.IncreaseCounterForSearch(metrics.GetAndClearCounterForSearch())
-		metricsTotal.IncreaseCounterForCollectionCreate(metrics.GetAndClearCounterForCollectionCreate())
-		metricsTotal.IncreaseCounterForCollectionDelete(metrics.GetAndClearCounterForCollectionDelete())
-		metricsTotal.IncreaseCounterForCollectionRename(metrics.GetAndClearCounterForCollectionRename())
-		metricsTotal.IncreaseCounterForDataObjectCreate(metrics.GetAndClearCounterForDataObjectCreate())
-		metricsTotal.IncreaseCounterForDataObjectOpen(metrics.GetAndClearCounterForDataObjectOpen())
-		metricsTotal.IncreaseCounterForDataObjectClose(metrics.GetAndClearCounterForDataObjectClose())
-		metricsTotal.IncreaseCounterForDataObjectDelete(metrics.GetAndClearCounterForDataObjectDelete())
-		metricsTotal.IncreaseCounterForDataObjectRename(metrics.GetAndClearCounterForDataObjectRename())
-		metricsTotal.IncreaseCounterForDataObjectUpdate(metrics.GetAndClearCounterForDataObjectUpdate())
-		metricsTotal.IncreaseCounterForDataObjectCopy(metrics.GetAndClearCounterForDataObjectCopy())
-		metricsTotal.IncreaseCounterForDataObjectRead(metrics.GetAndClearCounterForDataObjectRead())
-		metricsTotal.IncreaseCounterForDataObjectWrite(metrics.GetAndClearCounterForDataObjectWrite())
-		metricsTotal.IncreaseCounterForMetadataList(metrics.GetAndClearCounterForMetadataList())
-		metricsTotal.IncreaseCounterForMetadataCreate(metrics.GetAndClearCounterForMetadataCreate())
-		metricsTotal.IncreaseCounterForMetadataDelete(metrics.GetAndClearCounterForMetadataDelete())
-		metricsTotal.IncreaseCounterForMetadataUpdate(metrics.GetAndClearCounterForMetadataUpdate())
-		metricsTotal.IncreaseCounterForAccessList(metrics.GetAndClearCounterForAccessList())
-		metricsTotal.IncreaseCounterForAccessUpdate(metrics.GetAndClearCounterForAccessUpdate())
-		metricsTotal.IncreaseBytesSent(metrics.GetAndClearBytesSent())
-		metricsTotal.IncreaseBytesReceived(metrics.GetAndClearBytesReceived())
-		metricsTotal.IncreaseCounterForCacheHit(metrics.GetAndClearCounterForCacheHit())
-		metricsTotal.IncreaseCounterForCacheMiss(metrics.GetAndClearCounterForCacheMiss())
-		metricsTotal.IncreaseCounterForOpenFileHandles(metrics.GetCounterForOpenFileHandles())
-		metricsTotal.IncreaseConnectionsOpened(metrics.GetConnectionsOpened())
-		metricsTotal.IncreaseConnectionsOccupied(metrics.GetConnectionsOccupied())
-		metricsTotal.IncreaseCounterForRequestResponseFailures(metrics.GetAndClearCounterForRequestResponseFailures())
-		metricsTotal.IncreaseCounterForConnectionFailures(metrics.GetAndClearCounterForConnectionFailures())
-		metricsTotal.IncreaseCounterForConnectionPoolFailures(metrics.GetAndClearCounterForConnectionPoolFailures())
+		metricsTotal.IncreaseCounterForStat(metric.GetAndClearCounterForStat())
+		metricsTotal.IncreaseCounterForList(metric.GetAndClearCounterForList())
+		metricsTotal.IncreaseCounterForSearch(metric.GetAndClearCounterForSearch())
+		metricsTotal.IncreaseCounterForCollectionCreate(metric.GetAndClearCounterForCollectionCreate())
+		metricsTotal.IncreaseCounterForCollectionDelete(metric.GetAndClearCounterForCollectionDelete())
+		metricsTotal.IncreaseCounterForCollectionRename(metric.GetAndClearCounterForCollectionRename())
+		metricsTotal.IncreaseCounterForDataObjectCreate(metric.GetAndClearCounterForDataObjectCreate())
+		metricsTotal.IncreaseCounterForDataObjectOpen(metric.GetAndClearCounterForDataObjectOpen())
+		metricsTotal.IncreaseCounterForDataObjectClose(metric.GetAndClearCounterForDataObjectClose())
+		metricsTotal.IncreaseCounterForDataObjectDelete(metric.GetAndClearCounterForDataObjectDelete())
+		metricsTotal.IncreaseCounterForDataObjectRename(metric.GetAndClearCounterForDataObjectRename())
+		metricsTotal.IncreaseCounterForDataObjectUpdate(metric.GetAndClearCounterForDataObjectUpdate())
+		metricsTotal.IncreaseCounterForDataObjectCopy(metric.GetAndClearCounterForDataObjectCopy())
+		metricsTotal.IncreaseCounterForDataObjectRead(metric.GetAndClearCounterForDataObjectRead())
+		metricsTotal.IncreaseCounterForDataObjectWrite(metric.GetAndClearCounterForDataObjectWrite())
+		metricsTotal.IncreaseCounterForMetadataList(metric.GetAndClearCounterForMetadataList())
+		metricsTotal.IncreaseCounterForMetadataCreate(metric.GetAndClearCounterForMetadataCreate())
+		metricsTotal.IncreaseCounterForMetadataDelete(metric.GetAndClearCounterForMetadataDelete())
+		metricsTotal.IncreaseCounterForMetadataUpdate(metric.GetAndClearCounterForMetadataUpdate())
+		metricsTotal.IncreaseCounterForAccessList(metric.GetAndClearCounterForAccessList())
+		metricsTotal.IncreaseCounterForAccessUpdate(metric.GetAndClearCounterForAccessUpdate())
+		metricsTotal.IncreaseBytesSent(metric.GetAndClearBytesSent())
+		metricsTotal.IncreaseBytesReceived(metric.GetAndClearBytesReceived())
+		metricsTotal.IncreaseCounterForCacheHit(metric.GetAndClearCounterForCacheHit())
+		metricsTotal.IncreaseCounterForCacheMiss(metric.GetAndClearCounterForCacheMiss())
+		metricsTotal.IncreaseCounterForOpenFileHandles(metric.GetCounterForOpenFileHandles())
+		metricsTotal.IncreaseConnectionsOpened(metric.GetConnectionsOpened())
+		metricsTotal.IncreaseConnectionsOccupied(metric.GetConnectionsOccupied())
+		metricsTotal.IncreaseCounterForRequestResponseFailures(metric.GetAndClearCounterForRequestResponseFailures())
+		metricsTotal.IncreaseCounterForConnectionFailures(metric.GetAndClearCounterForConnectionFailures())
+		metricsTotal.IncreaseCounterForConnectionPoolFailures(metric.GetAndClearCounterForConnectionPoolFailures())
 	}
 
 	return metricsTotal

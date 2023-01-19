@@ -3,8 +3,8 @@ module github.com/cyverse/irodsfs-pool
 go 1.18
 
 require (
-	github.com/cyverse/go-irodsclient v0.10.6-0.20230113222919-08afc3418da1
-	github.com/cyverse/irodsfs-common v0.0.0-20230113223120-e267590b22c7
+	github.com/cyverse/go-irodsclient v0.10.6
+	github.com/cyverse/irodsfs-common v0.0.0-20230119215412-1c1b617fe2df
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/profile v1.7.0
 	github.com/prometheus/client_golang v1.13.0

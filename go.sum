@@ -58,10 +58,10 @@ github.com/cncf/udpa/go v0.0.0-20191209042840-269d4d468f6f/go.mod h1:M8M6+tZqaGX
 github.com/cncf/udpa/go v0.0.0-20201120205902-5459f2c99403/go.mod h1:WmhPx2Nbnhtbo57+VJT5O0JRkEi1Wbu0z5j0R8u5Hbk=
 github.com/cncf/xds/go v0.0.0-20210312221358-fbca930ec8ed/go.mod h1:eXthEFrGJvWHgFFCl3hGmgk+/aYT6PnTQLykKQRLhEs=
 github.com/cpuguy83/go-md2man/v2 v2.0.2/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
-github.com/cyverse/go-irodsclient v0.10.6-0.20230113222919-08afc3418da1 h1:nogtqYVAAfSMltgj03dt+Y7sDXxS5rNyGXm7O7cZsrg=
-github.com/cyverse/go-irodsclient v0.10.6-0.20230113222919-08afc3418da1/go.mod h1:UaBJ8f9cRQYx3kkmbfWMDlZGQ4AF5k5oV2X27BGiO4o=
-github.com/cyverse/irodsfs-common v0.0.0-20230113223120-e267590b22c7 h1:K1I2ArExZYsSHhsbj4kgRMOocO1dkmrr9cmx3wIAUSM=
-github.com/cyverse/irodsfs-common v0.0.0-20230113223120-e267590b22c7/go.mod h1:pOGCfJtgu8RT9tU82mjxpajX/1ovdYLOa1uMXu3StSc=
+github.com/cyverse/go-irodsclient v0.10.6 h1:6v9l0lFkbSxksDu15S6JwJJNuie9fIOGeuw7lTHfqsE=
+github.com/cyverse/go-irodsclient v0.10.6/go.mod h1:UaBJ8f9cRQYx3kkmbfWMDlZGQ4AF5k5oV2X27BGiO4o=
+github.com/cyverse/irodsfs-common v0.0.0-20230119215412-1c1b617fe2df h1:VLzgHJMHYsyuOsBdM8BAAenOFG3LpuRJnDRF08MBIio=
+github.com/cyverse/irodsfs-common v0.0.0-20230119215412-1c1b617fe2df/go.mod h1:4VAwS/dOnLvFjmfZ5S2BBNGzbCbZAp1nR0ATlXnwQRQ=
 github.com/cyverse/irodsfs-monitor v0.0.0-20220809235922-daf13261a2dc h1:gIpG0ETQOEZloFwB5iU2zljVsoUDTpUEl/3WF19gLNk=
 github.com/cyverse/irodsfs-monitor v0.0.0-20220809235922-daf13261a2dc/go.mod h1:8UE1mT26+0vAsqS9UJ6Q/vlKq3da6FLdt5p6Tt1AIC4=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

@@ -292,7 +292,11 @@ func (config *Config) removeUnixSocketFile(endpoint string) error {
 		return nil
 	}
 
-	return os.Remove(endpoint)
+	err := os.Remove(endpoint)
+	if err != nil {
+		return xerrors.Errorf("failed to remove unix socket file %s: %w", endpoint, err)
+	}
+	return nil
 }
 
 // Validate validates configuration

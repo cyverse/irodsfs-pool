@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
@@ -28,6 +27,10 @@ type NilWriter struct{}
 // Write does nothing
 func (w *NilWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
+}
+
+func (w *NilWriter) Close() (err error) {
+	return nil
 }
 
 func ReportChildProcessError() {
@@ -159,7 +162,7 @@ func ChildProcessReadConfigViaSTDIN() (*commons.Config, io.WriteCloser, error) {
 	}
 
 	logger.Info("Reading configuration from STDIN")
-	configBytes, err := ioutil.ReadAll(os.Stdin)
+	configBytes, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		readErr := xerrors.Errorf("failed to read configuration: %w", err)
 		logger.Errorf("%+v", readErr)
@@ -193,14 +196,16 @@ func ChildProcessReadConfigViaSTDIN() (*commons.Config, io.WriteCloser, error) {
 	}
 
 	// output to log file
-	var logWriter io.WriteCloser
 	logFilePath := config.GetLogFilePath()
-	if len(logFilePath) > 0 {
+	if len(logFilePath) > 0 && logFilePath != "-" {
 		logWriter, childLogFilePath := getLogWriterForChildProcess(logFilePath)
 		log.SetOutput(logWriter)
 
 		logger.Infof("Logging to %s", childLogFilePath)
+		return config, logWriter, nil
+	} else {
+		var nilWriter NilWriter
+		log.SetOutput(&nilWriter)
+		return config, &nilWriter, nil
 	}
-
-	return config, logWriter, nil
 }

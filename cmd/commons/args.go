@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 
+	"golang.org/x/xerrors"
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/cyverse/irodsfs-pool/commons"
@@ -99,14 +100,16 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 		if len(configPath) > 0 {
 			yamlBytes, err := ioutil.ReadFile(configPath)
 			if err != nil {
-				logger.Error(err)
-				return nil, nil, false, err // stop here
+				readErr := xerrors.Errorf("failed to read config file %s: %w", configPath, err)
+				logger.Errorf("%+v", readErr)
+				return nil, nil, false, readErr // stop here
 			}
 
 			serverConfig, err := commons.NewConfigFromYAML(yamlBytes)
 			if err != nil {
-				logger.Error(err)
-				return nil, nil, false, err // stop here
+				readErr := xerrors.Errorf("failed to read config from yaml: %w", err)
+				logger.Errorf("%+v", readErr)
+				return nil, nil, false, readErr // stop here
 			}
 
 			// overwrite config
@@ -189,8 +192,9 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 	if cacheSizeMaxFlag != nil {
 		cacheSizeMax, err := strconv.ParseInt(cacheSizeMaxFlag.Value.String(), 10, 64)
 		if err != nil {
-			logger.WithError(err).Errorf("failed to convert input to int64")
-			return nil, logWriter, false, err // stop here
+			parseErr := xerrors.Errorf("failed to convert input '%s' to int64: %w", cacheSizeMaxFlag.Value.String(), err)
+			logger.Errorf("%+v", parseErr)
+			return nil, logWriter, false, parseErr // stop here
 		}
 
 		if cacheSizeMax > 0 {
@@ -206,8 +210,9 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 
 			err := json.Unmarshal([]byte(cacheTimeoutSettingsJson), &metadataCacheTimeoutSettings)
 			if err != nil {
-				logger.WithError(err).Errorf("failed to convert JSON object to []MetadataCacheTimeoutSetting - %s", cacheTimeoutSettingsJson)
-				return nil, logWriter, false, err // stop here
+				jsonErr := xerrors.Errorf("failed to convert JSON object to []MetadataCacheTimeoutSetting: %w", err)
+				logger.Errorf("%+v", jsonErr)
+				return nil, logWriter, false, jsonErr // stop here
 			}
 
 			config.CacheTimeoutSettings = metadataCacheTimeoutSettings
@@ -218,8 +223,9 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 	if profilePortFlag != nil {
 		profilePort, err := strconv.ParseInt(profilePortFlag.Value.String(), 10, 32)
 		if err != nil {
-			logger.WithError(err).Errorf("failed to convert input to int")
-			return nil, logWriter, false, err // stop here
+			parseErr := xerrors.Errorf("failed to convert input '%s' to int64: %w", profilePortFlag.Value.String(), err)
+			logger.Errorf("%+v", parseErr)
+			return nil, logWriter, false, parseErr // stop here
 		}
 
 		if profilePort > 0 {
@@ -231,8 +237,9 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 	if prometheusExporterPortFlag != nil {
 		prometheusExporterPort, err := strconv.ParseInt(prometheusExporterPortFlag.Value.String(), 10, 32)
 		if err != nil {
-			logger.WithError(err).Errorf("failed to convert input to int")
-			return nil, logWriter, false, err // stop here
+			parseErr := xerrors.Errorf("failed to convert input '%s' to int64: %w", prometheusExporterPortFlag.Value.String(), err)
+			logger.Errorf("%+v", parseErr)
+			return nil, logWriter, false, parseErr // stop here
 		}
 
 		if prometheusExporterPort > 0 {
@@ -242,8 +249,9 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 
 	err = config.Validate()
 	if err != nil {
-		logger.Error(err)
-		return nil, logWriter, false, err // stop here
+		validateErr := xerrors.Errorf("failed to validate configuration: %w", err)
+		logger.Errorf("%+v", validateErr)
+		return nil, logWriter, false, validateErr // stop here
 	}
 
 	return config, logWriter, true, nil // continue
@@ -252,7 +260,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 func PrintVersion(command *cobra.Command) error {
 	info, err := commons.GetVersionJSON()
 	if err != nil {
-		return err
+		return xerrors.Errorf("failed to get version json: %w", err)
 	}
 
 	fmt.Println(info)

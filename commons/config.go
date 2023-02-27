@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/xerrors"
 	yaml "gopkg.in/yaml.v2"
 
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
@@ -88,7 +89,7 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 
 	err := yaml.Unmarshal(yamlBytes, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal YAML - %v", err)
+		return nil, xerrors.Errorf("failed to unmarshal YAML - %v", err)
 	}
 
 	return config, nil
@@ -206,7 +207,7 @@ func (config *Config) CleanWorkDirs() error {
 // makeDir makes a dir for use
 func (config *Config) makeDir(path string) error {
 	if len(path) == 0 {
-		return fmt.Errorf("failed to create a dir with empty path")
+		return xerrors.Errorf("failed to create a dir with empty path")
 	}
 
 	dirInfo, err := os.Stat(path)
@@ -215,22 +216,22 @@ func (config *Config) makeDir(path string) error {
 			// make
 			mkdirErr := os.MkdirAll(path, 0775)
 			if mkdirErr != nil {
-				return fmt.Errorf("making a dir (%s) error - %v", path, mkdirErr)
+				return xerrors.Errorf("making a dir (%s) error - %v", path, mkdirErr)
 			}
 
 			return nil
 		}
 
-		return fmt.Errorf("stating a dir (%s) error - %v", path, err)
+		return xerrors.Errorf("stating a dir (%s) error - %v", path, err)
 	}
 
 	if !dirInfo.IsDir() {
-		return fmt.Errorf("a file (%s) exist, not a directory", path)
+		return xerrors.Errorf("a file (%s) exist, not a directory", path)
 	}
 
 	dirPerm := dirInfo.Mode().Perm()
 	if dirPerm&0200 != 0200 {
-		return fmt.Errorf("a dir (%s) exist, but does not have the write permission", path)
+		return xerrors.Errorf("a dir (%s) exist, but does not have the write permission", path)
 	}
 
 	return nil
@@ -239,7 +240,7 @@ func (config *Config) makeDir(path string) error {
 // removeDir removes a dir
 func (config *Config) removeDir(path string) error {
 	if len(path) == 0 {
-		return fmt.Errorf("failed to remove a dir with empty path")
+		return xerrors.Errorf("failed to remove a dir with empty path")
 	}
 
 	return os.RemoveAll(path)
@@ -251,14 +252,14 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 	_, err := os.Stat(endpoint)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return fmt.Errorf("service unix socket file (%s) error - %v", endpoint, err)
+			return xerrors.Errorf("service unix socket file (%s) error - %v", endpoint, err)
 		}
 	} else {
 		// file exists
 		// remove
 		err2 := os.Remove(endpoint)
 		if err2 != nil {
-			return fmt.Errorf("failed to remove the existing unix socket file (%s) - %v", endpoint, err2)
+			return xerrors.Errorf("failed to remove the existing unix socket file (%s) - %v", endpoint, err2)
 		}
 	}
 
@@ -268,16 +269,16 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 		if os.IsNotExist(err) {
 			err2 := os.MkdirAll(parentDir, os.FileMode(0777))
 			if err2 != nil {
-				return fmt.Errorf("failed to make a directory for unix socket (%s)", parentDir)
+				return xerrors.Errorf("failed to make a directory for unix socket (%s)", parentDir)
 			}
 			// ok - fall
 		} else {
-			return fmt.Errorf("unix socket directory (%s) error - %v", parentDir, err)
+			return xerrors.Errorf("unix socket directory (%s) error - %v", parentDir, err)
 		}
 	} else {
 		unixSocketDirPerm := unixSocketDirInfo.Mode().Perm()
 		if unixSocketDirPerm&0200 != 0200 {
-			return fmt.Errorf("unix socket directory (%s) must have write permission", parentDir)
+			return xerrors.Errorf("unix socket directory (%s) must have write permission", parentDir)
 		}
 		// ok - fall
 	}
@@ -302,19 +303,19 @@ func (config *Config) Validate() error {
 	}
 
 	if config.Profile && config.ProfileServicePort <= 0 {
-		return fmt.Errorf("profile service port must be given")
+		return xerrors.Errorf("profile service port must be given")
 	}
 
 	if config.PrometheusExporterPort <= 0 {
-		return fmt.Errorf("prometheus exporter port must be given")
+		return xerrors.Errorf("prometheus exporter port must be given")
 	}
 
 	if len(config.DataRootPath) == 0 {
-		return fmt.Errorf("data root dir must be given")
+		return xerrors.Errorf("data root dir must be given")
 	}
 
 	if config.DataCacheSizeMax < 0 {
-		return fmt.Errorf("data cache size max must be a positive value")
+		return xerrors.Errorf("data cache size max must be a positive value")
 	}
 
 	return nil
@@ -324,7 +325,7 @@ func (config *Config) Validate() error {
 func ParsePoolServiceEndpoint(endpoint string) (string, string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return "", "", fmt.Errorf("could not parse endpoint: %v", err)
+		return "", "", xerrors.Errorf("could not parse endpoint: %v", err)
 	}
 
 	scheme := strings.ToLower(u.Scheme)
@@ -338,8 +339,8 @@ func ParsePoolServiceEndpoint(endpoint string) (string, string, error) {
 		if len(u.Host) > 0 {
 			return "tcp", u.Host, nil
 		}
-		return "", "", fmt.Errorf("unknown host: %s", u.Host)
+		return "", "", xerrors.Errorf("unknown host: %s", u.Host)
 	default:
-		return "", "", fmt.Errorf("unsupported protocol: %s", scheme)
+		return "", "", xerrors.Errorf("unsupported protocol: %s", scheme)
 	}
 }

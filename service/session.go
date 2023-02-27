@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/cyverse/irodsfs-pool/service/api"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/xerrors"
 )
 
 // PoolSessionManager manages PoolSession
@@ -264,8 +264,7 @@ func (manager *PoolSessionManager) GetIRODSFSClientInstanceForSession(sessionID 
 		return instance, nil
 	}
 
-	err := NewSessionNotFoundErrorf("failed to find the session for session id %s", sessionID)
-	return nil, err
+	return nil, NewSessionNotFoundErrorf("failed to find the session for session id %s", sessionID)
 }
 
 func (manager *PoolSessionManager) GetIRODSFSClientInstances() []*IRODSFSClientInstance {
@@ -433,7 +432,7 @@ func (session *PoolSession) GetPoolCacheEventHandler(handlerID string) (irodscli
 		return handler, nil
 	}
 
-	return nil, fmt.Errorf("failed to find the cache event handler for handler id %s", handlerID)
+	return nil, xerrors.Errorf("failed to find the cache event handler for handler id %s", handlerID)
 }
 
 func (session *PoolSession) HandleCacheEvent(path string, eventType irodsclient_fs.FilesystemCacheEventType) {

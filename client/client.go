@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/cyverse/irodsfs-pool/service/api"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -76,8 +76,9 @@ func (client *PoolServiceClient) Connect() error {
 
 	conn, err := grpc.Dial(client.address, grpc.WithInsecure())
 	if err != nil {
-		logger.Error(err)
-		return err
+		grpcErr := xerrors.Errorf("failed to dial to %s: %w", client.address, err)
+		logger.Errorf("%+v", grpcErr)
+		return grpcErr
 	}
 
 	client.grpcConnection = conn
@@ -140,9 +141,9 @@ func statusToError(err error) error {
 			// there's no matching error type for not empty
 			return irodsclient_types.NewCollectionNotEmptyError(st.Message())
 		case codes.Internal:
-			return fmt.Errorf(err.Error())
+			return xerrors.Errorf(err.Error())
 		default:
-			return fmt.Errorf(err.Error())
+			return xerrors.Errorf(err.Error())
 		}
 	}
 
@@ -297,7 +298,7 @@ func (session *PoolServiceSession) Relogin() error {
 		return nil
 	}
 
-	return fmt.Errorf("cannot convert new session to PoolServiceSession type")
+	return xerrors.Errorf("cannot convert new session to PoolServiceSession type")
 }
 
 func (session *PoolServiceSession) GetAccount() *irodsclient_types.IRODSAccount {

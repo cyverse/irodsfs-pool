@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"sync"
 
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
@@ -9,6 +8,7 @@ import (
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -244,7 +244,7 @@ func (handle *PoolFileHandle) ReadAt(buffer []byte, offset int64) (int, error) {
 	if handle.reader != nil {
 		return handle.reader.ReadAt(buffer, offset)
 	}
-	return 0, fmt.Errorf("reader is not initialized")
+	return 0, xerrors.Errorf("reader is not initialized")
 }
 
 func (handle *PoolFileHandle) GetAvailable(offset int64) int64 {
@@ -268,7 +268,7 @@ func (handle *PoolFileHandle) WriteAt(data []byte, offset int64) (int, error) {
 	if handle.writer != nil {
 		return handle.writer.WriteAt(data, offset)
 	}
-	return 0, fmt.Errorf("writer is not initialized")
+	return 0, xerrors.Errorf("writer is not initialized")
 }
 
 func (handle *PoolFileHandle) Truncate(size int64) error {

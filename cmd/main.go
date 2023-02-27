@@ -93,7 +93,7 @@ func parentMain(command *cobra.Command, args []string) {
 	}
 
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		os.Exit(1)
 	}
 

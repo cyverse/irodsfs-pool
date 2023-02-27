@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"os"
 	"sync"
@@ -12,6 +11,7 @@ import (
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/stats"
 )
@@ -177,8 +177,9 @@ func (svc *PoolService) Start() error {
 	case "unix":
 		unixListener, err := net.Listen("unix", endpoint)
 		if err != nil {
-			logger.Error(err)
-			return err
+			listenErr := xerrors.Errorf("failed to listen to unix socket %s: %w", endpoint, err)
+			logger.Errorf("%+v", listenErr)
+			return listenErr
 		}
 
 		logger.Infof("Listening unix socket: %s", endpoint)
@@ -186,15 +187,16 @@ func (svc *PoolService) Start() error {
 	case "tcp":
 		tcpListener, err := net.Listen("tcp", endpoint)
 		if err != nil {
-			logger.Error(err)
-			return err
+			listenErr := xerrors.Errorf("failed to listen to tcp socket %s: %w", endpoint, err)
+			logger.Errorf("%+v", listenErr)
+			return listenErr
 		}
 
 		logger.Infof("Listening tcp socket: %s", endpoint)
 		listener = tcpListener
 	default:
 		logger.Error("unknown protocol")
-		return fmt.Errorf("unknown protocol")
+		return xerrors.Errorf("unknown protocol")
 	}
 
 	go func() {
@@ -224,7 +226,8 @@ func (svc *PoolService) Start() error {
 	go func() {
 		err = svc.grpcServer.Serve(listener)
 		if err != nil {
-			logger.Error(err)
+			grpcServerErr := xerrors.Errorf("failed to serve: %w", err)
+			logger.Errorf("%+v", grpcServerErr)
 		}
 	}()
 

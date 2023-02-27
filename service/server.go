@@ -986,7 +986,7 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 
 	fileOpenMode := irodsclient_types.FileOpenMode(request.Mode)
 
-	irodsFsFlieHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
+	irodsFsFileHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
@@ -997,7 +997,7 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 		server.cacheStore.DeleteAllEntriesForGroup(request.Path)
 	}
 
-	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsFlieHandle, nil)
+	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsFileHandle, nil)
 	if err != nil {
 		logger.Error(err)
 		return nil, server.errorToStatus(err)
@@ -1006,6 +1006,7 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 	session.AddPoolFileHandle(poolFileHandle)
 
 	// read-only mode requires multiple file handles for prefetching
+	poolFileHandle.AddEpectedFileHandlesForPrefetching(1)
 	go func() {
 		if fileOpenMode.IsReadOnly() {
 			if len(server.config.TempRootPath) > 0 {
@@ -1017,20 +1018,20 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 
 				// the file must be large enough
 				if entry.Size > int64(iRODSIOBlockSize*3) {
-					prefetchingIrodsFsFlieHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
+					prefetchingIrodsFsFileHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
 					if err != nil {
 						logger.Error(err)
 						return
 					}
 
-					irodsFsFlieHandlesForPrefetching := []irodsfs_common.IRODSFSFileHandle{prefetchingIrodsFsFlieHandle}
-					poolFileHandle.AddFileHandlesForPrefetching(irodsFsFlieHandlesForPrefetching)
+					irodsFsFileHandlesForPrefetching := []irodsfs_common.IRODSFSFileHandle{prefetchingIrodsFsFileHandle}
+					poolFileHandle.AddFileHandlesForPrefetching(irodsFsFileHandlesForPrefetching)
 				}
 			}
 		}
 	}()
 
-	fsEntry := irodsFsFlieHandle.GetEntry()
+	fsEntry := irodsFsFileHandle.GetEntry()
 
 	responseEntry := &api.Entry{
 		Id:         fsEntry.ID,
@@ -1046,7 +1047,7 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 	}
 
 	response := &api.OpenFileResponse{
-		FileHandleId: irodsFsFlieHandle.GetID(),
+		FileHandleId: irodsFsFileHandle.GetID(),
 		Entry:        responseEntry,
 	}
 

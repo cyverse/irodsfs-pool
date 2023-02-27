@@ -141,9 +141,9 @@ func statusToError(err error) error {
 			// there's no matching error type for not empty
 			return irodsclient_types.NewCollectionNotEmptyError(st.Message())
 		case codes.Internal:
-			return xerrors.Errorf(err.Error())
+			return xerrors.Errorf("internal error: %w", err)
 		default:
-			return xerrors.Errorf(err.Error())
+			return xerrors.Errorf("unknown error: %w", err)
 		}
 	}
 

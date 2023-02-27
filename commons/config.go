@@ -89,7 +89,7 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 
 	err := yaml.Unmarshal(yamlBytes, config)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to unmarshal YAML - %v", err)
+		return nil, xerrors.Errorf("failed to unmarshal yaml into config: %w", err)
 	}
 
 	return config, nil
@@ -329,7 +329,7 @@ func (config *Config) Validate() error {
 func ParsePoolServiceEndpoint(endpoint string) (string, string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return "", "", xerrors.Errorf("could not parse endpoint: %v", err)
+		return "", "", xerrors.Errorf("failed to parse endpoint %s: %w", endpoint, err)
 	}
 
 	scheme := strings.ToLower(u.Scheme)

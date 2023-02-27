@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
@@ -32,7 +31,7 @@ func main() {
 	inputPath := args[0]
 
 	// Read account configuration from YAML file
-	yaml, err := ioutil.ReadFile("account.yml")
+	yaml, err := os.ReadFile("account.yml")
 	if err != nil {
 		logger.Errorf("err - %v", err)
 		panic(err)

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 
@@ -98,7 +97,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 	if configFlag != nil {
 		configPath := configFlag.Value.String()
 		if len(configPath) > 0 {
-			yamlBytes, err := ioutil.ReadFile(configPath)
+			yamlBytes, err := os.ReadFile(configPath)
 			if err != nil {
 				readErr := xerrors.Errorf("failed to read config file %s: %w", configPath, err)
 				logger.Errorf("%+v", readErr)
@@ -107,9 +106,8 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 
 			serverConfig, err := commons.NewConfigFromYAML(yamlBytes)
 			if err != nil {
-				readErr := xerrors.Errorf("failed to read config from yaml: %w", err)
-				logger.Errorf("%+v", readErr)
-				return nil, nil, false, readErr // stop here
+				logger.Errorf("%+v", err)
+				return nil, nil, false, err // stop here
 			}
 
 			// overwrite config
@@ -249,9 +247,8 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 
 	err = config.Validate()
 	if err != nil {
-		validateErr := xerrors.Errorf("failed to validate configuration: %w", err)
-		logger.Errorf("%+v", validateErr)
-		return nil, logWriter, false, validateErr // stop here
+		logger.Errorf("%+v", err)
+		return nil, logWriter, false, err // stop here
 	}
 
 	return config, logWriter, true, nil // continue
@@ -260,7 +257,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 func PrintVersion(command *cobra.Command) error {
 	info, err := commons.GetVersionJSON()
 	if err != nil {
-		return xerrors.Errorf("failed to get version json: %w", err)
+		return err
 	}
 
 	fmt.Println(info)

@@ -1051,6 +1051,8 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 		Entry:        responseEntry,
 	}
 
+	logger.Infof("OpenFile> pool session id %s, path %s, mode(%s), handle id %s", request.SessionId, request.Path, request.Mode, irodsFsFileHandle.GetID())
+
 	return response, nil
 }
 

@@ -230,6 +230,8 @@ func (session *PoolServiceSession) cacheEventPuller() {
 		<-ticker.C
 		session.mutex.RLock()
 		if session.loggedIn {
+			session.mutex.RUnlock()
+
 			ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 
 			request := &api.PullCacheEventsRequest{
@@ -244,6 +246,19 @@ func (session *PoolServiceSession) cacheEventPuller() {
 			cancel()
 
 			for _, event := range response.Events {
+				switch irodsclient_fs.FilesystemCacheEventType(event.EventType) {
+				case irodsclient_fs.FilesystemCacheFileCreateEvent:
+					session.InvalidateCacheForCreateFile(event.Path)
+				case irodsclient_fs.FilesystemCacheFileRemoveEvent:
+					session.InvalidateCacheForRemoveFile(event.Path)
+				case irodsclient_fs.FilesystemCacheFileUpdateEvent:
+					session.InvalidateCacheForUpdateFile(event.Path)
+				case irodsclient_fs.FilesystemCacheDirCreateEvent:
+					session.InvalidateCacheForMakeDir(event.Path)
+				case irodsclient_fs.FilesystemCacheDirRemoveEvent:
+					session.InvalidateCacheForRemoveDir(event.Path)
+				}
+
 				for _, handler := range session.cacheEventHandlers {
 					handler(event.Path, irodsclient_fs.FilesystemCacheEventType(event.EventType))
 				}
@@ -252,7 +267,6 @@ func (session *PoolServiceSession) cacheEventPuller() {
 			session.mutex.RUnlock()
 			return // stop here
 		}
-		session.mutex.RUnlock()
 	}
 }
 
@@ -1120,10 +1134,7 @@ func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
 	}
 
 	// remove cache
-	parentDirPath := irodsfs_common_utils.GetDirname(path)
-	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
-	session.poolServiceClient.fsCache.RemoveEntryCache(path)
-	session.poolServiceClient.fsCache.RemoveACLsCache(path)
+	session.InvalidateCacheForRemoveFile(path)
 
 	return nil
 }
@@ -1172,35 +1183,7 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 	}
 
 	// remove cache
-	removeTarget := []*irodsclient_fs.Entry{}
-	dirCache := session.poolServiceClient.fsCache.GetDirCache(path)
-	if dirCache != nil {
-		removeTarget = append(removeTarget, dirCache...)
-	}
-
-	for len(removeTarget) > 0 {
-		front := removeTarget[0]
-
-		if front.Type == irodsclient_fs.DirectoryEntry {
-			frontDirCache := session.poolServiceClient.fsCache.GetDirCache(front.Path)
-			if frontDirCache != nil {
-				removeTarget = append(removeTarget, frontDirCache...)
-			}
-
-			session.poolServiceClient.fsCache.RemoveDirCache(front.Path)
-			session.poolServiceClient.fsCache.RemoveDirEntryACLsCache(front.Path)
-		}
-
-		session.poolServiceClient.fsCache.RemoveEntryCache(front.Path)
-		session.poolServiceClient.fsCache.RemoveACLsCache(front.Path)
-
-		removeTarget = removeTarget[1:]
-	}
-
-	parentDirPath := irodsfs_common_utils.GetDirname(path)
-	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
-	session.poolServiceClient.fsCache.RemoveEntryCache(path)
-	session.poolServiceClient.fsCache.RemoveACLsCache(path)
+	session.InvalidateCacheForRemoveDir(path)
 
 	return nil
 }
@@ -1248,10 +1231,7 @@ func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
 	}
 
 	// remove cache
-	parentDirPath := irodsfs_common_utils.GetDirname(path)
-	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
-	session.poolServiceClient.fsCache.RemoveEntryCache(path)
-	session.poolServiceClient.fsCache.RemoveACLsCache(path)
+	session.InvalidateCacheForMakeDir(path)
 
 	return nil
 }
@@ -1299,41 +1279,7 @@ func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath strin
 	}
 
 	// remove cache
-	removeTarget := []*irodsclient_fs.Entry{}
-	dirCache := session.poolServiceClient.fsCache.GetDirCache(srcPath)
-	if dirCache != nil {
-		removeTarget = append(removeTarget, dirCache...)
-	}
-
-	for len(removeTarget) > 0 {
-		front := removeTarget[0]
-
-		if front.Type == irodsclient_fs.DirectoryEntry {
-			frontDirCache := session.poolServiceClient.fsCache.GetDirCache(front.Path)
-			if frontDirCache != nil {
-				removeTarget = append(removeTarget, frontDirCache...)
-			}
-
-			session.poolServiceClient.fsCache.RemoveDirCache(front.Path)
-		}
-
-		session.poolServiceClient.fsCache.RemoveEntryCache(front.Path)
-		session.poolServiceClient.fsCache.RemoveACLsCache(front.Path)
-
-		removeTarget = removeTarget[1:]
-	}
-
-	srcParentDirPath := irodsfs_common_utils.GetDirname(srcPath)
-	session.poolServiceClient.fsCache.RemoveDirCache(srcParentDirPath)
-	session.poolServiceClient.fsCache.RemoveDirCache(srcPath)
-	session.poolServiceClient.fsCache.RemoveEntryCache(srcPath)
-	session.poolServiceClient.fsCache.RemoveACLsCache(srcPath)
-
-	destParentDirPath := irodsfs_common_utils.GetDirname(destPath)
-	session.poolServiceClient.fsCache.RemoveDirCache(destParentDirPath)
-	session.poolServiceClient.fsCache.RemoveDirCache(destPath)
-	session.poolServiceClient.fsCache.RemoveEntryCache(destPath)
-	session.poolServiceClient.fsCache.RemoveACLsCache(destPath)
+	session.InvalidateCacheForRenameDir(srcPath, destPath)
 
 	return nil
 }
@@ -1381,15 +1327,7 @@ func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath str
 	}
 
 	// remove cache
-	srcParentDirPath := irodsfs_common_utils.GetDirname(srcPath)
-	session.poolServiceClient.fsCache.RemoveDirCache(srcParentDirPath)
-	session.poolServiceClient.fsCache.RemoveEntryCache(srcPath)
-	session.poolServiceClient.fsCache.RemoveACLsCache(srcPath)
-
-	destParentDirPath := irodsfs_common_utils.GetDirname(destPath)
-	session.poolServiceClient.fsCache.RemoveDirCache(destParentDirPath)
-	session.poolServiceClient.fsCache.RemoveEntryCache(destPath)
-	session.poolServiceClient.fsCache.RemoveACLsCache(destPath)
+	session.InvalidateCacheForRenameFile(srcPath, destPath)
 
 	return nil
 }
@@ -1463,10 +1401,7 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 	}
 
 	// remove cache
-	parentDirPath := irodsfs_common_utils.GetDirname(path)
-	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
-	session.poolServiceClient.fsCache.RemoveEntryCache(path)
-	session.poolServiceClient.fsCache.RemoveACLsCache(path)
+	session.InvalidateCacheForCreateFile(path)
 
 	return &PoolServiceFileHandle{
 		id:                 response.FileHandleId,
@@ -1596,9 +1531,8 @@ func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 		}
 	}
 
-	parentDirPath := irodsfs_common_utils.GetDirname(path)
-	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
-	session.poolServiceClient.fsCache.RemoveEntryCache(path)
+	// remove cache
+	session.InvalidateCacheForUpdateFile(path)
 
 	return nil
 }
@@ -1638,6 +1572,130 @@ func (session *PoolServiceSession) RemoveCacheEventHandler(handlerID string) err
 
 	delete(session.cacheEventHandlers, handlerID)
 	return nil
+}
+
+// InvalidateCacheForRemoveFile removes caches for file
+func (session *PoolServiceSession) InvalidateCacheForRemoveFile(path string) {
+	// remove cache
+	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(path)
+	session.poolServiceClient.fsCache.RemoveACLsCache(path)
+}
+
+// InvalidateCacheForCreateFile removes caches for file
+func (session *PoolServiceSession) InvalidateCacheForCreateFile(path string) {
+	// remove cache
+	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(path)
+	session.poolServiceClient.fsCache.RemoveACLsCache(path)
+}
+
+// InvalidateCacheForUpdateFile removes caches for file
+func (session *PoolServiceSession) InvalidateCacheForUpdateFile(path string) {
+	// remove cache
+	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(path)
+	session.poolServiceClient.fsCache.RemoveACLsCache(path)
+}
+
+// InvalidateCacheForRenameFile removes caches for file
+func (session *PoolServiceSession) InvalidateCacheForRenameFile(srcPath string, destPath string) {
+	// remove cache
+	srcParentDirPath := irodsfs_common_utils.GetDirname(srcPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(srcParentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(srcPath)
+	session.poolServiceClient.fsCache.RemoveACLsCache(srcPath)
+
+	destParentDirPath := irodsfs_common_utils.GetDirname(destPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(destParentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(destPath)
+	session.poolServiceClient.fsCache.RemoveACLsCache(destPath)
+}
+
+// InvalidateCacheForRemoveDir removes caches for dir
+func (session *PoolServiceSession) InvalidateCacheForRemoveDir(path string) {
+	// remove cache
+	removeTarget := []*irodsclient_fs.Entry{}
+	dirCache := session.poolServiceClient.fsCache.GetDirCache(path)
+	if dirCache != nil {
+		removeTarget = append(removeTarget, dirCache...)
+	}
+
+	for len(removeTarget) > 0 {
+		front := removeTarget[0]
+
+		if front.Type == irodsclient_fs.DirectoryEntry {
+			frontDirCache := session.poolServiceClient.fsCache.GetDirCache(front.Path)
+			if frontDirCache != nil {
+				removeTarget = append(removeTarget, frontDirCache...)
+			}
+
+			session.poolServiceClient.fsCache.RemoveDirCache(front.Path)
+			session.poolServiceClient.fsCache.RemoveDirEntryACLsCache(front.Path)
+		}
+
+		session.poolServiceClient.fsCache.RemoveEntryCache(front.Path)
+		session.poolServiceClient.fsCache.RemoveACLsCache(front.Path)
+
+		removeTarget = removeTarget[1:]
+	}
+
+	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(path)
+	session.poolServiceClient.fsCache.RemoveACLsCache(path)
+}
+
+// InvalidateCacheForMakeDir removes caches for dir
+func (session *PoolServiceSession) InvalidateCacheForMakeDir(path string) {
+	// remove cache
+	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(path)
+	session.poolServiceClient.fsCache.RemoveACLsCache(path)
+}
+
+// InvalidateCacheForRenameDir removes caches for dir
+func (session *PoolServiceSession) InvalidateCacheForRenameDir(srcPath string, destPath string) {
+	// remove cache
+	removeTarget := []*irodsclient_fs.Entry{}
+	dirCache := session.poolServiceClient.fsCache.GetDirCache(srcPath)
+	if dirCache != nil {
+		removeTarget = append(removeTarget, dirCache...)
+	}
+
+	for len(removeTarget) > 0 {
+		front := removeTarget[0]
+
+		if front.Type == irodsclient_fs.DirectoryEntry {
+			frontDirCache := session.poolServiceClient.fsCache.GetDirCache(front.Path)
+			if frontDirCache != nil {
+				removeTarget = append(removeTarget, frontDirCache...)
+			}
+
+			session.poolServiceClient.fsCache.RemoveDirCache(front.Path)
+		}
+
+		session.poolServiceClient.fsCache.RemoveEntryCache(front.Path)
+		session.poolServiceClient.fsCache.RemoveACLsCache(front.Path)
+
+		removeTarget = removeTarget[1:]
+	}
+
+	srcParentDirPath := irodsfs_common_utils.GetDirname(srcPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(srcParentDirPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(srcPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(srcPath)
+	session.poolServiceClient.fsCache.RemoveACLsCache(srcPath)
+
+	destParentDirPath := irodsfs_common_utils.GetDirname(destPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(destParentDirPath)
+	session.poolServiceClient.fsCache.RemoveDirCache(destPath)
+	session.poolServiceClient.fsCache.RemoveEntryCache(destPath)
+	session.poolServiceClient.fsCache.RemoveACLsCache(destPath)
 }
 
 // PoolServiceFileHandle implements IRODSFSFileHandle

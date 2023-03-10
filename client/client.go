@@ -46,6 +46,7 @@ type PoolServiceSession struct {
 	applicationName   string
 
 	cacheEventHandlers map[string]irodsclient_fs.FilesystemCacheEventHandler
+	loggedIn           bool
 	mutex              sync.RWMutex // mutex to access PoolServiceSession
 }
 
@@ -194,53 +195,62 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 		SessionId: response.SessionId,
 	}
 
-	cacheEventSubscriptionClient, err := client.apiClient.SubscribeCacheEvents(ctx, subscribeRequest)
+	_, err = client.apiClient.SubscribeCacheEvents(ctx, subscribeRequest)
 	if err != nil {
 		logger.Error(err)
 		return nil, statusToError(err)
 	}
 
 	session := &PoolServiceSession{
-		poolServiceClient: client,
-		id:                response.SessionId,
-		account:           account,
-		applicationName:   applicationName,
-
+		poolServiceClient:  client,
+		id:                 response.SessionId,
+		account:            account,
+		applicationName:    applicationName,
+		loggedIn:           true,
 		cacheEventHandlers: map[string]irodsclient_fs.FilesystemCacheEventHandler{},
 		mutex:              sync.RWMutex{},
 	}
 
-	go session.cacheEventHandler(cacheEventSubscriptionClient)
+	go session.cacheEventPuller()
 
 	return session, nil
 }
 
-func (session *PoolServiceSession) cacheEventHandler(eventClient api.PoolAPI_SubscribeCacheEventsClient) {
+func (session *PoolServiceSession) cacheEventPuller() {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"struct":   "PoolServiceSession",
-		"function": "cacheEventHandler",
+		"function": "cacheEventPuller",
 	})
 
-	// keep receiving the message
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
 	for {
-		eventResp := api.CacheEventsResponse{}
-		err := eventClient.RecvMsg(&eventResp)
-		if err != nil {
-			if err == io.EOF {
-				// abort
-				logger.Info("End of stream")
-				return
+		<-ticker.C
+		session.mutex.RLock()
+		if session.loggedIn {
+			ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+
+			request := &api.PullCacheEventsRequest{
+				SessionId: session.id,
 			}
 
-			logger.WithError(err).Error("failed to receive a message, aborting the handler")
-			return
-		}
+			response, err := session.poolServiceClient.apiClient.PullCacheEvents(ctx, request, getLargeReadOption())
+			if err != nil {
+				logger.Error(err)
+			}
 
-		// distribute events to handlers registered
-		session.mutex.RLock()
-		for _, handler := range session.cacheEventHandlers {
-			handler(eventResp.Path, irodsclient_fs.FilesystemCacheEventType(eventResp.EventType))
+			cancel()
+
+			for _, event := range response.Events {
+				for _, handler := range session.cacheEventHandlers {
+					handler(event.Path, irodsclient_fs.FilesystemCacheEventType(event.EventType))
+				}
+			}
+		} else {
+			session.mutex.RUnlock()
+			return // stop here
 		}
 		session.mutex.RUnlock()
 	}
@@ -265,6 +275,7 @@ func (session *PoolServiceSession) Release() {
 
 	session.mutex.Lock()
 	session.cacheEventHandlers = map[string]irodsclient_fs.FilesystemCacheEventHandler{}
+	session.loggedIn = false
 	session.mutex.Unlock()
 
 	_, err := session.poolServiceClient.apiClient.Logout(ctx, request)

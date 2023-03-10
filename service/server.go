@@ -1,6 +1,7 @@
 package service
 
 import (
+	"container/list"
 	"context"
 	"fmt"
 	"io"
@@ -14,12 +15,14 @@ import (
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	log "github.com/sirupsen/logrus"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 const (
-	cacheEntrySizeMax int = 4 * 1024 * 1024 // 4MB
+	cacheEntrySizeMax  int = 4 * 1024 * 1024 // 4MB
+	cacheEventQueueMax int = 100000
 )
 
 // PoolServerConfig is a configuration for Server
@@ -33,7 +36,8 @@ type PoolServerConfig struct {
 type PoolServerCacheEventSubscription struct {
 	sessionID string
 	handlerID string
-	waitGroup sync.WaitGroup
+	eventList list.List // type of api.CacheEvent
+	mutex     sync.Mutex
 }
 
 // PoolServer is a struct for PoolServer
@@ -78,10 +82,6 @@ func (server *PoolServer) Release() {
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	server.mutex.Lock()
-
-	for _, subscription := range server.cacheEventSubscriptions {
-		subscription.waitGroup.Done()
-	}
 
 	server.sessionManager.Release()
 
@@ -176,6 +176,17 @@ func (server *PoolServer) Logout(context context.Context, request *api.LogoutReq
 		// session might be already closed due to timeout, so ignore error
 		logger.WithError(err).Error("failed to logout because the session for id %s is not found, ignoring...", request.SessionId)
 		return &api.Empty{}, nil
+	}
+
+	subscription, ok := server.cacheEventSubscriptions[request.SessionId]
+	if ok {
+		delete(server.cacheEventSubscriptions, request.SessionId)
+
+		promCounterForCacheEventSubscriptions.Dec()
+	}
+
+	if ok && subscription != nil {
+		session.RemovePoolCacheEventHandler(subscription.handlerID)
 	}
 
 	server.sessionManager.ReleaseSession(session.GetID())
@@ -1329,7 +1340,41 @@ func (server *PoolServer) Close(context context.Context, request *api.CloseReque
 	return &api.Empty{}, nil
 }
 
-func (server *PoolServer) SubscribeCacheEvents(request *api.SubscribeCacheEventsRequest, srv api.PoolAPI_SubscribeCacheEventsServer) error {
+func (server *PoolServer) cacheEventHandler(sessionID string, path string, eventType irodsclient_fs.FilesystemCacheEventType) {
+	event := &api.CacheEvent{
+		EventType: string(eventType),
+		Path:      path,
+	}
+
+	server.mutex.RLock()
+	subscription, ok := server.cacheEventSubscriptions[sessionID]
+	if ok {
+		server.mutex.RUnlock()
+
+		subscription.mutex.Lock()
+		defer subscription.mutex.Unlock()
+
+		subscription.eventList.PushBack(event)
+
+		// remove overflows to not maintain too many of them
+		if subscription.eventList.Len() > cacheEventQueueMax {
+			for i := 0; i < subscription.eventList.Len()-cacheEventQueueMax; i++ {
+				front := subscription.eventList.Front()
+				if front == nil {
+					break
+				}
+
+				subscription.eventList.Remove(front)
+			}
+		}
+
+		return
+	}
+
+	server.mutex.RUnlock()
+}
+
+func (server *PoolServer) SubscribeCacheEvents(context context.Context, request *api.SubscribeCacheEventsRequest) (*api.Empty, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"struct":   "PoolServer",
@@ -1346,33 +1391,22 @@ func (server *PoolServer) SubscribeCacheEvents(request *api.SubscribeCacheEvents
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Error(err)
-		return server.errorToStatus(err)
+		return nil, server.errorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
 
 	// subscription
 	cacheEventHandler := func(path string, eventType irodsclient_fs.FilesystemCacheEventType) {
-		response := &api.CacheEventsResponse{
-			EventType: string(eventType),
-			Path:      path,
-		}
-
-		errSend := srv.Send(response)
-		if errSend != nil {
-			logger.WithError(errSend).Errorf("failed to send a response for event type %s, path %s", eventType, path)
-			// continue
-		}
+		server.cacheEventHandler(request.SessionId, path, eventType)
 	}
 	cacheEventHandlerID := session.AddPoolCacheEventHandler(cacheEventHandler)
 
 	subscription := &PoolServerCacheEventSubscription{
 		sessionID: request.SessionId,
 		handlerID: cacheEventHandlerID,
-		waitGroup: sync.WaitGroup{},
+		mutex:     sync.Mutex{},
 	}
-
-	subscription.waitGroup.Add(1)
 
 	server.mutex.Lock()
 
@@ -1382,14 +1416,56 @@ func (server *PoolServer) SubscribeCacheEvents(request *api.SubscribeCacheEvents
 
 	promCounterForCacheEventSubscriptions.Inc()
 
-	// unsubscribed
-	subscription.waitGroup.Wait()
+	return &api.Empty{}, nil
+}
 
-	session.RemovePoolCacheEventHandler(cacheEventHandlerID)
+func (server *PoolServer) PullCacheEvents(context context.Context, request *api.PullCacheEventsRequest) (*api.PullCacheEventsResponse, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolServer",
+		"function": "PullCacheEvents",
+	})
 
-	promCounterForCacheEventSubscriptions.Dec()
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	return nil
+	logger.Infof("PullCacheEvents request from pool session id %s", request.SessionId)
+	defer logger.Infof("PullCacheEvents response to pool session id %s", request.SessionId)
+
+	promCounterForGRPCCalls.Inc()
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		logger.Error(err)
+		return nil, server.errorToStatus(err)
+	}
+
+	session.UpdateLastAccessTime()
+
+	server.mutex.RLock()
+
+	responseEvents := []*api.CacheEvent{}
+	subscription, ok := server.cacheEventSubscriptions[request.SessionId]
+	if ok {
+		subscription.mutex.Lock()
+		for {
+			front := subscription.eventList.Front()
+			if front == nil {
+				break
+			}
+
+			responseEvents = append(responseEvents, front.Value.(*api.CacheEvent))
+			subscription.eventList.Remove(front)
+		}
+		subscription.mutex.Unlock()
+	}
+
+	server.mutex.RUnlock()
+
+	response := &api.PullCacheEventsResponse{
+		Events: responseEvents,
+	}
+
+	return response, nil
 }
 
 func (server *PoolServer) UnsubscribeCacheEvents(context context.Context, request *api.UnsubscribeCacheEventsRequest) (*api.Empty, error) {
@@ -1419,11 +1495,12 @@ func (server *PoolServer) UnsubscribeCacheEvents(context context.Context, reques
 	subscription, ok := server.cacheEventSubscriptions[request.SessionId]
 	if ok {
 		delete(server.cacheEventSubscriptions, request.SessionId)
+
+		promCounterForCacheEventSubscriptions.Dec()
 	}
 	server.mutex.Unlock()
 
-	if ok {
-		subscription.waitGroup.Done()
+	if ok && subscription != nil {
 		session.RemovePoolCacheEventHandler(subscription.handlerID)
 	}
 

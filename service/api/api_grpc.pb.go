@@ -52,7 +52,8 @@ type PoolAPIClient interface {
 	Flush(ctx context.Context, in *FlushRequest, opts ...grpc.CallOption) (*Empty, error)
 	Close(ctx context.Context, in *CloseRequest, opts ...grpc.CallOption) (*Empty, error)
 	// cache
-	SubscribeCacheEvents(ctx context.Context, in *SubscribeCacheEventsRequest, opts ...grpc.CallOption) (PoolAPI_SubscribeCacheEventsClient, error)
+	SubscribeCacheEvents(ctx context.Context, in *SubscribeCacheEventsRequest, opts ...grpc.CallOption) (*Empty, error)
+	PullCacheEvents(ctx context.Context, in *PullCacheEventsRequest, opts ...grpc.CallOption) (*PullCacheEventsResponse, error)
 	UnsubscribeCacheEvents(ctx context.Context, in *UnsubscribeCacheEventsRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
@@ -316,36 +317,22 @@ func (c *poolAPIClient) Close(ctx context.Context, in *CloseRequest, opts ...grp
 	return out, nil
 }
 
-func (c *poolAPIClient) SubscribeCacheEvents(ctx context.Context, in *SubscribeCacheEventsRequest, opts ...grpc.CallOption) (PoolAPI_SubscribeCacheEventsClient, error) {
-	stream, err := c.cc.NewStream(ctx, &PoolAPI_ServiceDesc.Streams[0], "/api.PoolAPI/SubscribeCacheEvents", opts...)
+func (c *poolAPIClient) SubscribeCacheEvents(ctx context.Context, in *SubscribeCacheEventsRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/SubscribeCacheEvents", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &poolAPISubscribeCacheEventsClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
+	return out, nil
 }
 
-type PoolAPI_SubscribeCacheEventsClient interface {
-	Recv() (*CacheEventsResponse, error)
-	grpc.ClientStream
-}
-
-type poolAPISubscribeCacheEventsClient struct {
-	grpc.ClientStream
-}
-
-func (x *poolAPISubscribeCacheEventsClient) Recv() (*CacheEventsResponse, error) {
-	m := new(CacheEventsResponse)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
+func (c *poolAPIClient) PullCacheEvents(ctx context.Context, in *PullCacheEventsRequest, opts ...grpc.CallOption) (*PullCacheEventsResponse, error) {
+	out := new(PullCacheEventsResponse)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/PullCacheEvents", in, out, opts...)
+	if err != nil {
 		return nil, err
 	}
-	return m, nil
+	return out, nil
 }
 
 func (c *poolAPIClient) UnsubscribeCacheEvents(ctx context.Context, in *UnsubscribeCacheEventsRequest, opts ...grpc.CallOption) (*Empty, error) {
@@ -391,7 +378,8 @@ type PoolAPIServer interface {
 	Flush(context.Context, *FlushRequest) (*Empty, error)
 	Close(context.Context, *CloseRequest) (*Empty, error)
 	// cache
-	SubscribeCacheEvents(*SubscribeCacheEventsRequest, PoolAPI_SubscribeCacheEventsServer) error
+	SubscribeCacheEvents(context.Context, *SubscribeCacheEventsRequest) (*Empty, error)
+	PullCacheEvents(context.Context, *PullCacheEventsRequest) (*PullCacheEventsResponse, error)
 	UnsubscribeCacheEvents(context.Context, *UnsubscribeCacheEventsRequest) (*Empty, error)
 	mustEmbedUnimplementedPoolAPIServer()
 }
@@ -484,8 +472,11 @@ func (UnimplementedPoolAPIServer) Flush(context.Context, *FlushRequest) (*Empty,
 func (UnimplementedPoolAPIServer) Close(context.Context, *CloseRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Close not implemented")
 }
-func (UnimplementedPoolAPIServer) SubscribeCacheEvents(*SubscribeCacheEventsRequest, PoolAPI_SubscribeCacheEventsServer) error {
-	return status.Errorf(codes.Unimplemented, "method SubscribeCacheEvents not implemented")
+func (UnimplementedPoolAPIServer) SubscribeCacheEvents(context.Context, *SubscribeCacheEventsRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SubscribeCacheEvents not implemented")
+}
+func (UnimplementedPoolAPIServer) PullCacheEvents(context.Context, *PullCacheEventsRequest) (*PullCacheEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PullCacheEvents not implemented")
 }
 func (UnimplementedPoolAPIServer) UnsubscribeCacheEvents(context.Context, *UnsubscribeCacheEventsRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UnsubscribeCacheEvents not implemented")
@@ -1007,25 +998,40 @@ func _PoolAPI_Close_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PoolAPI_SubscribeCacheEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(SubscribeCacheEventsRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
+func _PoolAPI_SubscribeCacheEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubscribeCacheEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
 	}
-	return srv.(PoolAPIServer).SubscribeCacheEvents(m, &poolAPISubscribeCacheEventsServer{stream})
+	if interceptor == nil {
+		return srv.(PoolAPIServer).SubscribeCacheEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.PoolAPI/SubscribeCacheEvents",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).SubscribeCacheEvents(ctx, req.(*SubscribeCacheEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
-type PoolAPI_SubscribeCacheEventsServer interface {
-	Send(*CacheEventsResponse) error
-	grpc.ServerStream
-}
-
-type poolAPISubscribeCacheEventsServer struct {
-	grpc.ServerStream
-}
-
-func (x *poolAPISubscribeCacheEventsServer) Send(m *CacheEventsResponse) error {
-	return x.ServerStream.SendMsg(m)
+func _PoolAPI_PullCacheEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PullCacheEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).PullCacheEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.PoolAPI/PullCacheEvents",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).PullCacheEvents(ctx, req.(*PullCacheEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _PoolAPI_UnsubscribeCacheEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -1166,16 +1172,18 @@ var PoolAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _PoolAPI_Close_Handler,
 		},
 		{
+			MethodName: "SubscribeCacheEvents",
+			Handler:    _PoolAPI_SubscribeCacheEvents_Handler,
+		},
+		{
+			MethodName: "PullCacheEvents",
+			Handler:    _PoolAPI_PullCacheEvents_Handler,
+		},
+		{
 			MethodName: "UnsubscribeCacheEvents",
 			Handler:    _PoolAPI_UnsubscribeCacheEvents_Handler,
 		},
 	},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "SubscribeCacheEvents",
-			Handler:       _PoolAPI_SubscribeCacheEvents_Handler,
-			ServerStreams: true,
-		},
-	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "service/api/api.proto",
 }

@@ -58,6 +58,11 @@ message Metadata {
 	string unit = 4;
 }
 
+message CacheEvent {
+	string event_type = 1;
+	string path = 2;
+}
+
 message LoginRequest{
 	Account account = 1;
 	string application_name = 2;
@@ -285,13 +290,17 @@ message SubscribeCacheEventsRequest {
 	string session_id = 1;
 }
 
-message UnsubscribeCacheEventsRequest {
+message PullCacheEventsRequest {
 	string session_id = 1;
 }
 
-message CacheEventsResponse {
-	string event_type = 1;
-	string path = 2;
+message PullCacheEventsResponse {
+	string session_id = 1;
+	repeated CacheEvent events = 2;
+}
+
+message UnsubscribeCacheEventsRequest {
+	string session_id = 1;
 }
 
 service PoolAPI {
@@ -328,7 +337,8 @@ service PoolAPI {
 	rpc Close(CloseRequest) returns (Empty) {}
 
 	// cache 
-	rpc SubscribeCacheEvents(SubscribeCacheEventsRequest) returns (stream CacheEventsResponse) {}
+	rpc SubscribeCacheEvents(SubscribeCacheEventsRequest) returns (Empty) {}
+	rpc PullCacheEvents(PullCacheEventsRequest) returns (PullCacheEventsResponse) {}
 	rpc UnsubscribeCacheEvents(UnsubscribeCacheEventsRequest) returns (Empty) {}
 
 }

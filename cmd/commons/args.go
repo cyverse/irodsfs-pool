@@ -159,7 +159,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 
 	err := config.MakeLogDir()
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return nil, nil, false, err // stop here
 	}
 

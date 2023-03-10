@@ -166,7 +166,7 @@ func (handle *PoolFileHandle) Release() error {
 	return nil
 }
 
-func (handle *PoolFileHandle) AddEpectedFileHandlesForPrefetching(count int) {
+func (handle *PoolFileHandle) AddExpectedFileHandlesForPrefetching(count int) {
 	handle.fileHandlesWaiter.Add(count)
 }
 

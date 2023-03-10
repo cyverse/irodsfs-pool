@@ -137,7 +137,8 @@ func (manager *PoolSessionManager) GetSessionAndIRODSFSClientInstance(sessionID 
 		instanceID := session.GetIRODSFSClientInstanceID()
 		instance, err := manager.irodsFsClientInstanceManager.GetInstance(instanceID)
 		if err != nil {
-			logger.WithError(err).Errorf("failed to find the irods fs client instance for instance id %s and session id %s", instanceID, sessionID)
+			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %s and session id %s: %w", instanceID, sessionID, err)
+			logger.Error("%+v", instanceErr)
 			return nil, nil, err
 		}
 
@@ -163,7 +164,8 @@ func (manager *PoolSessionManager) GetSessionAndIRODSFSClient(sessionID string) 
 		instanceID := session.GetIRODSFSClientInstanceID()
 		instance, err := manager.irodsFsClientInstanceManager.GetInstance(instanceID)
 		if err != nil {
-			logger.WithError(err).Errorf("failed to find the irods fs client instance for instance id %s and session id %s", instanceID, sessionID)
+			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %s and session id %s: %w", instanceID, sessionID, err)
+			logger.Errorf("%+v", instanceErr)
 			return nil, nil, err
 		}
 
@@ -257,7 +259,8 @@ func (manager *PoolSessionManager) GetIRODSFSClientInstanceForSession(sessionID 
 		instanceID := session.GetIRODSFSClientInstanceID()
 		instance, err := manager.irodsFsClientInstanceManager.GetInstance(instanceID)
 		if err != nil {
-			logger.WithError(err).Errorf("failed to find the irods fs client instance for instance id %s and session id %s", instanceID, sessionID)
+			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %s and session id %s: %w", instanceID, sessionID, err)
+			logger.Errorf("%+v", instanceErr)
 			return nil, err
 		}
 

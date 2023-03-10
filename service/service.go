@@ -95,13 +95,13 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 	poolServerConfig := &PoolServerConfig{
 		CacheSizeMax:         config.DataCacheSizeMax,
 		CacheRootPath:        config.GetDataCacheRootDirPath(),
-		TempRootPath:         config.GetTempRootDirPath(),
 		CacheTimeoutSettings: config.CacheTimeoutSettings,
 	}
 
 	poolServer, err := NewPoolServer(poolServerConfig)
 	if err != nil {
-		logger.WithError(err).Error("failed to create a new pool server")
+		poolErr := xerrors.Errorf("failed to create a new pool server: %w", err)
+		logger.Errorf("%+v", poolErr)
 		return nil, err
 	}
 
@@ -169,7 +169,7 @@ func (svc *PoolService) Start() error {
 	var listener net.Listener
 	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.GetServiceEndpoint())
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return err
 	}
 

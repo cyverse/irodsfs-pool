@@ -33,13 +33,13 @@ func main() {
 	// Read account configuration from YAML file
 	yaml, err := os.ReadFile("account.yml")
 	if err != nil {
-		logger.Errorf("err - %v", err)
+		logger.Errorf("%+v", err)
 		panic(err)
 	}
 
 	account, err := types.CreateIRODSAccountFromYAML(yaml)
 	if err != nil {
-		logger.Errorf("err - %v", err)
+		logger.Errorf("%+v", err)
 		panic(err)
 	}
 
@@ -48,7 +48,7 @@ func main() {
 	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, "test_client_1")
 	err = poolClient.Connect()
 	if err != nil {
-		logger.Errorf("err - %v", err)
+		logger.Errorf("%+v", err)
 		panic(err)
 	}
 
@@ -57,14 +57,14 @@ func main() {
 	appName := "list_dir"
 	poolSession, err := poolClient.NewSession(account, appName)
 	if err != nil {
-		logger.Errorf("err - %v", err)
+		logger.Errorf("%+v", err)
 		panic(err)
 	}
 	defer poolSession.Release()
 
 	entries, err := poolSession.List(inputPath)
 	if err != nil {
-		logger.Errorf("err - %v", err)
+		logger.Errorf("%+v", err)
 		panic(err)
 	}
 

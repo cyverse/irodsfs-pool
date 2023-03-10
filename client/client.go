@@ -47,6 +47,7 @@ type PoolServiceSession struct {
 
 	cacheEventHandlers map[string]irodsclient_fs.FilesystemCacheEventHandler
 	loggedIn           bool
+	cacheEventPullWait sync.WaitGroup
 	mutex              sync.RWMutex // mutex to access PoolServiceSession
 }
 
@@ -186,7 +187,7 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 
 	response, err := client.apiClient.Login(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return nil, statusToError(err)
 	}
 
@@ -197,7 +198,7 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 
 	_, err = client.apiClient.SubscribeCacheEvents(ctx, subscribeRequest)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return nil, statusToError(err)
 	}
 
@@ -207,6 +208,7 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 		account:            account,
 		applicationName:    applicationName,
 		loggedIn:           true,
+		cacheEventPullWait: sync.WaitGroup{},
 		cacheEventHandlers: map[string]irodsclient_fs.FilesystemCacheEventHandler{},
 		mutex:              sync.RWMutex{},
 	}
@@ -232,6 +234,8 @@ func (session *PoolServiceSession) cacheEventPuller() {
 		if session.loggedIn {
 			session.mutex.RUnlock()
 
+			session.cacheEventPullWait.Add(1)
+
 			ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 
 			request := &api.PullCacheEventsRequest{
@@ -240,29 +244,37 @@ func (session *PoolServiceSession) cacheEventPuller() {
 
 			response, err := session.poolServiceClient.apiClient.PullCacheEvents(ctx, request, getLargeReadOption())
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 			}
 
 			cancel()
 
 			for _, event := range response.Events {
-				switch irodsclient_fs.FilesystemCacheEventType(event.EventType) {
-				case irodsclient_fs.FilesystemCacheFileCreateEvent:
-					session.InvalidateCacheForCreateFile(event.Path)
-				case irodsclient_fs.FilesystemCacheFileRemoveEvent:
-					session.InvalidateCacheForRemoveFile(event.Path)
-				case irodsclient_fs.FilesystemCacheFileUpdateEvent:
-					session.InvalidateCacheForUpdateFile(event.Path)
-				case irodsclient_fs.FilesystemCacheDirCreateEvent:
-					session.InvalidateCacheForMakeDir(event.Path)
-				case irodsclient_fs.FilesystemCacheDirRemoveEvent:
-					session.InvalidateCacheForRemoveDir(event.Path)
-				}
+				// Don't do this yet.
+				// this will double invalidate cache unnecessarily
+				// TODO: add timestamp for the event creation
+				// then remove caches if cache creation time is older than the new event creation time
+				/*
+					switch irodsclient_fs.FilesystemCacheEventType(event.EventType) {
+					case irodsclient_fs.FilesystemCacheFileCreateEvent:
+						session.InvalidateCacheForCreateFile(event.Path)
+					case irodsclient_fs.FilesystemCacheFileRemoveEvent:
+						session.InvalidateCacheForRemoveFile(event.Path)
+					case irodsclient_fs.FilesystemCacheFileUpdateEvent:
+						session.InvalidateCacheForUpdateFile(event.Path)
+					case irodsclient_fs.FilesystemCacheDirCreateEvent:
+						session.InvalidateCacheForMakeDir(event.Path)
+					case irodsclient_fs.FilesystemCacheDirRemoveEvent:
+						session.InvalidateCacheForRemoveDir(event.Path)
+					}
+				*/
 
 				for _, handler := range session.cacheEventHandlers {
 					handler(event.Path, irodsclient_fs.FilesystemCacheEventType(event.EventType))
 				}
 			}
+
+			session.cacheEventPullWait.Done()
 		} else {
 			session.mutex.RUnlock()
 			return // stop here
@@ -292,9 +304,11 @@ func (session *PoolServiceSession) Release() {
 	session.loggedIn = false
 	session.mutex.Unlock()
 
+	session.cacheEventPullWait.Wait()
+
 	_, err := session.poolServiceClient.apiClient.Logout(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return
 	}
 }
@@ -313,7 +327,7 @@ func (session *PoolServiceSession) Relogin() error {
 
 	newSession, err := client.NewSession(session.account, session.applicationName)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return err
 	}
 
@@ -373,20 +387,20 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 
 	response, err := session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, err2
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, statusToError(err)
 			}
 		} else {
@@ -397,13 +411,13 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 	for _, entry := range response.Entries {
 		createTime, err := irodsfs_common_utils.ParseTime(entry.CreateTime)
 		if err != nil {
-			logger.Error(err)
+			logger.Errorf("%+v", err)
 			return nil, err
 		}
 
 		modifyTime, err := irodsfs_common_utils.ParseTime(entry.ModifyTime)
 		if err != nil {
-			logger.Error(err)
+			logger.Errorf("%+v", err)
 			return nil, err
 		}
 
@@ -459,20 +473,20 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 
 	response, err := session.poolServiceClient.apiClient.Stat(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, err2
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.Stat(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, statusToError(err)
 			}
 		} else {
@@ -482,13 +496,13 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 
 	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return nil, err
 	}
 
 	modifyTime, err := irodsfs_common_utils.ParseTime(response.Entry.ModifyTime)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return nil, err
 	}
 
@@ -533,20 +547,20 @@ func (session *PoolServiceSession) ListXattr(path string) ([]*irodsclient_types.
 
 	response, err := session.poolServiceClient.apiClient.ListXattr(ctx, request, getLargeReadOption())
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, err2
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.ListXattr(ctx, request, getLargeReadOption())
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, statusToError(err)
 			}
 		} else {
@@ -589,7 +603,7 @@ func (session *PoolServiceSession) GetXattr(path string, name string) (*irodscli
 
 	response, err := session.poolServiceClient.apiClient.GetXattr(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		st, ok := status.FromError(err)
 		if ok {
@@ -603,14 +617,14 @@ func (session *PoolServiceSession) GetXattr(path string, name string) (*irodscli
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, err2
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.GetXattr(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 
 				st, ok := status.FromError(err)
 				if ok {
@@ -659,20 +673,20 @@ func (session *PoolServiceSession) SetXattr(path string, name string, value stri
 
 	_, err := session.poolServiceClient.apiClient.SetXattr(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return err2
 			}
 
 			// retry
 			_, err = session.poolServiceClient.apiClient.SetXattr(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return statusToError(err)
 			}
 		} else {
@@ -704,20 +718,20 @@ func (session *PoolServiceSession) RemoveXattr(path string, name string) error {
 
 	_, err := session.poolServiceClient.apiClient.RemoveXattr(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return err2
 			}
 
 			// retry
 			_, err := session.poolServiceClient.apiClient.RemoveXattr(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return statusToError(err)
 			}
 		} else {
@@ -755,20 +769,20 @@ func (session *PoolServiceSession) ExistsDir(path string) bool {
 
 	response, err := session.poolServiceClient.apiClient.ExistsDir(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return false
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.ExistsDir(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return false
 			}
 		} else {
@@ -806,20 +820,20 @@ func (session *PoolServiceSession) ExistsFile(path string) bool {
 
 	response, err := session.poolServiceClient.apiClient.ExistsFile(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return false
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.ExistsFile(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return false
 			}
 		} else {
@@ -850,20 +864,20 @@ func (session *PoolServiceSession) ListUserGroups(user string) ([]*irodsclient_t
 
 	response, err := session.poolServiceClient.apiClient.ListUserGroups(ctx, request, getLargeReadOption())
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, err2
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.ListUserGroups(ctx, request, getLargeReadOption())
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, statusToError(err)
 			}
 		} else {
@@ -915,20 +929,20 @@ func (session *PoolServiceSession) ListDirACLs(path string) ([]*irodsclient_type
 
 	response, err := session.poolServiceClient.apiClient.ListDirACLs(ctx, request, getLargeReadOption())
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, err2
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.ListDirACLs(ctx, request, getLargeReadOption())
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, statusToError(err)
 			}
 		} else {
@@ -983,20 +997,20 @@ func (session *PoolServiceSession) ListFileACLs(path string) ([]*irodsclient_typ
 
 	response, err := session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, err2
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, statusToError(err)
 			}
 		} else {
@@ -1049,20 +1063,20 @@ func (session *PoolServiceSession) ListACLsForEntries(path string) ([]*irodsclie
 
 	response, err := session.poolServiceClient.apiClient.ListACLsForEntries(ctx, request, getLargeReadOption())
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, err2
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.ListACLsForEntries(ctx, request, getLargeReadOption())
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, statusToError(err)
 			}
 		} else {
@@ -1112,20 +1126,20 @@ func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
 
 	_, err := session.poolServiceClient.apiClient.RemoveFile(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return err2
 			}
 
 			// retry
 			_, err = session.poolServiceClient.apiClient.RemoveFile(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return statusToError(err)
 			}
 		} else {
@@ -1161,20 +1175,20 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 
 	_, err := session.poolServiceClient.apiClient.RemoveDir(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return err2
 			}
 
 			// retry
 			_, err := session.poolServiceClient.apiClient.RemoveDir(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return statusToError(err)
 			}
 		} else {
@@ -1209,20 +1223,20 @@ func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
 
 	_, err := session.poolServiceClient.apiClient.MakeDir(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return err2
 			}
 
 			// retry
 			_, err = session.poolServiceClient.apiClient.MakeDir(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return statusToError(err)
 			}
 		} else {
@@ -1257,20 +1271,20 @@ func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath strin
 
 	_, err := session.poolServiceClient.apiClient.RenameDirToDir(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return err2
 			}
 
 			// retry
 			_, err := session.poolServiceClient.apiClient.RenameDirToDir(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return statusToError(err)
 			}
 		} else {
@@ -1305,20 +1319,20 @@ func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath str
 
 	_, err := session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return err2
 			}
 
 			// retry
 			_, err = session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return statusToError(err)
 			}
 		} else {
@@ -1354,20 +1368,20 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 
 	response, err := session.poolServiceClient.apiClient.CreateFile(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, err2
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.CreateFile(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, statusToError(err)
 			}
 		} else {
@@ -1377,13 +1391,13 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 
 	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return nil, err
 	}
 
 	modifyTime, err := irodsfs_common_utils.ParseTime(response.Entry.ModifyTime)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return nil, err
 	}
 
@@ -1434,20 +1448,20 @@ func (session *PoolServiceSession) OpenFile(path string, resource string, mode s
 
 	response, err := session.poolServiceClient.apiClient.OpenFile(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, err2
 			}
 
 			// retry
 			response, err = session.poolServiceClient.apiClient.OpenFile(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return nil, statusToError(err)
 			}
 		} else {
@@ -1457,13 +1471,13 @@ func (session *PoolServiceSession) OpenFile(path string, resource string, mode s
 
 	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return nil, err
 	}
 
 	modifyTime, err := irodsfs_common_utils.ParseTime(response.Entry.ModifyTime)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return nil, err
 	}
 
@@ -1510,20 +1524,20 @@ func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 
 	_, err := session.poolServiceClient.apiClient.TruncateFile(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 
 		if isReloginRequiredError(err) {
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return err2
 			}
 
 			// retry
 			_, err = session.poolServiceClient.apiClient.TruncateFile(ctx, request)
 			if err != nil {
-				logger.Error(err)
+				logger.Errorf("%+v", err)
 				return statusToError(err)
 			}
 		} else {
@@ -1742,7 +1756,7 @@ func (handle *PoolServiceFileHandle) GetOffset() int64 {
 
 	response, err := handle.poolServiceClient.apiClient.GetOffset(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return -1
 	}
 
@@ -1789,7 +1803,7 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 
 		response, err := handle.poolServiceClient.apiClient.ReadAt(ctx, request, getLargeReadOption())
 		if err != nil {
-			logger.Error(err)
+			logger.Errorf("%+v", err)
 			return 0, statusToError(err)
 		}
 
@@ -1860,7 +1874,7 @@ func (handle *PoolServiceFileHandle) WriteAt(data []byte, offset int64) (int, er
 		_, err := handle.poolServiceClient.apiClient.WriteAt(ctx, request, getLargeWriteOption())
 		svcErr := statusToError(err)
 		if err != nil {
-			logger.Error(err)
+			logger.Errorf("%+v", err)
 			return 0, svcErr
 		}
 
@@ -1893,7 +1907,7 @@ func (handle *PoolServiceFileHandle) Truncate(size int64) error {
 
 	_, err := handle.poolServiceClient.apiClient.Truncate(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return statusToError(err)
 	}
 
@@ -1920,7 +1934,7 @@ func (handle *PoolServiceFileHandle) Flush() error {
 
 	_, err := handle.poolServiceClient.apiClient.Flush(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return statusToError(err)
 	}
 
@@ -1951,7 +1965,7 @@ func (handle *PoolServiceFileHandle) Close() error {
 
 	_, err := handle.poolServiceClient.apiClient.Close(ctx, request)
 	if err != nil {
-		logger.Error(err)
+		logger.Errorf("%+v", err)
 		return statusToError(err)
 	}
 

@@ -14,6 +14,7 @@ import (
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/xerrors"
 )
 
 // IRODSFSClientInstanceManager manages IRODSFSClientInstance
@@ -77,7 +78,8 @@ func (manager *IRODSFSClientInstanceManager) AddPoolSession(account *api.Account
 		// new irods fs client instance
 		instance, err := newIRODSFSClientInstance(instanceID, account, appName, manager.config.CacheTimeoutSettings)
 		if err != nil {
-			logger.WithError(err).Error("failed to create a new irods fs client instance")
+			instanceErr := xerrors.Errorf("failed to create a new irods fs client instance: %w", err)
+			logger.Errorf("%+v", instanceErr)
 			return "", err
 		}
 

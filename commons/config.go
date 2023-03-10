@@ -114,11 +114,6 @@ func (config *Config) GetServiceEndpoint() string {
 	return fmt.Sprintf("unix://%s/comm.sock", config.DataRootPath)
 }
 
-func (config *Config) GetTempRootDirPath() string {
-	dirname := fmt.Sprintf("%s/temp", config.InstanceID)
-	return path.Join(config.DataRootPath, dirname)
-}
-
 func (config *Config) GetDataCacheRootDirPath() string {
 	dirname := fmt.Sprintf("%s/cache", config.InstanceID)
 	return path.Join(config.DataRootPath, dirname)
@@ -142,14 +137,8 @@ func (config *Config) MakeLogDir() error {
 
 // MakeWorkDirs makes dirs required
 func (config *Config) MakeWorkDirs() error {
-	tempDirPath := config.GetTempRootDirPath()
-	err := config.makeDir(tempDirPath)
-	if err != nil {
-		return err
-	}
-
 	cacheDirPath := config.GetDataCacheRootDirPath()
-	err = config.makeDir(cacheDirPath)
+	err := config.makeDir(cacheDirPath)
 	if err != nil {
 		return err
 	}
@@ -171,14 +160,8 @@ func (config *Config) MakeWorkDirs() error {
 
 // CleanWorkDirs cleans dirs used
 func (config *Config) CleanWorkDirs() error {
-	tempDirPath := config.GetTempRootDirPath()
-	err := config.removeDir(tempDirPath)
-	if err != nil {
-		return err
-	}
-
 	cacheDirPath := config.GetDataCacheRootDirPath()
-	err = config.removeDir(cacheDirPath)
+	err := config.removeDir(cacheDirPath)
 	if err != nil {
 		return err
 	}
@@ -216,13 +199,13 @@ func (config *Config) makeDir(path string) error {
 			// make
 			mkdirErr := os.MkdirAll(path, 0775)
 			if mkdirErr != nil {
-				return xerrors.Errorf("making a dir (%s) error - %v", path, mkdirErr)
+				return xerrors.Errorf("making a dir (%s) error: %w", path, mkdirErr)
 			}
 
 			return nil
 		}
 
-		return xerrors.Errorf("stating a dir (%s) error - %v", path, err)
+		return xerrors.Errorf("stating a dir (%s) error: %w", path, err)
 	}
 
 	if !dirInfo.IsDir() {
@@ -252,14 +235,14 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 	_, err := os.Stat(endpoint)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return xerrors.Errorf("service unix socket file (%s) error - %v", endpoint, err)
+			return xerrors.Errorf("service unix socket file (%s) error: %w", endpoint, err)
 		}
 	} else {
 		// file exists
 		// remove
 		err2 := os.Remove(endpoint)
 		if err2 != nil {
-			return xerrors.Errorf("failed to remove the existing unix socket file (%s) - %v", endpoint, err2)
+			return xerrors.Errorf("failed to remove the existing unix socket file (%s): %w", endpoint, err2)
 		}
 	}
 
@@ -269,11 +252,11 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 		if os.IsNotExist(err) {
 			err2 := os.MkdirAll(parentDir, os.FileMode(0777))
 			if err2 != nil {
-				return xerrors.Errorf("failed to make a directory for unix socket (%s)", parentDir)
+				return xerrors.Errorf("failed to make a directory for unix socket (%s): %w", parentDir, err2)
 			}
 			// ok - fall
 		} else {
-			return xerrors.Errorf("unix socket directory (%s) error - %v", parentDir, err)
+			return xerrors.Errorf("unix socket directory (%s) error: %w", parentDir, err)
 		}
 	} else {
 		unixSocketDirPerm := unixSocketDirInfo.Mode().Perm()

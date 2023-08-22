@@ -138,7 +138,7 @@ func (manager *PoolSessionManager) GetSessionAndIRODSFSClientInstance(sessionID 
 		instance, err := manager.irodsFsClientInstanceManager.GetInstance(instanceID)
 		if err != nil {
 			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %s and session id %s: %w", instanceID, sessionID, err)
-			logger.Error("%+v", instanceErr)
+			logger.Errorf("%+v", instanceErr)
 			return nil, nil, err
 		}
 
@@ -397,7 +397,7 @@ func (session *PoolSession) GetPoolFileHandle(poolFileHandleID string) (*PoolFil
 		return poolFileHandle, nil
 	}
 
-	return nil, NewFileHandleNotFoundErrorf("failed to find the pool file handle for handle id %s", poolFileHandleID)
+	return nil, xerrors.Errorf("failed to find the pool file handle for handle id %s: %w", poolFileHandleID, NewFileHandleNotFoundError())
 }
 
 func (session *PoolSession) handleCacheEvent(path string, eventType irodsclient_fs.FilesystemCacheEventType) {

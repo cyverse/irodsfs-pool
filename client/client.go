@@ -138,10 +138,10 @@ func statusToError(err error) error {
 	if ok {
 		switch st.Code() {
 		case codes.NotFound:
-			return irodsclient_types.NewFileNotFoundError(st.Message())
+			return xerrors.Errorf("%s: %w", st.Message(), irodsclient_types.NewFileNotFoundError())
 		case codes.AlreadyExists:
 			// there's no matching error type for not empty
-			return irodsclient_types.NewCollectionNotEmptyError(st.Message())
+			return xerrors.Errorf("%s: %w", st.Message(), irodsclient_types.NewCollectionNotEmptyError())
 		case codes.Internal:
 			return xerrors.Errorf("internal error: %w", err)
 		default:
@@ -1884,6 +1884,89 @@ func (handle *PoolServiceFileHandle) WriteAt(data []byte, offset int64) (int, er
 	}
 
 	return totalWriteLength, nil
+}
+
+// Lock locks iRODS data object
+func (handle *PoolServiceFileHandle) Lock(wait bool) error {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceFileHandle",
+		"function": "Lock",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.LockRequest{
+		SessionId:    handle.poolServiceSession.id,
+		FileHandleId: handle.id,
+		Wait:         wait,
+	}
+
+	_, err := handle.poolServiceClient.apiClient.Lock(ctx, request)
+	if err != nil {
+		logger.Errorf("%+v", err)
+		return statusToError(err)
+	}
+
+	return nil
+}
+
+// RLock locks iRODS data object with read lock
+func (handle *PoolServiceFileHandle) RLock(wait bool) error {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceFileHandle",
+		"function": "RLock",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.LockRequest{
+		SessionId:    handle.poolServiceSession.id,
+		FileHandleId: handle.id,
+		Wait:         wait,
+	}
+
+	_, err := handle.poolServiceClient.apiClient.RLock(ctx, request)
+	if err != nil {
+		logger.Errorf("%+v", err)
+		return statusToError(err)
+	}
+
+	return nil
+}
+
+// Unlock unlocks iRODS data object with read lock
+func (handle *PoolServiceFileHandle) Unlock() error {
+	logger := log.WithFields(log.Fields{
+		"package":  "client",
+		"struct":   "PoolServiceFileHandle",
+		"function": "Unlock",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.UnlockRequest{
+		SessionId:    handle.poolServiceSession.id,
+		FileHandleId: handle.id,
+	}
+
+	_, err := handle.poolServiceClient.apiClient.Unlock(ctx, request)
+	if err != nil {
+		logger.Errorf("%+v", err)
+		return statusToError(err)
+	}
+
+	return nil
 }
 
 // Truncate truncates iRODS data object

@@ -9,6 +9,7 @@ import (
 var (
 	fileHandleNotFoundError            error = xerrors.New("file handle not found")
 	irodsFsClientInstanceNotFoundError error = xerrors.New("iRODS FS Client Instance not found")
+	sessionNotFoundError               error = xerrors.New("session not found")
 )
 
 // NewFileHandleNotFoundError creates an error for file handle not found error
@@ -29,4 +30,14 @@ func NewIrodsFsClientInstanceNotFoundError() error {
 // IsIrodsFsClientInstanceNotFoundError evaluates if the given error is irods fs client instance not found error
 func IsIrodsFsClientInstanceNotFoundError(err error) bool {
 	return errors.Is(err, irodsFsClientInstanceNotFoundError)
+}
+
+// NewSessionNotFoundError creates an error for session not found error
+func NewSessionNotFoundError() error {
+	return sessionNotFoundError
+}
+
+// IsSessionNotFoundError evaluates if the given error is session not found error
+func IsSessionNotFoundError(err error) bool {
+	return errors.Is(err, sessionNotFoundError)
 }

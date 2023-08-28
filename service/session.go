@@ -118,7 +118,7 @@ func (manager *PoolSessionManager) GetSession(sessionID string) (*PoolSession, e
 		return session, nil
 	}
 
-	return nil, NewSessionNotFoundErrorf("failed to find the pool session for id %s", sessionID)
+	return nil, xerrors.Errorf("failed to find the pool session for id %s: %w", sessionID, NewSessionNotFoundError())
 }
 
 func (manager *PoolSessionManager) GetSessionAndIRODSFSClientInstance(sessionID string) (*PoolSession, *IRODSFSClientInstance, error) {
@@ -145,7 +145,7 @@ func (manager *PoolSessionManager) GetSessionAndIRODSFSClientInstance(sessionID 
 		return session, instance, nil
 	}
 
-	return nil, nil, NewSessionNotFoundErrorf("failed to find the pool session for id %s", sessionID)
+	return nil, nil, xerrors.Errorf("failed to find the pool session for id %s: %w", sessionID, NewSessionNotFoundError())
 }
 
 func (manager *PoolSessionManager) GetSessionAndIRODSFSClient(sessionID string) (*PoolSession, irodsfs_common_irods.IRODSFSClient, error) {
@@ -173,7 +173,7 @@ func (manager *PoolSessionManager) GetSessionAndIRODSFSClient(sessionID string) 
 		return session, fsClient, nil
 	}
 
-	return nil, nil, NewSessionNotFoundErrorf("failed to find the pool session for id %s", sessionID)
+	return nil, nil, xerrors.Errorf("failed to find the pool session for id %s: %w", sessionID, NewSessionNotFoundError())
 }
 
 func (manager *PoolSessionManager) GetSessions() []*PoolSession {
@@ -267,7 +267,7 @@ func (manager *PoolSessionManager) GetIRODSFSClientInstanceForSession(sessionID 
 		return instance, nil
 	}
 
-	return nil, NewSessionNotFoundErrorf("failed to find the session for session id %s", sessionID)
+	return nil, xerrors.Errorf("failed to find the pool session for id %s: %w", sessionID, NewSessionNotFoundError())
 }
 
 func (manager *PoolSessionManager) GetIRODSFSClientInstances() []*IRODSFSClientInstance {

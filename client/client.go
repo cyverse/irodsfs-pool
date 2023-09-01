@@ -1881,6 +1881,11 @@ func (handle *PoolServiceFileHandle) WriteAt(data []byte, offset int64) (int, er
 		remainLength -= curLength
 		curOffset += int64(curLength)
 		totalWriteLength += int(curLength)
+
+		// update entry size
+		if handle.entry.Size < curOffset+int64(curLength) {
+			handle.entry.Size = curOffset + int64(curLength)
+		}
 	}
 
 	return totalWriteLength, nil
@@ -1992,6 +1997,11 @@ func (handle *PoolServiceFileHandle) Truncate(size int64) error {
 	if err != nil {
 		logger.Errorf("%+v", err)
 		return statusToError(err)
+	}
+
+	// update entry size
+	if handle.entry.Size < size {
+		handle.entry.Size = size
 	}
 
 	return nil

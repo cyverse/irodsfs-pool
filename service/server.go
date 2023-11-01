@@ -93,27 +93,6 @@ func (server *PoolServer) Release() {
 	}
 }
 
-func (server *PoolServer) errorToStatus(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	if IsSessionNotFoundError(err) {
-		return status.Error(codes.Unauthenticated, err.Error())
-	} else if IsIrodsFsClientInstanceNotFoundError(err) {
-		return status.Error(codes.Unauthenticated, err.Error())
-	} else if IsFileHandleNotFoundError(err) {
-		return status.Error(codes.Internal, err.Error())
-	} else if irodsclient_types.IsFileNotFoundError(err) {
-		return status.Error(codes.NotFound, err.Error())
-	} else if irodsclient_types.IsCollectionNotEmptyError(err) {
-		// there's no matching error type for not empty
-		return status.Error(codes.AlreadyExists, err.Error())
-	}
-
-	return status.Error(codes.Internal, err.Error())
-}
-
 func (server *PoolServer) GetSessionManager() *PoolSessionManager {
 	server.mutex.RLock()
 	defer server.mutex.RUnlock()
@@ -141,7 +120,7 @@ func (server *PoolServer) Login(context context.Context, request *api.LoginReque
 	session, err := server.sessionManager.NewSession(request.Account, request.ClientId, request.ApplicationName)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	response := &api.LoginResponse{
@@ -258,7 +237,7 @@ func (server *PoolServer) List(context context.Context, request *api.ListRequest
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -266,7 +245,7 @@ func (server *PoolServer) List(context context.Context, request *api.ListRequest
 	entries, err := fsClient.List(request.Path)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	responseEntries := make([]*api.Entry, len(entries))
@@ -311,7 +290,7 @@ func (server *PoolServer) Stat(context context.Context, request *api.StatRequest
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -319,7 +298,7 @@ func (server *PoolServer) Stat(context context.Context, request *api.StatRequest
 	entry, err := fsClient.Stat(request.Path)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	responseEntry := &api.Entry{
@@ -359,7 +338,7 @@ func (server *PoolServer) ListXattr(context context.Context, request *api.ListXa
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -367,7 +346,7 @@ func (server *PoolServer) ListXattr(context context.Context, request *api.ListXa
 	irodsMetadata, err := fsClient.ListXattr(request.Path)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	responseMetadata := make([]*api.Metadata, len(irodsMetadata))
@@ -406,7 +385,7 @@ func (server *PoolServer) GetXattr(context context.Context, request *api.GetXatt
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -414,7 +393,7 @@ func (server *PoolServer) GetXattr(context context.Context, request *api.GetXatt
 	irodsMeta, err := fsClient.GetXattr(request.Path, request.Name)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	if irodsMeta == nil {
@@ -454,7 +433,7 @@ func (server *PoolServer) SetXattr(context context.Context, request *api.SetXatt
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -462,7 +441,7 @@ func (server *PoolServer) SetXattr(context context.Context, request *api.SetXatt
 	err = fsClient.SetXattr(request.Path, request.Name, request.Value)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -485,7 +464,7 @@ func (server *PoolServer) RemoveXattr(context context.Context, request *api.Remo
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -493,7 +472,7 @@ func (server *PoolServer) RemoveXattr(context context.Context, request *api.Remo
 	err = fsClient.RemoveXattr(request.Path, request.Name)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -516,7 +495,7 @@ func (server *PoolServer) ExistsDir(context context.Context, request *api.Exists
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -544,7 +523,7 @@ func (server *PoolServer) ExistsFile(context context.Context, request *api.Exist
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -572,7 +551,7 @@ func (server *PoolServer) ListUserGroups(context context.Context, request *api.L
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -580,7 +559,7 @@ func (server *PoolServer) ListUserGroups(context context.Context, request *api.L
 	groups, err := fsClient.ListUserGroups(request.UserName)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	responseGroups := make([]*api.User, len(groups))
@@ -618,7 +597,7 @@ func (server *PoolServer) ListDirACLs(context context.Context, request *api.List
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -626,7 +605,7 @@ func (server *PoolServer) ListDirACLs(context context.Context, request *api.List
 	accesses, err := fsClient.ListDirACLs(request.Path)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	responseAccesses := make([]*api.Access, len(accesses))
@@ -666,7 +645,7 @@ func (server *PoolServer) ListFileACLs(context context.Context, request *api.Lis
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -674,7 +653,7 @@ func (server *PoolServer) ListFileACLs(context context.Context, request *api.Lis
 	accesses, err := fsClient.ListFileACLs(request.Path)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	responseAccesses := make([]*api.Access, len(accesses))
@@ -714,7 +693,7 @@ func (server *PoolServer) ListACLsForEntries(context context.Context, request *a
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -722,7 +701,7 @@ func (server *PoolServer) ListACLsForEntries(context context.Context, request *a
 	accesses, err := fsClient.ListACLsForEntries(request.Path)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	responseAccesses := make([]*api.Access, len(accesses))
@@ -762,7 +741,7 @@ func (server *PoolServer) RemoveFile(context context.Context, request *api.Remov
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -770,7 +749,7 @@ func (server *PoolServer) RemoveFile(context context.Context, request *api.Remov
 	err = fsClient.RemoveFile(request.Path, request.Force)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	// clear cache for the path if exists
@@ -796,7 +775,7 @@ func (server *PoolServer) RemoveDir(context context.Context, request *api.Remove
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -804,7 +783,7 @@ func (server *PoolServer) RemoveDir(context context.Context, request *api.Remove
 	err = fsClient.RemoveDir(request.Path, request.Recurse, request.Force)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -827,7 +806,7 @@ func (server *PoolServer) MakeDir(context context.Context, request *api.MakeDirR
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -835,7 +814,7 @@ func (server *PoolServer) MakeDir(context context.Context, request *api.MakeDirR
 	err = fsClient.MakeDir(request.Path, request.Recurse)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -858,7 +837,7 @@ func (server *PoolServer) RenameDirToDir(context context.Context, request *api.R
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -866,7 +845,7 @@ func (server *PoolServer) RenameDirToDir(context context.Context, request *api.R
 	err = fsClient.RenameDirToDir(request.SourcePath, request.DestinationPath)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -889,7 +868,7 @@ func (server *PoolServer) RenameFileToFile(context context.Context, request *api
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -897,7 +876,7 @@ func (server *PoolServer) RenameFileToFile(context context.Context, request *api
 	err = fsClient.RenameFileToFile(request.SourcePath, request.DestinationPath)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	// clear cache for the path if exists
@@ -923,7 +902,7 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -934,7 +913,7 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 	irodsFsFileHandle, err := fsClient.CreateFile(request.Path, request.Resource, request.Mode)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	fileOpenMode := irodsclient_types.FileOpenMode(request.Mode)
@@ -946,7 +925,7 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsFileHandle, nil)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.AddPoolFileHandle(poolFileHandle)
@@ -993,7 +972,7 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -1003,7 +982,7 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 	irodsFsFileHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	if fileOpenMode.IsWrite() {
@@ -1014,7 +993,7 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsFileHandle, nil)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.AddPoolFileHandle(poolFileHandle)
@@ -1082,7 +1061,7 @@ func (server *PoolServer) TruncateFile(context context.Context, request *api.Tru
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -1093,7 +1072,7 @@ func (server *PoolServer) TruncateFile(context context.Context, request *api.Tru
 	err = fsClient.TruncateFile(request.Path, request.Size)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -1116,7 +1095,7 @@ func (server *PoolServer) GetOffset(context context.Context, request *api.GetOff
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -1124,7 +1103,7 @@ func (server *PoolServer) GetOffset(context context.Context, request *api.GetOff
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	response := &api.GetOffsetResponse{
@@ -1151,7 +1130,7 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -1159,7 +1138,7 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	buffer := make([]byte, request.Length)
@@ -1167,7 +1146,7 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 	readLen, err := handle.ReadAt(buffer, request.Offset)
 	if err != nil && err != io.EOF {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	available := handle.GetAvailable(request.Offset + int64(readLen))
@@ -1197,7 +1176,7 @@ func (server *PoolServer) WriteAt(context context.Context, request *api.WriteAtR
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -1205,13 +1184,13 @@ func (server *PoolServer) WriteAt(context context.Context, request *api.WriteAtR
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	_, err = handle.WriteAt(request.Data, request.Offset)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -1234,7 +1213,7 @@ func (server *PoolServer) Truncate(context context.Context, request *api.Truncat
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -1242,13 +1221,13 @@ func (server *PoolServer) Truncate(context context.Context, request *api.Truncat
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	err = handle.Truncate(request.Size)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -1271,7 +1250,7 @@ func (server *PoolServer) Flush(context context.Context, request *api.FlushReque
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -1279,13 +1258,13 @@ func (server *PoolServer) Flush(context context.Context, request *api.FlushReque
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	err = handle.Flush()
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -1308,7 +1287,7 @@ func (server *PoolServer) Close(context context.Context, request *api.CloseReque
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -1316,7 +1295,7 @@ func (server *PoolServer) Close(context context.Context, request *api.CloseReque
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.RemovePoolFileHandle(request.FileHandleId)
@@ -1330,7 +1309,7 @@ func (server *PoolServer) Close(context context.Context, request *api.CloseReque
 	err = handle.Release()
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
@@ -1387,7 +1366,7 @@ func (server *PoolServer) SubscribeCacheEvents(context context.Context, request 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -1429,7 +1408,7 @@ func (server *PoolServer) PullCacheEvents(context context.Context, request *api.
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()
@@ -1478,7 +1457,7 @@ func (server *PoolServer) UnsubscribeCacheEvents(context context.Context, reques
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return nil, server.errorToStatus(err)
+		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.UpdateLastAccessTime()

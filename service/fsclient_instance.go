@@ -130,7 +130,7 @@ func (manager *IRODSFSClientInstanceManager) GetInstance(instanceID string) (*IR
 		return instance, nil
 	}
 
-	return nil, xerrors.Errorf("failed to find the irods fs client instance for instance id %s: %w", instanceID, NewIrodsFsClientInstanceNotFoundError())
+	return nil, xerrors.Errorf("failed to find the irods fs client instance for instance id %s: %w", instanceID, commons.NewIRODSFSClientInstanceNotFoundError(instanceID))
 }
 
 func (manager *IRODSFSClientInstanceManager) GetInstances() []*IRODSFSClientInstance {

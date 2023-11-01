@@ -195,7 +195,7 @@ func (svc *PoolService) Start() error {
 		logger.Infof("Listening tcp socket: %s", endpoint)
 		listener = tcpListener
 	default:
-		logger.Error("unknown protocol '%s'", scheme)
+		logger.Errorf("unknown protocol '%s'", scheme)
 		return xerrors.Errorf("unknown protocol '%s'", scheme)
 	}
 

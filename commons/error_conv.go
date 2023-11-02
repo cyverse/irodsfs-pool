@@ -73,9 +73,9 @@ func ErrorToStatus(err error) error {
 	} else if irodsclient_types.IsConnectionConfigError(err) {
 		var connectionConfigError *irodsclient_types.ConnectionConfigError
 		if errors.As(err, &connectionConfigError) {
-			return status.Error(codes.Unauthenticated, addErrorTypeToMessage(errorTypeConnectionConfigError, connectionConfigError.Config.Host, strconv.Itoa(connectionConfigError.Config.Port), connectionConfigError.Config.ClientZone, connectionConfigError.Config.ClientUser, connectionConfigError.Error()))
+			return status.Error(codes.InvalidArgument, addErrorTypeToMessage(errorTypeConnectionConfigError, connectionConfigError.Config.Host, strconv.Itoa(connectionConfigError.Config.Port), connectionConfigError.Config.ClientZone, connectionConfigError.Config.ClientUser, connectionConfigError.Error()))
 		}
-		return status.Error(codes.Unauthenticated, addErrorTypeToMessage(errorTypeConnectionConfigError, err.Error()))
+		return status.Error(codes.InvalidArgument, addErrorTypeToMessage(errorTypeConnectionConfigError, err.Error()))
 	} else if irodsclient_types.IsConnectionError(err) {
 		return status.Error(codes.Unavailable, addErrorTypeToMessage(errorTypeConnectionError, err.Error()))
 	} else if irodsclient_types.IsConnectionPoolFullError(err) {
@@ -111,9 +111,9 @@ func ErrorToStatus(err error) error {
 	} else if irodsclient_types.IsTicketNotFoundError(err) {
 		var ticketNotFoundError *irodsclient_types.TicketNotFoundError
 		if errors.As(err, &ticketNotFoundError) {
-			return status.Error(codes.Unauthenticated, addErrorTypeToMessage(errorTypeTicketNotFound, ticketNotFoundError.Ticket, ticketNotFoundError.Error()))
+			return status.Error(codes.InvalidArgument, addErrorTypeToMessage(errorTypeTicketNotFound, ticketNotFoundError.Ticket, ticketNotFoundError.Error()))
 		}
-		return status.Error(codes.Unauthenticated, addErrorTypeToMessage(errorTypeTicketNotFound, err.Error()))
+		return status.Error(codes.InvalidArgument, addErrorTypeToMessage(errorTypeTicketNotFound, err.Error()))
 	} else if irodsclient_types.IsUserNotFoundError(err) {
 		var userNotFoundError *irodsclient_types.UserNotFoundError
 		if errors.As(err, &userNotFoundError) {
@@ -219,9 +219,48 @@ func StatusToError(err error) error {
 		case errorTypeInternalError:
 			return xerrors.Errorf(st.Message())
 		default:
-			return xerrors.Errorf(st.Message())
+			switch st.Code() {
+			case codes.NotFound:
+				irodsclient_types.NewFileNotFoundError("<unknown>")
+			case codes.AlreadyExists:
+				return irodsclient_types.NewFileAlreadyExistError("<unknown>")
+			case codes.Unauthenticated:
+				account := irodsclient_types.IRODSAccount{}
+				return irodsclient_types.NewAuthError(&account)
+			case codes.Internal:
+				return xerrors.Errorf(st.Message())
+			default:
+				return xerrors.Errorf(st.Message())
+			}
 		}
 	}
 
 	return err
+}
+
+// IsReloginRequiredError returns true if relogin can solve the issue
+func IsReloginRequiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	st, ok := status.FromError(err)
+	if ok {
+		errType, _, _ := extractErrorInfoFromMessage(st.Message())
+		switch errType {
+		case errorTypeSessionNotFound, errorTypeIRodsFSClientNotFound, errorTypeConnectionError:
+			return true
+		case errorTypeFileHandleNotFound, errorTypeConnectionConfigError, errorTypeConnectionPoolFull, errorTypeAuthenticationError, errorTypeFileNotFound, errorTypeCollectionNotEmpty, errorTypeFileAlreadyExist, errorTypeTicketNotFound, errorTypeUserNotFound, errorTypeIRODSError:
+			return false
+		default:
+			switch st.Code() {
+			case codes.Unauthenticated:
+				return true
+			default:
+				return false
+			}
+		}
+	}
+
+	return false
 }

@@ -17,8 +17,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const (
@@ -111,23 +109,6 @@ func getLargeReadOption() grpc.CallOption {
 
 func getLargeWriteOption() grpc.CallOption {
 	return grpc.MaxCallSendMsgSize(messageRWLengthMax)
-}
-
-func isReloginRequiredError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	st, ok := status.FromError(err)
-	if ok {
-		switch st.Code() {
-		case codes.Unauthenticated:
-			return true
-		default:
-			return false
-		}
-	}
-	return false
 }
 
 // NewSession creates a new session for iRODS service using account info
@@ -336,6 +317,25 @@ func (session *PoolServiceSession) GetMetrics() *irodsclient_metrics.IRODSMetric
 	return &irodsclient_metrics.IRODSMetrics{}
 }
 
+func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) (interface{}, error) {
+	res, err := f()
+	if err != nil {
+		if commons.IsReloginRequiredError(err) {
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				return nil, err2
+			}
+
+			// retry
+			res, err = f()
+			return res, err
+		}
+	}
+	return res, nil
+
+}
+
 // List lists iRODS collection entries
 func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, error) {
 	logger := log.WithFields(log.Fields{
@@ -345,9 +345,6 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 	})
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
 
 	// if there's a cache
 	cachedDirEntries := session.poolServiceClient.fsCache.GetDirCache(path)
@@ -363,27 +360,23 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 
 	irodsEntries := []*irodsclient_fs.Entry{}
 
-	response, err := session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
+	listFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
+	}
+
+	res, err := session.doWithRelogin(listFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
+		return nil, commons.StatusToError(err)
+	}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return nil, err2
-			}
-
-			// retry
-			response, err = session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return nil, commons.StatusToError(err)
-			}
-		} else {
-			return nil, commons.StatusToError(err)
-		}
+	response, ok := res.(*api.ListResponse)
+	if !ok {
+		logger.Error("failed to convert interface to ListResponse")
+		return nil, xerrors.Errorf("failed to convert interface to ListResponse")
 	}
 
 	for _, entry := range response.Entries {
@@ -434,9 +427,6 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	// if there's a cache
 	cachedEntry := session.poolServiceClient.fsCache.GetEntryCache(path)
 	if cachedEntry != nil {
@@ -449,27 +439,23 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 		Path:      path,
 	}
 
-	response, err := session.poolServiceClient.apiClient.Stat(ctx, request)
+	statFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.Stat(ctx, request)
+	}
+
+	res, err := session.doWithRelogin(statFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
+		return nil, commons.StatusToError(err)
+	}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return nil, err2
-			}
-
-			// retry
-			response, err = session.poolServiceClient.apiClient.Stat(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return nil, commons.StatusToError(err)
-			}
-		} else {
-			return nil, commons.StatusToError(err)
-		}
+	response, ok := res.(*api.StatResponse)
+	if !ok {
+		logger.Error("failed to convert interface to StatResponse")
+		return nil, xerrors.Errorf("failed to convert interface to StatResponse")
 	}
 
 	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
@@ -513,9 +499,6 @@ func (session *PoolServiceSession) ListXattr(path string) ([]*irodsclient_types.
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	request := &api.ListXattrRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -523,27 +506,23 @@ func (session *PoolServiceSession) ListXattr(path string) ([]*irodsclient_types.
 
 	irodsMetadata := []*irodsclient_types.IRODSMeta{}
 
-	response, err := session.poolServiceClient.apiClient.ListXattr(ctx, request, getLargeReadOption())
+	listXattrFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.ListXattr(ctx, request, getLargeReadOption())
+	}
+
+	res, err := session.doWithRelogin(listXattrFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
+		return nil, commons.StatusToError(err)
+	}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return nil, err2
-			}
-
-			// retry
-			response, err = session.poolServiceClient.apiClient.ListXattr(ctx, request, getLargeReadOption())
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return nil, commons.StatusToError(err)
-			}
-		} else {
-			return nil, commons.StatusToError(err)
-		}
+	response, ok := res.(*api.ListXattrResponse)
+	if !ok {
+		logger.Error("failed to convert interface to ListXattrResponse")
+		return nil, xerrors.Errorf("failed to convert interface to ListXattrResponse")
 	}
 
 	for _, metadata := range response.Metadata {
@@ -570,53 +549,35 @@ func (session *PoolServiceSession) GetXattr(path string, name string) (*irodscli
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	request := &api.GetXattrRequest{
 		SessionId: session.id,
 		Path:      path,
 		Name:      name,
 	}
 
-	response, err := session.poolServiceClient.apiClient.GetXattr(ctx, request)
+	getXattrFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.GetXattr(ctx, request)
+	}
+
+	res, err := session.doWithRelogin(getXattrFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
-
-		st, ok := status.FromError(err)
-		if ok {
-			if st.Code() == codes.NotFound {
-				// xattr not found
-				return nil, nil
-			}
+		err2 := commons.StatusToError(err)
+		if irodsclient_types.IsFileNotFoundError(err2) {
+			// xattr not found
+			return nil, nil
 		}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return nil, err2
-			}
+		return nil, err
+	}
 
-			// retry
-			response, err = session.poolServiceClient.apiClient.GetXattr(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-
-				st, ok := status.FromError(err)
-				if ok {
-					if st.Code() == codes.NotFound {
-						// xattr not found
-						return nil, nil
-					}
-				}
-
-				return nil, commons.StatusToError(err)
-			}
-		} else {
-			return nil, commons.StatusToError(err)
-		}
+	response, ok := res.(*api.GetXattrResponse)
+	if !ok {
+		logger.Error("failed to convert interface to GetXattrResponse")
+		return nil, xerrors.Errorf("failed to convert interface to GetXattrResponse")
 	}
 
 	irodsMeta := &irodsclient_types.IRODSMeta{
@@ -639,9 +600,6 @@ func (session *PoolServiceSession) SetXattr(path string, name string, value stri
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	request := &api.SetXattrRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -649,27 +607,17 @@ func (session *PoolServiceSession) SetXattr(path string, name string, value stri
 		Value:     value,
 	}
 
-	_, err := session.poolServiceClient.apiClient.SetXattr(ctx, request)
+	setXattrFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.SetXattr(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(setXattrFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
-
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return err2
-			}
-
-			// retry
-			_, err = session.poolServiceClient.apiClient.SetXattr(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return commons.StatusToError(err)
-			}
-		} else {
-			return commons.StatusToError(err)
-		}
+		return commons.StatusToError(err)
 	}
 
 	return nil
@@ -685,36 +633,23 @@ func (session *PoolServiceSession) RemoveXattr(path string, name string) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	request := &api.RemoveXattrRequest{
 		SessionId: session.id,
 		Path:      path,
 		Name:      name,
 	}
 
-	_, err := session.poolServiceClient.apiClient.RemoveXattr(ctx, request)
+	removeXattrFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.RemoveXattr(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(removeXattrFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
-
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return err2
-			}
-
-			// retry
-			_, err := session.poolServiceClient.apiClient.RemoveXattr(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return commons.StatusToError(err)
-			}
-		} else {
-			return commons.StatusToError(err)
-		}
+		return commons.StatusToError(err)
 	}
 
 	return nil
@@ -730,9 +665,6 @@ func (session *PoolServiceSession) ExistsDir(path string) bool {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	// if there's a cache
 	cachedEntry := session.poolServiceClient.fsCache.GetEntryCache(path)
 	if cachedEntry != nil && cachedEntry.Type == irodsclient_fs.DirectoryEntry {
@@ -745,27 +677,23 @@ func (session *PoolServiceSession) ExistsDir(path string) bool {
 		Path:      path,
 	}
 
-	response, err := session.poolServiceClient.apiClient.ExistsDir(ctx, request)
+	existsDirFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.ExistsDir(ctx, request)
+	}
+
+	res, err := session.doWithRelogin(existsDirFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
+		return false
+	}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return false
-			}
-
-			// retry
-			response, err = session.poolServiceClient.apiClient.ExistsDir(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return false
-			}
-		} else {
-			return false
-		}
+	response, ok := res.(*api.ExistsDirResponse)
+	if !ok {
+		logger.Error("failed to convert interface to ExistsDirResponse")
+		return false
 	}
 
 	return response.Exist
@@ -781,9 +709,6 @@ func (session *PoolServiceSession) ExistsFile(path string) bool {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	// if there's a cache
 	cachedEntry := session.poolServiceClient.fsCache.GetEntryCache(path)
 	if cachedEntry != nil && cachedEntry.Type == irodsclient_fs.FileEntry {
@@ -796,27 +721,23 @@ func (session *PoolServiceSession) ExistsFile(path string) bool {
 		Path:      path,
 	}
 
-	response, err := session.poolServiceClient.apiClient.ExistsFile(ctx, request)
+	existsFileFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.ExistsFile(ctx, request)
+	}
+
+	res, err := session.doWithRelogin(existsFileFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
+		return false
+	}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return false
-			}
-
-			// retry
-			response, err = session.poolServiceClient.apiClient.ExistsFile(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return false
-			}
-		} else {
-			return false
-		}
+	response, ok := res.(*api.ExistsFileResponse)
+	if !ok {
+		logger.Error("failed to convert interface to ExistsFileResponse")
+		return false
 	}
 
 	return response.Exist
@@ -832,35 +753,28 @@ func (session *PoolServiceSession) ListUserGroups(user string) ([]*irodsclient_t
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	request := &api.ListUserGroupsRequest{
 		SessionId: session.id,
 		UserName:  user,
 	}
 
-	response, err := session.poolServiceClient.apiClient.ListUserGroups(ctx, request, getLargeReadOption())
+	listUserGroupsFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.ListUserGroups(ctx, request, getLargeReadOption())
+	}
+
+	res, err := session.doWithRelogin(listUserGroupsFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
+		return nil, commons.StatusToError(err)
+	}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return nil, err2
-			}
-
-			// retry
-			response, err = session.poolServiceClient.apiClient.ListUserGroups(ctx, request, getLargeReadOption())
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return nil, commons.StatusToError(err)
-			}
-		} else {
-			return nil, commons.StatusToError(err)
-		}
+	response, ok := res.(*api.ListUserGroupsResponse)
+	if !ok {
+		logger.Error("failed to convert interface to ListUserGroupsResponse")
+		return nil, xerrors.Errorf("failed to convert interface to ListUserGroupsResponse")
 	}
 
 	irodsUsers := []*irodsclient_types.IRODSUser{}
@@ -888,9 +802,6 @@ func (session *PoolServiceSession) ListDirACLs(path string) ([]*irodsclient_type
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	// if there's a cache
 	cachedACLs := session.poolServiceClient.fsCache.GetACLsCache(path)
 	if cachedACLs != nil {
@@ -905,27 +816,23 @@ func (session *PoolServiceSession) ListDirACLs(path string) ([]*irodsclient_type
 
 	irodsAccesses := []*irodsclient_types.IRODSAccess{}
 
-	response, err := session.poolServiceClient.apiClient.ListDirACLs(ctx, request, getLargeReadOption())
+	listDirACLsFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.ListDirACLs(ctx, request, getLargeReadOption())
+	}
+
+	res, err := session.doWithRelogin(listDirACLsFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
+		return nil, commons.StatusToError(err)
+	}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return nil, err2
-			}
-
-			// retry
-			response, err = session.poolServiceClient.apiClient.ListDirACLs(ctx, request, getLargeReadOption())
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return nil, commons.StatusToError(err)
-			}
-		} else {
-			return nil, commons.StatusToError(err)
-		}
+	response, ok := res.(*api.ListDirACLsResponse)
+	if !ok {
+		logger.Error("failed to convert interface to ListDirACLsResponse")
+		return nil, xerrors.Errorf("failed to convert interface to ListDirACLsResponse")
 	}
 
 	for _, access := range response.Accesses {
@@ -956,9 +863,6 @@ func (session *PoolServiceSession) ListFileACLs(path string) ([]*irodsclient_typ
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	// if there's a cache
 	cachedACLs := session.poolServiceClient.fsCache.GetACLsCache(path)
 	if cachedACLs != nil {
@@ -973,27 +877,23 @@ func (session *PoolServiceSession) ListFileACLs(path string) ([]*irodsclient_typ
 
 	irodsAccesses := []*irodsclient_types.IRODSAccess{}
 
-	response, err := session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
+	listFileACLsFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
+	}
+
+	res, err := session.doWithRelogin(listFileACLsFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
+		return nil, commons.StatusToError(err)
+	}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return nil, err2
-			}
-
-			// retry
-			response, err = session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return nil, commons.StatusToError(err)
-			}
-		} else {
-			return nil, commons.StatusToError(err)
-		}
+	response, ok := res.(*api.ListFileACLsResponse)
+	if !ok {
+		logger.Error("failed to convert interface to ListFileACLsResponse")
+		return nil, xerrors.Errorf("failed to convert interface to ListFileACLsResponse")
 	}
 
 	for _, access := range response.Accesses {
@@ -1024,9 +924,6 @@ func (session *PoolServiceSession) ListACLsForEntries(path string) ([]*irodsclie
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	// if there's a cache
 	cachedACLs := session.poolServiceClient.fsCache.GetDirEntryACLsCache(path)
 	if cachedACLs != nil {
@@ -1039,27 +936,23 @@ func (session *PoolServiceSession) ListACLsForEntries(path string) ([]*irodsclie
 		Path:      path,
 	}
 
-	response, err := session.poolServiceClient.apiClient.ListACLsForEntries(ctx, request, getLargeReadOption())
+	listACLsForEntriesFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.ListACLsForEntries(ctx, request, getLargeReadOption())
+	}
+
+	res, err := session.doWithRelogin(listACLsForEntriesFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
+		return nil, commons.StatusToError(err)
+	}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return nil, err2
-			}
-
-			// retry
-			response, err = session.poolServiceClient.apiClient.ListACLsForEntries(ctx, request, getLargeReadOption())
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return nil, commons.StatusToError(err)
-			}
-		} else {
-			return nil, commons.StatusToError(err)
-		}
+	response, ok := res.(*api.ListACLsForEntriesResponse)
+	if !ok {
+		logger.Error("failed to convert interface to ListACLsForEntriesResponse")
+		return nil, xerrors.Errorf("failed to convert interface to ListACLsForEntriesResponse")
 	}
 
 	irodsAccesses := []*irodsclient_types.IRODSAccess{}
@@ -1093,36 +986,23 @@ func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	request := &api.RemoveFileRequest{
 		SessionId: session.id,
 		Path:      path,
 		Force:     force,
 	}
 
-	_, err := session.poolServiceClient.apiClient.RemoveFile(ctx, request)
+	removeFileFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.RemoveFile(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(removeFileFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
-
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return err2
-			}
-
-			// retry
-			_, err = session.poolServiceClient.apiClient.RemoveFile(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return commons.StatusToError(err)
-			}
-		} else {
-			return commons.StatusToError(err)
-		}
+		return commons.StatusToError(err)
 	}
 
 	// remove cache
@@ -1141,9 +1021,6 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	request := &api.RemoveDirRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -1151,27 +1028,17 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 		Force:     force,
 	}
 
-	_, err := session.poolServiceClient.apiClient.RemoveDir(ctx, request)
+	removeDirFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.RemoveDir(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(removeDirFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
-
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return err2
-			}
-
-			// retry
-			_, err := session.poolServiceClient.apiClient.RemoveDir(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return commons.StatusToError(err)
-			}
-		} else {
-			return commons.StatusToError(err)
-		}
+		return commons.StatusToError(err)
 	}
 
 	// remove cache
@@ -1196,30 +1063,17 @@ func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
 		Recurse:   recurse,
 	}
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
+	makeDirFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
 
-	_, err := session.poolServiceClient.apiClient.MakeDir(ctx, request)
+		return session.poolServiceClient.apiClient.MakeDir(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(makeDirFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
-
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return err2
-			}
-
-			// retry
-			_, err = session.poolServiceClient.apiClient.MakeDir(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return commons.StatusToError(err)
-			}
-		} else {
-			return commons.StatusToError(err)
-		}
+		return commons.StatusToError(err)
 	}
 
 	// remove cache
@@ -1244,30 +1098,17 @@ func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath strin
 		DestinationPath: destPath,
 	}
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
+	renameDirToDirFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
 
-	_, err := session.poolServiceClient.apiClient.RenameDirToDir(ctx, request)
+		return session.poolServiceClient.apiClient.RenameDirToDir(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(renameDirToDirFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
-
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return err2
-			}
-
-			// retry
-			_, err := session.poolServiceClient.apiClient.RenameDirToDir(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return commons.StatusToError(err)
-			}
-		} else {
-			return commons.StatusToError(err)
-		}
+		return commons.StatusToError(err)
 	}
 
 	// remove cache
@@ -1286,36 +1127,23 @@ func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath str
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	request := &api.RenameFileToFileRequest{
 		SessionId:       session.id,
 		SourcePath:      srcPath,
 		DestinationPath: destPath,
 	}
 
-	_, err := session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
+	renameFileToFileFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(renameFileToFileFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
-
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return err2
-			}
-
-			// retry
-			_, err = session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return commons.StatusToError(err)
-			}
-		} else {
-			return commons.StatusToError(err)
-		}
+		return commons.StatusToError(err)
 	}
 
 	// remove cache
@@ -1334,9 +1162,6 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	request := &api.CreateFileRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -1344,27 +1169,23 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 		Mode:      mode,
 	}
 
-	response, err := session.poolServiceClient.apiClient.CreateFile(ctx, request)
+	createFileFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.CreateFile(ctx, request)
+	}
+
+	res, err := session.doWithRelogin(createFileFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
+		return nil, commons.StatusToError(err)
+	}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return nil, err2
-			}
-
-			// retry
-			response, err = session.poolServiceClient.apiClient.CreateFile(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return nil, commons.StatusToError(err)
-			}
-		} else {
-			return nil, commons.StatusToError(err)
-		}
+	response, ok := res.(*api.CreateFileResponse)
+	if !ok {
+		logger.Error("failed to convert interface to CreateFileResponse")
+		return nil, xerrors.Errorf("failed to convert interface to CreateFileResponse")
 	}
 
 	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
@@ -1414,9 +1235,6 @@ func (session *PoolServiceSession) OpenFile(path string, resource string, mode s
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
 	request := &api.OpenFileRequest{
 		SessionId: session.id,
 		Path:      path,
@@ -1424,27 +1242,23 @@ func (session *PoolServiceSession) OpenFile(path string, resource string, mode s
 		Mode:      mode,
 	}
 
-	response, err := session.poolServiceClient.apiClient.OpenFile(ctx, request)
+	openFileFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		return session.poolServiceClient.apiClient.OpenFile(ctx, request)
+	}
+
+	res, err := session.doWithRelogin(openFileFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
+		return nil, commons.StatusToError(err)
+	}
 
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return nil, err2
-			}
-
-			// retry
-			response, err = session.poolServiceClient.apiClient.OpenFile(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return nil, commons.StatusToError(err)
-			}
-		} else {
-			return nil, commons.StatusToError(err)
-		}
+	response, ok := res.(*api.OpenFileResponse)
+	if !ok {
+		logger.Error("failed to convert interface to OpenFileResponse")
+		return nil, xerrors.Errorf("failed to convert interface to OpenFileResponse")
 	}
 
 	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
@@ -1497,30 +1311,17 @@ func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 		Size:      size,
 	}
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
+	truncateFileFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
 
-	_, err := session.poolServiceClient.apiClient.TruncateFile(ctx, request)
+		return session.poolServiceClient.apiClient.TruncateFile(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(truncateFileFunc)
 	if err != nil {
 		logger.Errorf("%+v", err)
-
-		if isReloginRequiredError(err) {
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				logger.Errorf("%+v", err)
-				return err2
-			}
-
-			// retry
-			_, err = session.poolServiceClient.apiClient.TruncateFile(ctx, request)
-			if err != nil {
-				logger.Errorf("%+v", err)
-				return commons.StatusToError(err)
-			}
-		} else {
-			return commons.StatusToError(err)
-		}
+		return commons.StatusToError(err)
 	}
 
 	// remove cache

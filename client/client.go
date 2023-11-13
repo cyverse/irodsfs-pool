@@ -667,7 +667,7 @@ func (session *PoolServiceSession) ExistsDir(path string) bool {
 
 	// if there's a cache
 	cachedEntry := session.poolServiceClient.fsCache.GetEntryCache(path)
-	if cachedEntry != nil && cachedEntry.Type == irodsclient_fs.DirectoryEntry {
+	if cachedEntry != nil && cachedEntry.IsDir() {
 		return true
 	}
 
@@ -1420,7 +1420,7 @@ func (session *PoolServiceSession) InvalidateCacheForRemoveDir(path string) {
 	for len(removeTarget) > 0 {
 		front := removeTarget[0]
 
-		if front.Type == irodsclient_fs.DirectoryEntry {
+		if front.IsDir() {
 			frontDirCache := session.poolServiceClient.fsCache.GetDirCache(front.Path)
 			if frontDirCache != nil {
 				removeTarget = append(removeTarget, frontDirCache...)
@@ -1463,7 +1463,7 @@ func (session *PoolServiceSession) InvalidateCacheForRenameDir(srcPath string, d
 	for len(removeTarget) > 0 {
 		front := removeTarget[0]
 
-		if front.Type == irodsclient_fs.DirectoryEntry {
+		if front.IsDir() {
 			frontDirCache := session.poolServiceClient.fsCache.GetDirCache(front.Path)
 			if frontDirCache != nil {
 				removeTarget = append(removeTarget, frontDirCache...)

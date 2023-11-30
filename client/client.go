@@ -331,6 +331,8 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 			res, err = f()
 			return res, err
 		}
+
+		return res, err
 	}
 	return res, nil
 

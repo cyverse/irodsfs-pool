@@ -69,11 +69,11 @@ func (manager *IRODSFSClientInstanceManager) AddPoolSession(account *api.Account
 
 	if instance, ok := manager.instances[instanceID]; ok {
 		// if we have the instance already
-		logger.Infof("Reusing the existing irods fs client instance %s for session %s", instanceID, session.GetID())
+		logger.Infof("Reusing the existing irods fs client instance %q for session %q", instanceID, session.GetID())
 
 		instance.addPoolSession(session)
 	} else {
-		logger.Infof("Creating a new irods fs client instance %s for session %s", instanceID, session.GetID())
+		logger.Infof("Creating a new irods fs client instance %q for session %q", instanceID, session.GetID())
 
 		// new irods fs client instance
 		instance, err := newIRODSFSClientInstance(instanceID, account, appName, manager.config.CacheTimeoutSettings)
@@ -130,7 +130,7 @@ func (manager *IRODSFSClientInstanceManager) GetInstance(instanceID string) (*IR
 		return instance, nil
 	}
 
-	return nil, xerrors.Errorf("failed to find the irods fs client instance for instance id %s: %w", instanceID, commons.NewIRODSFSClientInstanceNotFoundError(instanceID))
+	return nil, xerrors.Errorf("failed to find the irods fs client instance for instance id %q: %w", instanceID, commons.NewIRODSFSClientInstanceNotFoundError(instanceID))
 }
 
 func (manager *IRODSFSClientInstanceManager) GetInstances() []*IRODSFSClientInstance {

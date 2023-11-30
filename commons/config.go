@@ -199,22 +199,22 @@ func (config *Config) makeDir(path string) error {
 			// make
 			mkdirErr := os.MkdirAll(path, 0775)
 			if mkdirErr != nil {
-				return xerrors.Errorf("making a dir (%s) error: %w", path, mkdirErr)
+				return xerrors.Errorf("making a dir %q error: %w", path, mkdirErr)
 			}
 
 			return nil
 		}
 
-		return xerrors.Errorf("stating a dir (%s) error: %w", path, err)
+		return xerrors.Errorf("stating a dir %q error: %w", path, err)
 	}
 
 	if !dirInfo.IsDir() {
-		return xerrors.Errorf("a file (%s) exist, not a directory", path)
+		return xerrors.Errorf("a file %q exist, not a directory", path)
 	}
 
 	dirPerm := dirInfo.Mode().Perm()
 	if dirPerm&0200 != 0200 {
-		return xerrors.Errorf("a dir (%s) exist, but does not have the write permission", path)
+		return xerrors.Errorf("a dir %q exist, but does not have the write permission", path)
 	}
 
 	return nil
@@ -235,14 +235,14 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 	_, err := os.Stat(endpoint)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return xerrors.Errorf("service unix socket file (%s) error: %w", endpoint, err)
+			return xerrors.Errorf("service unix socket file %q error: %w", endpoint, err)
 		}
 	} else {
 		// file exists
 		// remove
 		err2 := os.Remove(endpoint)
 		if err2 != nil {
-			return xerrors.Errorf("failed to remove the existing unix socket file (%s): %w", endpoint, err2)
+			return xerrors.Errorf("failed to remove the existing unix socket file %q: %w", endpoint, err2)
 		}
 	}
 
@@ -252,16 +252,16 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 		if os.IsNotExist(err) {
 			err2 := os.MkdirAll(parentDir, os.FileMode(0777))
 			if err2 != nil {
-				return xerrors.Errorf("failed to make a directory for unix socket (%s): %w", parentDir, err2)
+				return xerrors.Errorf("failed to make a directory for unix socket %q: %w", parentDir, err2)
 			}
 			// ok - fall
 		} else {
-			return xerrors.Errorf("unix socket directory (%s) error: %w", parentDir, err)
+			return xerrors.Errorf("unix socket directory %q error: %w", parentDir, err)
 		}
 	} else {
 		unixSocketDirPerm := unixSocketDirInfo.Mode().Perm()
 		if unixSocketDirPerm&0200 != 0200 {
-			return xerrors.Errorf("unix socket directory (%s) must have write permission", parentDir)
+			return xerrors.Errorf("unix socket directory %q must have write permission", parentDir)
 		}
 		// ok - fall
 	}
@@ -277,7 +277,7 @@ func (config *Config) removeUnixSocketFile(endpoint string) error {
 
 	err := os.Remove(endpoint)
 	if err != nil {
-		return xerrors.Errorf("failed to remove unix socket file %s: %w", endpoint, err)
+		return xerrors.Errorf("failed to remove unix socket file %q: %w", endpoint, err)
 	}
 	return nil
 }
@@ -312,7 +312,7 @@ func (config *Config) Validate() error {
 func ParsePoolServiceEndpoint(endpoint string) (string, string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return "", "", xerrors.Errorf("failed to parse endpoint %s: %w", endpoint, err)
+		return "", "", xerrors.Errorf("failed to parse endpoint %q: %w", endpoint, err)
 	}
 
 	scheme := strings.ToLower(u.Scheme)
@@ -326,8 +326,8 @@ func ParsePoolServiceEndpoint(endpoint string) (string, string, error) {
 		if len(u.Host) > 0 {
 			return "tcp", u.Host, nil
 		}
-		return "", "", xerrors.Errorf("unknown host: %s", u.Host)
+		return "", "", xerrors.Errorf("unknown host: %q", u.Host)
 	default:
-		return "", "", xerrors.Errorf("unsupported protocol: %s", scheme)
+		return "", "", xerrors.Errorf("unsupported protocol: %q", scheme)
 	}
 }

@@ -179,7 +179,7 @@ func run(config *commons.Config, isChildProcess bool) error {
 	}
 
 	versionInfo := commons.GetVersion()
-	logger.Infof("iRODS FUSE Lite Pool Service version - %s, commit - %s", versionInfo.ServiceVersion, versionInfo.GitCommit)
+	logger.Infof("iRODS FUSE Lite Pool Service version - %q, commit - %q", versionInfo.ServiceVersion, versionInfo.GitCommit)
 
 	// make work dirs required
 	err := config.MakeWorkDirs()
@@ -201,7 +201,7 @@ func run(config *commons.Config, isChildProcess bool) error {
 		go func() {
 			profileServiceAddr := fmt.Sprintf(":%d", config.ProfileServicePort)
 
-			logger.Infof("Starting profile service at %s", profileServiceAddr)
+			logger.Infof("Starting profile service at %q", profileServiceAddr)
 			http.ListenAndServe(profileServiceAddr, nil)
 		}()
 
@@ -215,7 +215,7 @@ func run(config *commons.Config, isChildProcess bool) error {
 			prometheusExporterAddr := fmt.Sprintf(":%d", config.PrometheusExporterPort)
 			http.Handle("/metrics", promhttp.Handler())
 
-			logger.Infof("Starting prometheus exporter at %s", prometheusExporterAddr)
+			logger.Infof("Starting prometheus exporter at %q", prometheusExporterAddr)
 			prometheusExporterServer = &http.Server{Addr: prometheusExporterAddr, Handler: nil}
 			prometheusExporterServer.ListenAndServe()
 		}()

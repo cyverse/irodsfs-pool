@@ -109,8 +109,8 @@ func (server *PoolServer) Login(context context.Context, request *api.LoginReque
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("Login request from client id %s, host %s, user %s", request.ClientId, request.Account.Host, request.Account.ClientUser)
-	defer logger.Infof("Login response to client id %s, host %s, user %s", request.ClientId, request.Account.Host, request.Account.ClientUser)
+	logger.Infof("Login request from client id %q, host %q, user %q", request.ClientId, request.Account.Host, request.Account.ClientUser)
+	defer logger.Infof("Login response to client id %q, host %q, user %q", request.ClientId, request.Account.Host, request.Account.ClientUser)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -139,8 +139,8 @@ func (server *PoolServer) Logout(context context.Context, request *api.LogoutReq
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("Logout request from client, pool session id %s", request.SessionId)
-	defer logger.Infof("Logout response to client, pool session id %s", request.SessionId)
+	logger.Infof("Logout request from client, pool session id %q", request.SessionId)
+	defer logger.Infof("Logout response to client, pool session id %q", request.SessionId)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -153,7 +153,7 @@ func (server *PoolServer) Logout(context context.Context, request *api.LogoutReq
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
 		// session might be already closed due to timeout, so ignore error
-		sessionErr := xerrors.Errorf("failed to logout because the session for id %s is not found, ignoring...: %w", request.SessionId, err)
+		sessionErr := xerrors.Errorf("failed to logout because the session for id %q is not found, ignoring...: %w", request.SessionId, err)
 		logger.Errorf("%+v", sessionErr)
 		return &api.Empty{}, nil
 	}
@@ -229,8 +229,8 @@ func (server *PoolServer) List(context context.Context, request *api.ListRequest
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("List request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("List response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("List request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("List response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -282,8 +282,8 @@ func (server *PoolServer) Stat(context context.Context, request *api.StatRequest
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("Stat request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("Stat response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("Stat request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("Stat response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -330,8 +330,8 @@ func (server *PoolServer) ListXattr(context context.Context, request *api.ListXa
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("ListXattr request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("ListXattr response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("ListXattr request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("ListXattr response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -377,8 +377,8 @@ func (server *PoolServer) GetXattr(context context.Context, request *api.GetXatt
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("GetXattr request from pool session id %s, path %s, name %s", request.SessionId, request.Path, request.Name)
-	defer logger.Infof("GetXattr response to pool session id %s, path %s, name %s", request.SessionId, request.Path, request.Name)
+	logger.Infof("GetXattr request from pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
+	defer logger.Infof("GetXattr response to pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -398,7 +398,7 @@ func (server *PoolServer) GetXattr(context context.Context, request *api.GetXatt
 
 	if irodsMeta == nil {
 		// not exist
-		errorMessage := fmt.Sprintf("failed to find xattr - %s", request.Name)
+		errorMessage := fmt.Sprintf("failed to find xattr %q", request.Name)
 		return nil, status.Error(codes.NotFound, errorMessage)
 	}
 
@@ -425,8 +425,8 @@ func (server *PoolServer) SetXattr(context context.Context, request *api.SetXatt
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("SetXattr request from pool session id %s, path %s, name %s", request.SessionId, request.Path, request.Name)
-	defer logger.Infof("SetXattr response to pool session id %s, path %s, name %s", request.SessionId, request.Path, request.Name)
+	logger.Infof("SetXattr request from pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
+	defer logger.Infof("SetXattr response to pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -456,8 +456,8 @@ func (server *PoolServer) RemoveXattr(context context.Context, request *api.Remo
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("RemoveXattr request from pool session id %s, path %s, name %s", request.SessionId, request.Path, request.Name)
-	defer logger.Infof("RemoveXattr response to pool session id %s, path %s, name %s", request.SessionId, request.Path, request.Name)
+	logger.Infof("RemoveXattr request from pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
+	defer logger.Infof("RemoveXattr response to pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -487,8 +487,8 @@ func (server *PoolServer) ExistsDir(context context.Context, request *api.Exists
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("ExistsDir request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("ExistsDir response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("ExistsDir request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("ExistsDir response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -515,8 +515,8 @@ func (server *PoolServer) ExistsFile(context context.Context, request *api.Exist
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("ExistsFile request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("ExistsFile response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("ExistsFile request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("ExistsFile response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -543,8 +543,8 @@ func (server *PoolServer) ListUserGroups(context context.Context, request *api.L
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("ListUserGroups request from pool session id %s, user name %s", request.SessionId, request.UserName)
-	defer logger.Infof("ListUserGroups response to pool session id %s, user name %s", request.SessionId, request.UserName)
+	logger.Infof("ListUserGroups request from pool session id %q, user name %q", request.SessionId, request.UserName)
+	defer logger.Infof("ListUserGroups response to pool session id %q, user name %q", request.SessionId, request.UserName)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -589,8 +589,8 @@ func (server *PoolServer) ListDirACLs(context context.Context, request *api.List
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("ListDirACLs request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("ListDirACLs response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("ListDirACLs request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("ListDirACLs response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -637,8 +637,8 @@ func (server *PoolServer) ListFileACLs(context context.Context, request *api.Lis
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("ListFileACLs request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("ListFileACLs response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("ListFileACLs request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("ListFileACLs response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -685,8 +685,8 @@ func (server *PoolServer) ListACLsForEntries(context context.Context, request *a
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("ListACLsForEntries request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("ListACLsForEntries response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("ListACLsForEntries request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("ListACLsForEntries response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -733,8 +733,8 @@ func (server *PoolServer) RemoveFile(context context.Context, request *api.Remov
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("RemoveFile request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("RemoveFile response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("RemoveFile request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("RemoveFile response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -767,8 +767,8 @@ func (server *PoolServer) RemoveDir(context context.Context, request *api.Remove
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("RemoveDir request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("RemoveDir response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("RemoveDir request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("RemoveDir response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -798,8 +798,8 @@ func (server *PoolServer) MakeDir(context context.Context, request *api.MakeDirR
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("MakeDir request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("MakeDir response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("MakeDir request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("MakeDir response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -829,8 +829,8 @@ func (server *PoolServer) RenameDirToDir(context context.Context, request *api.R
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("RenameDirToDir request from pool session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
-	defer logger.Infof("RenameDirToDir response to pool session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
+	logger.Infof("RenameDirToDir request from pool session id %q, source path %q -> destination path %q", request.SessionId, request.SourcePath, request.DestinationPath)
+	defer logger.Infof("RenameDirToDir response to pool session id %q, source path %q -> destination path %q", request.SessionId, request.SourcePath, request.DestinationPath)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -860,8 +860,8 @@ func (server *PoolServer) RenameFileToFile(context context.Context, request *api
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("RenameFileToFile request from pool session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
-	defer logger.Infof("RenameFileToFile response to pool session id %s, source path %s -> destination path %s", request.SessionId, request.SourcePath, request.DestinationPath)
+	logger.Infof("RenameFileToFile request from pool session id %q, source path %q -> destination path %q", request.SessionId, request.SourcePath, request.DestinationPath)
+	defer logger.Infof("RenameFileToFile response to pool session id %q, source path %q -> destination path %q", request.SessionId, request.SourcePath, request.DestinationPath)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -894,8 +894,8 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("CreateFile request from pool session id %s, path %s, mode(%s)", request.SessionId, request.Path, request.Mode)
-	defer logger.Infof("CreateFile response to pool session id %s, path %s, mode(%s)", request.SessionId, request.Path, request.Mode)
+	logger.Infof("CreateFile request from pool session id %q, path %q, mode %q", request.SessionId, request.Path, request.Mode)
+	defer logger.Infof("CreateFile response to pool session id %q, path %q, mode %q", request.SessionId, request.Path, request.Mode)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -950,7 +950,7 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 		Entry:        responseEntry,
 	}
 
-	logger.Infof("CreateFile> pool session id %s, path %s, mode(%s), handle id %s", request.SessionId, request.Path, request.Mode, irodsFsFileHandle.GetID())
+	logger.Infof("CreateFile> pool session id %q, path %q, mode %q, handle id %q", request.SessionId, request.Path, request.Mode, irodsFsFileHandle.GetID())
 
 	return response, nil
 }
@@ -964,8 +964,8 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("OpenFile request from pool session id %s, path %s, mode(%s)", request.SessionId, request.Path, request.Mode)
-	defer logger.Infof("OpenFile response to pool session id %s, path %s, mode(%s)", request.SessionId, request.Path, request.Mode)
+	logger.Infof("OpenFile request from pool session id %q, path %q, mode %q", request.SessionId, request.Path, request.Mode)
+	defer logger.Infof("OpenFile response to pool session id %q, path %q, mode %q", request.SessionId, request.Path, request.Mode)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -1039,7 +1039,7 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 		Entry:        responseEntry,
 	}
 
-	logger.Infof("OpenFile> pool session id %s, path %s, mode(%s), handle id %s", request.SessionId, request.Path, request.Mode, irodsFsFileHandle.GetID())
+	logger.Infof("OpenFile> pool session id %q, path %q, mode %q, handle id %q", request.SessionId, request.Path, request.Mode, irodsFsFileHandle.GetID())
 
 	return response, nil
 }
@@ -1053,8 +1053,8 @@ func (server *PoolServer) TruncateFile(context context.Context, request *api.Tru
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("TruncateFile request from pool session id %s, path %s", request.SessionId, request.Path)
-	defer logger.Infof("TruncateFile response to pool session id %s, path %s", request.SessionId, request.Path)
+	logger.Infof("TruncateFile request from pool session id %q, path %q", request.SessionId, request.Path)
+	defer logger.Infof("TruncateFile response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -1087,8 +1087,8 @@ func (server *PoolServer) GetOffset(context context.Context, request *api.GetOff
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Debugf("GetOffset request from pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
-	defer logger.Debugf("GetOffset response to pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
+	logger.Debugf("GetOffset request from pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
+	defer logger.Debugf("GetOffset response to pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -1122,8 +1122,8 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Debugf("ReadAt request from pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
-	defer logger.Debugf("ReadAt response to pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
+	logger.Debugf("ReadAt request from pool session id %q, pool file handle id %q, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
+	defer logger.Debugf("ReadAt response to pool session id %q, pool file handle id %q, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -1168,8 +1168,8 @@ func (server *PoolServer) WriteAt(context context.Context, request *api.WriteAtR
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Debugf("WriteAt request from pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
-	defer logger.Debugf("WriteAt response to pool session id %s, pool file handle id %s, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
+	logger.Debugf("WriteAt request from pool session id %q, pool file handle id %q, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
+	defer logger.Debugf("WriteAt response to pool session id %q, pool file handle id %q, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
 
 	promCounterForGRPCCalls.Inc()
 
@@ -1205,8 +1205,8 @@ func (server *PoolServer) Truncate(context context.Context, request *api.Truncat
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("Truncate request from pool session id %s, pool file handle id %s, size %d", request.SessionId, request.FileHandleId, request.Size)
-	defer logger.Infof("Truncate response to pool session id %s, pool file handle id %s, size %d", request.SessionId, request.FileHandleId, request.Size)
+	logger.Infof("Truncate request from pool session id %q, pool file handle id %q, size %d", request.SessionId, request.FileHandleId, request.Size)
+	defer logger.Infof("Truncate response to pool session id %q, pool file handle id %q, size %d", request.SessionId, request.FileHandleId, request.Size)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -1242,8 +1242,8 @@ func (server *PoolServer) Flush(context context.Context, request *api.FlushReque
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("Flush request from pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
-	defer logger.Infof("Flush response to pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
+	logger.Infof("Flush request from pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
+	defer logger.Infof("Flush response to pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -1279,8 +1279,8 @@ func (server *PoolServer) Close(context context.Context, request *api.CloseReque
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("Close request from pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
-	defer logger.Infof("Close response to pool session id %s, pool file handle id %s", request.SessionId, request.FileHandleId)
+	logger.Infof("Close request from pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
+	defer logger.Infof("Close response to pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -1358,8 +1358,8 @@ func (server *PoolServer) SubscribeCacheEvents(context context.Context, request 
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("SubscribeCacheEvents request from pool session id %s", request.SessionId)
-	defer logger.Infof("SubscribeCacheEvents response to pool session id %s", request.SessionId)
+	logger.Infof("SubscribeCacheEvents request from pool session id %q", request.SessionId)
+	defer logger.Infof("SubscribeCacheEvents response to pool session id %q", request.SessionId)
 
 	promCounterForGRPCCalls.Inc()
 
@@ -1449,8 +1449,8 @@ func (server *PoolServer) UnsubscribeCacheEvents(context context.Context, reques
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("UnsubscribeCacheEvents request from pool session id %s", request.SessionId)
-	defer logger.Infof("UnsubscribeCacheEvents response to pool session id %s", request.SessionId)
+	logger.Infof("UnsubscribeCacheEvents request from pool session id %q", request.SessionId)
+	defer logger.Infof("UnsubscribeCacheEvents response to pool session id %q", request.SessionId)
 
 	promCounterForGRPCCalls.Inc()
 

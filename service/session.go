@@ -119,7 +119,7 @@ func (manager *PoolSessionManager) GetSession(sessionID string) (*PoolSession, e
 		return session, nil
 	}
 
-	return nil, xerrors.Errorf("failed to find the pool session for id %s: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
+	return nil, xerrors.Errorf("failed to find the pool session for id %q: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
 }
 
 func (manager *PoolSessionManager) GetSessionAndIRODSFSClientInstance(sessionID string) (*PoolSession, *IRODSFSClientInstance, error) {
@@ -138,7 +138,7 @@ func (manager *PoolSessionManager) GetSessionAndIRODSFSClientInstance(sessionID 
 		instanceID := session.GetIRODSFSClientInstanceID()
 		instance, err := manager.irodsFsClientInstanceManager.GetInstance(instanceID)
 		if err != nil {
-			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %s and session id %s: %w", instanceID, sessionID, err)
+			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %q and session id %q: %w", instanceID, sessionID, err)
 			logger.Errorf("%+v", instanceErr)
 			return nil, nil, err
 		}
@@ -146,7 +146,7 @@ func (manager *PoolSessionManager) GetSessionAndIRODSFSClientInstance(sessionID 
 		return session, instance, nil
 	}
 
-	return nil, nil, xerrors.Errorf("failed to find the pool session for id %s: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
+	return nil, nil, xerrors.Errorf("failed to find the pool session for id %q: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
 }
 
 func (manager *PoolSessionManager) GetSessionAndIRODSFSClient(sessionID string) (*PoolSession, irodsfs_common_irods.IRODSFSClient, error) {
@@ -165,7 +165,7 @@ func (manager *PoolSessionManager) GetSessionAndIRODSFSClient(sessionID string) 
 		instanceID := session.GetIRODSFSClientInstanceID()
 		instance, err := manager.irodsFsClientInstanceManager.GetInstance(instanceID)
 		if err != nil {
-			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %s and session id %s: %w", instanceID, sessionID, err)
+			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %q and session id %q: %w", instanceID, sessionID, err)
 			logger.Errorf("%+v", instanceErr)
 			return nil, nil, err
 		}
@@ -174,7 +174,7 @@ func (manager *PoolSessionManager) GetSessionAndIRODSFSClient(sessionID string) 
 		return session, fsClient, nil
 	}
 
-	return nil, nil, xerrors.Errorf("failed to find the pool session for id %s: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
+	return nil, nil, xerrors.Errorf("failed to find the pool session for id %q: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
 }
 
 func (manager *PoolSessionManager) GetSessions() []*PoolSession {
@@ -260,7 +260,7 @@ func (manager *PoolSessionManager) GetIRODSFSClientInstanceForSession(sessionID 
 		instanceID := session.GetIRODSFSClientInstanceID()
 		instance, err := manager.irodsFsClientInstanceManager.GetInstance(instanceID)
 		if err != nil {
-			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %s and session id %s: %w", instanceID, sessionID, err)
+			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %q and session id %q: %w", instanceID, sessionID, err)
 			logger.Errorf("%+v", instanceErr)
 			return nil, err
 		}
@@ -268,7 +268,7 @@ func (manager *PoolSessionManager) GetIRODSFSClientInstanceForSession(sessionID 
 		return instance, nil
 	}
 
-	return nil, xerrors.Errorf("failed to find the pool session for id %s: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
+	return nil, xerrors.Errorf("failed to find the pool session for id %q: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
 }
 
 func (manager *PoolSessionManager) GetIRODSFSClientInstances() []*IRODSFSClientInstance {
@@ -327,7 +327,7 @@ func (session *PoolSession) release() {
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
-	logger.Infof("Release the pool session for session id %s, client id %s", session.id, session.poolClientID)
+	logger.Infof("Release the pool session for session id %q, client id %q", session.id, session.poolClientID)
 
 	for _, fileHandle := range session.poolFileHandles {
 		fileHandle.Release()
@@ -398,7 +398,7 @@ func (session *PoolSession) GetPoolFileHandle(poolFileHandleID string) (*PoolFil
 		return poolFileHandle, nil
 	}
 
-	return nil, xerrors.Errorf("failed to find the pool file handle for handle id %s: %w", poolFileHandleID, commons.NewFileHandleNotFoundError(poolFileHandleID))
+	return nil, xerrors.Errorf("failed to find the pool file handle for handle id %q: %w", poolFileHandleID, commons.NewFileHandleNotFoundError(poolFileHandleID))
 }
 
 func (session *PoolSession) handleCacheEvent(path string, eventType irodsclient_fs.FilesystemCacheEventType) {
@@ -436,7 +436,7 @@ func (session *PoolSession) GetPoolCacheEventHandler(handlerID string) (irodscli
 		return handler, nil
 	}
 
-	return nil, xerrors.Errorf("failed to find the cache event handler for handler id %s", handlerID)
+	return nil, xerrors.Errorf("failed to find the cache event handler for handler id %q", handlerID)
 }
 
 func (session *PoolSession) HandleCacheEvent(path string, eventType irodsclient_fs.FilesystemCacheEventType) {

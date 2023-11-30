@@ -19,7 +19,7 @@ func NewFileHandleNotFoundError(handleID string) error {
 
 // Error returns error message
 func (err *FileHandleNotFoundError) Error() string {
-	return fmt.Sprintf("file handle '%s' not found error", err.HandleID)
+	return fmt.Sprintf("file handle %q not found error", err.HandleID)
 }
 
 // Is tests type of error
@@ -52,7 +52,7 @@ func NewIRODSFSClientInstanceNotFoundError(instanceID string) error {
 
 // Error returns error message
 func (err *IRODSFSClientInstanceNotFoundError) Error() string {
-	return fmt.Sprintf("irods fs client instance '%s' not found error", err.InstanceID)
+	return fmt.Sprintf("irods fs client instance %q not found error", err.InstanceID)
 }
 
 // Is tests type of error
@@ -85,7 +85,7 @@ func NewSessionNotFoundError(sessionID string) error {
 
 // Error returns error message
 func (err *SessionNotFoundError) Error() string {
-	return fmt.Sprintf("session '%s' not found", err.SessionID)
+	return fmt.Sprintf("session %q not found", err.SessionID)
 }
 
 // Is tests type of error

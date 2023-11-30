@@ -177,26 +177,26 @@ func (svc *PoolService) Start() error {
 	case "unix":
 		unixListener, err := net.Listen("unix", endpoint)
 		if err != nil {
-			listenErr := xerrors.Errorf("failed to listen to unix socket %s: %w", endpoint, err)
+			listenErr := xerrors.Errorf("failed to listen to unix socket %q: %w", endpoint, err)
 			logger.Errorf("%+v", listenErr)
 			return listenErr
 		}
 
-		logger.Infof("Listening unix socket: %s", endpoint)
+		logger.Infof("Listening unix socket: %q", endpoint)
 		listener = unixListener
 	case "tcp":
 		tcpListener, err := net.Listen("tcp", endpoint)
 		if err != nil {
-			listenErr := xerrors.Errorf("failed to listen to tcp socket %s: %w", endpoint, err)
+			listenErr := xerrors.Errorf("failed to listen to tcp socket %q: %w", endpoint, err)
 			logger.Errorf("%+v", listenErr)
 			return listenErr
 		}
 
-		logger.Infof("Listening tcp socket: %s", endpoint)
+		logger.Infof("Listening tcp socket: %q", endpoint)
 		listener = tcpListener
 	default:
-		logger.Errorf("unknown protocol '%s'", scheme)
-		return xerrors.Errorf("unknown protocol '%s'", scheme)
+		logger.Errorf("unknown protocol %q", scheme)
+		return xerrors.Errorf("unknown protocol %q", scheme)
 	}
 
 	go func() {

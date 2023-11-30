@@ -99,7 +99,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 		if len(configPath) > 0 {
 			yamlBytes, err := os.ReadFile(configPath)
 			if err != nil {
-				readErr := xerrors.Errorf("failed to read config file %s: %w", configPath, err)
+				readErr := xerrors.Errorf("failed to read config file %q: %w", configPath, err)
 				logger.Errorf("%+v", readErr)
 				return nil, nil, false, readErr // stop here
 			}
@@ -175,7 +175,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 		mw := io.MultiWriter(os.Stderr, parentLogWriter)
 		log.SetOutput(mw)
 
-		logger.Infof("Logging to %s", parentLogFilePath)
+		logger.Infof("Logging to %q", parentLogFilePath)
 	}
 
 	endpointFlag := command.Flags().Lookup("endpoint")
@@ -190,7 +190,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 	if cacheSizeMaxFlag != nil {
 		cacheSizeMax, err := strconv.ParseInt(cacheSizeMaxFlag.Value.String(), 10, 64)
 		if err != nil {
-			parseErr := xerrors.Errorf("failed to convert input '%s' to int64: %w", cacheSizeMaxFlag.Value.String(), err)
+			parseErr := xerrors.Errorf("failed to convert input %q to int64: %w", cacheSizeMaxFlag.Value.String(), err)
 			logger.Errorf("%+v", parseErr)
 			return nil, logWriter, false, parseErr // stop here
 		}
@@ -221,7 +221,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 	if profilePortFlag != nil {
 		profilePort, err := strconv.ParseInt(profilePortFlag.Value.String(), 10, 32)
 		if err != nil {
-			parseErr := xerrors.Errorf("failed to convert input '%s' to int64: %w", profilePortFlag.Value.String(), err)
+			parseErr := xerrors.Errorf("failed to convert input %q to int64: %w", profilePortFlag.Value.String(), err)
 			logger.Errorf("%+v", parseErr)
 			return nil, logWriter, false, parseErr // stop here
 		}
@@ -235,7 +235,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 	if prometheusExporterPortFlag != nil {
 		prometheusExporterPort, err := strconv.ParseInt(prometheusExporterPortFlag.Value.String(), 10, 32)
 		if err != nil {
-			parseErr := xerrors.Errorf("failed to convert input '%s' to int64: %w", prometheusExporterPortFlag.Value.String(), err)
+			parseErr := xerrors.Errorf("failed to convert input %q to int64: %w", prometheusExporterPortFlag.Value.String(), err)
 			logger.Errorf("%+v", parseErr)
 			return nil, logWriter, false, parseErr // stop here
 		}
@@ -269,7 +269,7 @@ func PrintHelp(command *cobra.Command) error {
 }
 
 func getLogWriterForParentProcess(logPath string) (io.WriteCloser, string) {
-	logFilePath := fmt.Sprintf("%s.parent", logPath)
+	logFilePath := fmt.Sprintf("%q.parent", logPath)
 	return &lumberjack.Logger{
 		Filename:   logFilePath,
 		MaxSize:    50, // 50MB
@@ -280,7 +280,7 @@ func getLogWriterForParentProcess(logPath string) (io.WriteCloser, string) {
 }
 
 func getLogWriterForChildProcess(logPath string) (io.WriteCloser, string) {
-	logFilePath := fmt.Sprintf("%s.child", logPath)
+	logFilePath := fmt.Sprintf("%q.child", logPath)
 	return &lumberjack.Logger{
 		Filename:   logFilePath,
 		MaxSize:    50, // 50MB

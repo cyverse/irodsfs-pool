@@ -33,7 +33,7 @@ message Entry {
 	string data_type = 7;
 	string create_time = 8; // RFC3339 format
 	string modify_time = 9; // RFC3339 format
-	string checksum = 10;
+	bytes checksum = 10;
 }
 
 message Access {

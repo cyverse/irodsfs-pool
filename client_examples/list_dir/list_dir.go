@@ -43,7 +43,7 @@ func main() {
 		panic(err)
 	}
 
-	logger.Debugf("Account : %v", account.MaskSensitiveData())
+	logger.Debugf("Account : %v", account.GetRedacted())
 
 	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, "test_client_1")
 	err = poolClient.Connect()

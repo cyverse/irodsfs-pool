@@ -226,6 +226,18 @@ func newIRODSFSClientInstance(irodsFsClientInstanceID string, account *api.Accou
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	var sslConf *irodsclient_types.IRODSSSLConfig
+	if account.SslConfiguration != nil {
+		sslConf = &irodsclient_types.IRODSSSLConfig{
+			CACertificateFile:   account.SslConfiguration.CACertificateFile,
+			CACertificatePath:   account.SslConfiguration.CACertificatePath,
+			EncryptionKeySize:   int(account.SslConfiguration.EncryptionKeySize),
+			EncryptionAlgorithm: account.SslConfiguration.EncryptionAlgorithm,
+			SaltSize:            int(account.SslConfiguration.SaltSize),
+			HashRounds:          int(account.SslConfiguration.HashRounds),
+		}
+	}
+
 	irodsAccount := &irodsclient_types.IRODSAccount{
 		AuthenticationScheme:    irodsclient_types.AuthScheme(account.AuthenticationScheme),
 		ClientServerNegotiation: account.ClientServerNegotiation,
@@ -240,6 +252,8 @@ func newIRODSFSClientInstance(irodsFsClientInstanceID string, account *api.Accou
 		Ticket:                  account.Ticket,
 		DefaultResource:         account.DefaultResource,
 		PamTTL:                  int(account.PamTtl),
+		PamToken:                account.PamToken,
+		SSLConfiguration:        sslConf,
 	}
 
 	irodsConfig := irodsclient_fs.NewFileSystemConfigWithDefault(applicationName)

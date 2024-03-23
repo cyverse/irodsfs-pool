@@ -7,6 +7,15 @@ package api;
 message Empty {
 }
 
+message SSLConfiguration{
+	string CACertificateFile = 1;
+	string CACertificatePath = 2;
+	int32 EncryptionKeySize = 3;
+	string EncryptionAlgorithm = 4;
+	int32 SaltSize = 5;
+	int32 HashRounds = 6;
+}
+
 message Account{
 	string authentication_scheme = 1;
 	bool client_server_negotiation = 2;
@@ -21,6 +30,8 @@ message Account{
 	string ticket = 11;
 	string default_resource = 12;
 	int32 pam_ttl = 13;
+	string pam_token = 14;
+	SSLConfiguration ssl_configuration = 15;
 }
 
 message Entry {

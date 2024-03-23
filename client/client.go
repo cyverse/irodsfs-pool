@@ -124,6 +124,18 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 	ctx, cancel := client.getContextWithDeadline()
 	defer cancel()
 
+	var sslConf *api.SSLConfiguration
+	if account.SSLConfiguration != nil {
+		sslConf = &api.SSLConfiguration{
+			CACertificateFile:   account.SSLConfiguration.CACertificateFile,
+			CACertificatePath:   account.SSLConfiguration.CACertificatePath,
+			EncryptionKeySize:   int32(account.SSLConfiguration.EncryptionKeySize),
+			EncryptionAlgorithm: account.SSLConfiguration.EncryptionAlgorithm,
+			SaltSize:            int32(account.SSLConfiguration.SaltSize),
+			HashRounds:          int32(account.SSLConfiguration.HashRounds),
+		}
+	}
+
 	request := &api.LoginRequest{
 		Account: &api.Account{
 			AuthenticationScheme:    string(account.AuthenticationScheme),
@@ -139,6 +151,8 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 			Ticket:                  account.Ticket,
 			DefaultResource:         account.DefaultResource,
 			PamTtl:                  int32(account.PamTTL),
+			PamToken:                account.PamToken,
+			SslConfiguration:        sslConf,
 		},
 		ApplicationName: applicationName,
 		ClientId:        client.id,

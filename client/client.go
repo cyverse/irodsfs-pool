@@ -222,28 +222,30 @@ func (session *PoolServiceSession) cacheEventPuller() {
 
 			cancel()
 
-			for _, event := range response.Events {
-				// Don't do this yet.
-				// this will double invalidate cache unnecessarily
-				// TODO: add timestamp for the event creation
-				// then remove caches if cache creation time is older than the new event creation time
-				/*
-					switch irodsclient_fs.FilesystemCacheEventType(event.EventType) {
-					case irodsclient_fs.FilesystemCacheFileCreateEvent:
-						session.InvalidateCacheForCreateFile(event.Path)
-					case irodsclient_fs.FilesystemCacheFileRemoveEvent:
-						session.InvalidateCacheForRemoveFile(event.Path)
-					case irodsclient_fs.FilesystemCacheFileUpdateEvent:
-						session.InvalidateCacheForUpdateFile(event.Path)
-					case irodsclient_fs.FilesystemCacheDirCreateEvent:
-						session.InvalidateCacheForMakeDir(event.Path)
-					case irodsclient_fs.FilesystemCacheDirRemoveEvent:
-						session.InvalidateCacheForRemoveDir(event.Path)
-					}
-				*/
+			if response != nil {
+				for _, event := range response.Events {
+					// Don't do this yet.
+					// this will double invalidate cache unnecessarily
+					// TODO: add timestamp for the event creation
+					// then remove caches if cache creation time is older than the new event creation time
+					/*
+						switch irodsclient_fs.FilesystemCacheEventType(event.EventType) {
+						case irodsclient_fs.FilesystemCacheFileCreateEvent:
+							session.InvalidateCacheForCreateFile(event.Path)
+						case irodsclient_fs.FilesystemCacheFileRemoveEvent:
+							session.InvalidateCacheForRemoveFile(event.Path)
+						case irodsclient_fs.FilesystemCacheFileUpdateEvent:
+							session.InvalidateCacheForUpdateFile(event.Path)
+						case irodsclient_fs.FilesystemCacheDirCreateEvent:
+							session.InvalidateCacheForMakeDir(event.Path)
+						case irodsclient_fs.FilesystemCacheDirRemoveEvent:
+							session.InvalidateCacheForRemoveDir(event.Path)
+						}
+					*/
 
-				for _, handler := range session.cacheEventHandlers {
-					handler(event.Path, irodsclient_fs.FilesystemCacheEventType(event.EventType))
+					for _, handler := range session.cacheEventHandlers {
+						handler(event.Path, irodsclient_fs.FilesystemCacheEventType(event.EventType))
+					}
 				}
 			}
 

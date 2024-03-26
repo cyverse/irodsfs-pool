@@ -137,8 +137,8 @@ func StatusToError(err error) error {
 		return nil
 	}
 
-	st, ok := status.FromError(err)
-	if ok {
+	st, _ := status.FromError(err)
+	if st != nil {
 		errType, errContent, _ := extractErrorInfoFromMessage(st.Message())
 		switch errType {
 		case errorTypeSessionNotFound:

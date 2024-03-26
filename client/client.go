@@ -17,6 +17,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -217,6 +219,17 @@ func (session *PoolServiceSession) cacheEventPuller() {
 
 			response, err := session.poolServiceClient.apiClient.PullCacheEvents(ctx, request, getLargeReadOption())
 			if err != nil {
+				logger.Errorf("error occurred: %v", err)
+				// this does not work.. why?
+
+				st, _ := status.FromError(err)
+				if st != nil {
+					if st.Code() == codes.Unavailable {
+						// unavailable
+						session.loggedIn = false
+					}
+				}
+
 				logger.Errorf("%+v", err)
 			}
 

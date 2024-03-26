@@ -244,8 +244,8 @@ func IsReloginRequiredError(err error) bool {
 		return false
 	}
 
-	st, ok := status.FromError(err)
-	if ok {
+	st, _ := status.FromError(err)
+	if st != nil {
 		errType, _, _ := extractErrorInfoFromMessage(st.Message())
 		switch errType {
 		case errorTypeSessionNotFound, errorTypeIRodsFSClientNotFound, errorTypeConnectionError:
@@ -259,6 +259,22 @@ func IsReloginRequiredError(err error) bool {
 			default:
 				return false
 			}
+		}
+	}
+
+	return false
+}
+
+// IsDisconnectedError returns true if connection is unavailable
+func IsDisconnectedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	st, _ := status.FromError(err)
+	if st != nil {
+		if st.Code() == codes.Unavailable {
+			return true
 		}
 	}
 

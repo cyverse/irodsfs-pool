@@ -412,16 +412,16 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 	}
 
 	// no cache
-	request := &api.ListRequest{
-		SessionId: session.id,
-		Path:      path,
-	}
-
 	irodsEntries := []*irodsclient_fs.Entry{}
 
 	listFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.ListRequest{
+			SessionId: session.id,
+			Path:      path,
+		}
 
 		return session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
 	}
@@ -493,14 +493,14 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 	}
 
 	// no cache
-	request := &api.StatRequest{
-		SessionId: session.id,
-		Path:      path,
-	}
-
 	statFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.StatRequest{
+			SessionId: session.id,
+			Path:      path,
+		}
 
 		return session.poolServiceClient.apiClient.Stat(ctx, request)
 	}
@@ -558,16 +558,16 @@ func (session *PoolServiceSession) ListXattr(path string) ([]*irodsclient_types.
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.ListXattrRequest{
-		SessionId: session.id,
-		Path:      path,
-	}
-
 	irodsMetadata := []*irodsclient_types.IRODSMeta{}
 
 	listXattrFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.ListXattrRequest{
+			SessionId: session.id,
+			Path:      path,
+		}
 
 		return session.poolServiceClient.apiClient.ListXattr(ctx, request, getLargeReadOption())
 	}
@@ -608,15 +608,15 @@ func (session *PoolServiceSession) GetXattr(path string, name string) (*irodscli
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.GetXattrRequest{
-		SessionId: session.id,
-		Path:      path,
-		Name:      name,
-	}
-
 	getXattrFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.GetXattrRequest{
+			SessionId: session.id,
+			Path:      path,
+			Name:      name,
+		}
 
 		return session.poolServiceClient.apiClient.GetXattr(ctx, request)
 	}
@@ -659,16 +659,16 @@ func (session *PoolServiceSession) SetXattr(path string, name string, value stri
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.SetXattrRequest{
-		SessionId: session.id,
-		Path:      path,
-		Name:      name,
-		Value:     value,
-	}
-
 	setXattrFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.SetXattrRequest{
+			SessionId: session.id,
+			Path:      path,
+			Name:      name,
+			Value:     value,
+		}
 
 		return session.poolServiceClient.apiClient.SetXattr(ctx, request)
 	}
@@ -692,15 +692,15 @@ func (session *PoolServiceSession) RemoveXattr(path string, name string) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.RemoveXattrRequest{
-		SessionId: session.id,
-		Path:      path,
-		Name:      name,
-	}
-
 	removeXattrFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.RemoveXattrRequest{
+			SessionId: session.id,
+			Path:      path,
+			Name:      name,
+		}
 
 		return session.poolServiceClient.apiClient.RemoveXattr(ctx, request)
 	}
@@ -731,14 +731,14 @@ func (session *PoolServiceSession) ExistsDir(path string) bool {
 	}
 
 	// no cache
-	request := &api.ExistsDirRequest{
-		SessionId: session.id,
-		Path:      path,
-	}
-
 	existsDirFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.ExistsDirRequest{
+			SessionId: session.id,
+			Path:      path,
+		}
 
 		return session.poolServiceClient.apiClient.ExistsDir(ctx, request)
 	}
@@ -775,14 +775,14 @@ func (session *PoolServiceSession) ExistsFile(path string) bool {
 	}
 
 	// no cache
-	request := &api.ExistsFileRequest{
-		SessionId: session.id,
-		Path:      path,
-	}
-
 	existsFileFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.ExistsFileRequest{
+			SessionId: session.id,
+			Path:      path,
+		}
 
 		return session.poolServiceClient.apiClient.ExistsFile(ctx, request)
 	}
@@ -812,14 +812,14 @@ func (session *PoolServiceSession) ListUserGroups(user string) ([]*irodsclient_t
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.ListUserGroupsRequest{
-		SessionId: session.id,
-		UserName:  user,
-	}
-
 	listUserGroupsFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.ListUserGroupsRequest{
+			SessionId: session.id,
+			UserName:  user,
+		}
 
 		return session.poolServiceClient.apiClient.ListUserGroups(ctx, request, getLargeReadOption())
 	}
@@ -868,16 +868,16 @@ func (session *PoolServiceSession) ListDirACLs(path string) ([]*irodsclient_type
 	}
 
 	// no cache
-	request := &api.ListDirACLsRequest{
-		SessionId: session.id,
-		Path:      path,
-	}
-
 	irodsAccesses := []*irodsclient_types.IRODSAccess{}
 
 	listDirACLsFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.ListDirACLsRequest{
+			SessionId: session.id,
+			Path:      path,
+		}
 
 		return session.poolServiceClient.apiClient.ListDirACLs(ctx, request, getLargeReadOption())
 	}
@@ -929,16 +929,16 @@ func (session *PoolServiceSession) ListFileACLs(path string) ([]*irodsclient_typ
 	}
 
 	// no cache
-	request := &api.ListFileACLsRequest{
-		SessionId: session.id,
-		Path:      path,
-	}
-
 	irodsAccesses := []*irodsclient_types.IRODSAccess{}
 
 	listFileACLsFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.ListFileACLsRequest{
+			SessionId: session.id,
+			Path:      path,
+		}
 
 		return session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
 	}
@@ -990,14 +990,14 @@ func (session *PoolServiceSession) ListACLsForEntries(path string) ([]*irodsclie
 	}
 
 	// no cache
-	request := &api.ListACLsForEntriesRequest{
-		SessionId: session.id,
-		Path:      path,
-	}
-
 	listACLsForEntriesFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.ListACLsForEntriesRequest{
+			SessionId: session.id,
+			Path:      path,
+		}
 
 		return session.poolServiceClient.apiClient.ListACLsForEntries(ctx, request, getLargeReadOption())
 	}
@@ -1045,15 +1045,15 @@ func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.RemoveFileRequest{
-		SessionId: session.id,
-		Path:      path,
-		Force:     force,
-	}
-
 	removeFileFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.RemoveFileRequest{
+			SessionId: session.id,
+			Path:      path,
+			Force:     force,
+		}
 
 		return session.poolServiceClient.apiClient.RemoveFile(ctx, request)
 	}
@@ -1080,16 +1080,16 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.RemoveDirRequest{
-		SessionId: session.id,
-		Path:      path,
-		Recurse:   recurse,
-		Force:     force,
-	}
-
 	removeDirFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.RemoveDirRequest{
+			SessionId: session.id,
+			Path:      path,
+			Recurse:   recurse,
+			Force:     force,
+		}
 
 		return session.poolServiceClient.apiClient.RemoveDir(ctx, request)
 	}
@@ -1116,15 +1116,15 @@ func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.MakeDirRequest{
-		SessionId: session.id,
-		Path:      path,
-		Recurse:   recurse,
-	}
-
 	makeDirFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.MakeDirRequest{
+			SessionId: session.id,
+			Path:      path,
+			Recurse:   recurse,
+		}
 
 		return session.poolServiceClient.apiClient.MakeDir(ctx, request)
 	}
@@ -1151,15 +1151,15 @@ func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath strin
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.RenameDirToDirRequest{
-		SessionId:       session.id,
-		SourcePath:      srcPath,
-		DestinationPath: destPath,
-	}
-
 	renameDirToDirFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.RenameDirToDirRequest{
+			SessionId:       session.id,
+			SourcePath:      srcPath,
+			DestinationPath: destPath,
+		}
 
 		return session.poolServiceClient.apiClient.RenameDirToDir(ctx, request)
 	}
@@ -1186,15 +1186,15 @@ func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath str
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.RenameFileToFileRequest{
-		SessionId:       session.id,
-		SourcePath:      srcPath,
-		DestinationPath: destPath,
-	}
-
 	renameFileToFileFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.RenameFileToFileRequest{
+			SessionId:       session.id,
+			SourcePath:      srcPath,
+			DestinationPath: destPath,
+		}
 
 		return session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
 	}
@@ -1221,16 +1221,16 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.CreateFileRequest{
-		SessionId: session.id,
-		Path:      path,
-		Resource:  resource,
-		Mode:      mode,
-	}
-
 	createFileFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.CreateFileRequest{
+			SessionId: session.id,
+			Path:      path,
+			Resource:  resource,
+			Mode:      mode,
+		}
 
 		return session.poolServiceClient.apiClient.CreateFile(ctx, request)
 	}
@@ -1294,16 +1294,16 @@ func (session *PoolServiceSession) OpenFile(path string, resource string, mode s
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.OpenFileRequest{
-		SessionId: session.id,
-		Path:      path,
-		Resource:  resource,
-		Mode:      mode,
-	}
-
 	openFileFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.OpenFileRequest{
+			SessionId: session.id,
+			Path:      path,
+			Resource:  resource,
+			Mode:      mode,
+		}
 
 		return session.poolServiceClient.apiClient.OpenFile(ctx, request)
 	}
@@ -1364,15 +1364,15 @@ func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.TruncateFileRequest{
-		SessionId: session.id,
-		Path:      path,
-		Size:      size,
-	}
-
 	truncateFileFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 		defer cancel()
+
+		request := &api.TruncateFileRequest{
+			SessionId: session.id,
+			Path:      path,
+			Size:      size,
+		}
 
 		return session.poolServiceClient.apiClient.TruncateFile(ctx, request)
 	}

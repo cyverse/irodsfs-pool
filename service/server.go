@@ -297,7 +297,10 @@ func (server *PoolServer) Stat(context context.Context, request *api.StatRequest
 
 	entry, err := fsClient.Stat(request.Path)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		if !irodsclient_types.IsFileNotFoundError(err) {
+			logger.Errorf("%+v", err)
+		}
+
 		return nil, commons.ErrorToStatus(err)
 	}
 

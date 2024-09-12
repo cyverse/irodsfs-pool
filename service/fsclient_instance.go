@@ -256,7 +256,7 @@ func newIRODSFSClientInstance(irodsFsClientInstanceID string, account *api.Accou
 		SSLConfiguration:        sslConf,
 	}
 
-	irodsConfig := irodsclient_fs.NewFileSystemConfigWithDefault(applicationName)
+	irodsConfig := irodsclient_fs.NewFileSystemConfig(applicationName)
 
 	for _, cacheTimeoutSetting := range cacheTimeoutSettings {
 		cacheTimeoutSettingConv := irodsclient_fs.MetadataCacheTimeoutSetting{
@@ -265,7 +265,7 @@ func newIRODSFSClientInstance(irodsFsClientInstanceID string, account *api.Accou
 			Inherit: cacheTimeoutSetting.Inherit,
 		}
 
-		irodsConfig.CacheTimeoutSettings = append(irodsConfig.CacheTimeoutSettings, cacheTimeoutSettingConv)
+		irodsConfig.Cache.MetadataTimeoutSettings = append(irodsConfig.Cache.MetadataTimeoutSettings, cacheTimeoutSettingConv)
 	}
 
 	irodsFsClient, err := irodsfs_common_irods.NewIRODSFSClientDirect(irodsAccount, irodsConfig)

@@ -10,6 +10,7 @@ import (
 	"golang.org/x/xerrors"
 	"gopkg.in/natefinch/lumberjack.v2"
 
+	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/irodsfs-pool/commons"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -204,7 +205,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser
 	if cacheTimeoutSettingsFlag != nil {
 		cacheTimeoutSettingsJson := cacheTimeoutSettingsFlag.Value.String()
 		if len(cacheTimeoutSettingsJson) > 0 {
-			metadataCacheTimeoutSettings := []commons.MetadataCacheTimeoutSetting{}
+			metadataCacheTimeoutSettings := []irodsclient_fs.MetadataCacheTimeoutSetting{}
 
 			err := json.Unmarshal([]byte(cacheTimeoutSettingsJson), &metadataCacheTimeoutSettings)
 			if err != nil {

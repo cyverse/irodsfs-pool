@@ -30,7 +30,7 @@ const (
 type PoolServerConfig struct {
 	CacheSizeMax         int64
 	CacheRootPath        string
-	CacheTimeoutSettings []commons.MetadataCacheTimeoutSetting
+	CacheTimeoutSettings []irodsclient_fs.MetadataCacheTimeoutSetting
 }
 
 type PoolServerCacheEventSubscription struct {
@@ -252,16 +252,17 @@ func (server *PoolServer) List(context context.Context, request *api.ListRequest
 	idx := 0
 	for _, entry := range entries {
 		responseEntries[idx] = &api.Entry{
-			Id:         entry.ID,
-			Type:       string(entry.Type),
-			Name:       entry.Name,
-			Path:       entry.Path,
-			Owner:      entry.Owner,
-			Size:       entry.Size,
-			DataType:   entry.DataType,
-			CreateTime: irodsfs_common_utils.MakeTimeToString(entry.CreateTime),
-			ModifyTime: irodsfs_common_utils.MakeTimeToString(entry.ModifyTime),
-			Checksum:   entry.CheckSum,
+			Id:                entry.ID,
+			Type:              string(entry.Type),
+			Name:              entry.Name,
+			Path:              entry.Path,
+			Owner:             entry.Owner,
+			Size:              entry.Size,
+			DataType:          entry.DataType,
+			CreateTime:        irodsfs_common_utils.MakeTimeToString(entry.CreateTime),
+			ModifyTime:        irodsfs_common_utils.MakeTimeToString(entry.ModifyTime),
+			ChecksumAlgorithm: string(entry.CheckSumAlgorithm),
+			Checksum:          entry.CheckSum,
 		}
 		idx++
 	}
@@ -305,16 +306,17 @@ func (server *PoolServer) Stat(context context.Context, request *api.StatRequest
 	}
 
 	responseEntry := &api.Entry{
-		Id:         entry.ID,
-		Type:       string(entry.Type),
-		Name:       entry.Name,
-		Path:       entry.Path,
-		Owner:      entry.Owner,
-		Size:       entry.Size,
-		DataType:   entry.DataType,
-		CreateTime: irodsfs_common_utils.MakeTimeToString(entry.CreateTime),
-		ModifyTime: irodsfs_common_utils.MakeTimeToString(entry.ModifyTime),
-		Checksum:   entry.CheckSum,
+		Id:                entry.ID,
+		Type:              string(entry.Type),
+		Name:              entry.Name,
+		Path:              entry.Path,
+		Owner:             entry.Owner,
+		Size:              entry.Size,
+		DataType:          entry.DataType,
+		CreateTime:        irodsfs_common_utils.MakeTimeToString(entry.CreateTime),
+		ModifyTime:        irodsfs_common_utils.MakeTimeToString(entry.ModifyTime),
+		ChecksumAlgorithm: string(entry.CheckSumAlgorithm),
+		Checksum:          entry.CheckSum,
 	}
 
 	response := &api.StatResponse{
@@ -356,10 +358,12 @@ func (server *PoolServer) ListXattr(context context.Context, request *api.ListXa
 	idx := 0
 	for _, irodsMeta := range irodsMetadata {
 		responseMetadata[idx] = &api.Metadata{
-			Id:    irodsMeta.AVUID,
-			Name:  irodsMeta.Name,
-			Value: irodsMeta.Value,
-			Unit:  irodsMeta.Units,
+			Id:         irodsMeta.AVUID,
+			Name:       irodsMeta.Name,
+			Value:      irodsMeta.Value,
+			Unit:       irodsMeta.Units,
+			CreateTime: irodsfs_common_utils.MakeTimeToString(irodsMeta.CreateTime),
+			ModifyTime: irodsfs_common_utils.MakeTimeToString(irodsMeta.ModifyTime),
 		}
 		idx++
 	}
@@ -406,10 +410,12 @@ func (server *PoolServer) GetXattr(context context.Context, request *api.GetXatt
 	}
 
 	responseMeta := &api.Metadata{
-		Id:    irodsMeta.AVUID,
-		Name:  irodsMeta.Name,
-		Value: irodsMeta.Value,
-		Unit:  irodsMeta.Units,
+		Id:         irodsMeta.AVUID,
+		Name:       irodsMeta.Name,
+		Value:      irodsMeta.Value,
+		Unit:       irodsMeta.Units,
+		CreateTime: irodsfs_common_utils.MakeTimeToString(irodsMeta.CreateTime),
+		ModifyTime: irodsfs_common_utils.MakeTimeToString(irodsMeta.ModifyTime),
 	}
 
 	response := &api.GetXattrResponse{
@@ -569,6 +575,7 @@ func (server *PoolServer) ListUserGroups(context context.Context, request *api.L
 	idx := 0
 	for _, group := range groups {
 		responseGroups[idx] = &api.User{
+			Id:   group.ID,
 			Name: group.Name,
 			Zone: group.Zone,
 			Type: string(group.Type),
@@ -936,16 +943,17 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 	fsEntry := irodsFsFileHandle.GetEntry()
 
 	responseEntry := &api.Entry{
-		Id:         fsEntry.ID,
-		Type:       string(fsEntry.Type),
-		Name:       fsEntry.Name,
-		Path:       fsEntry.Path,
-		Owner:      fsEntry.Owner,
-		Size:       fsEntry.Size,
-		DataType:   fsEntry.DataType,
-		CreateTime: irodsfs_common_utils.MakeTimeToString(fsEntry.CreateTime),
-		ModifyTime: irodsfs_common_utils.MakeTimeToString(fsEntry.ModifyTime),
-		Checksum:   fsEntry.CheckSum,
+		Id:                fsEntry.ID,
+		Type:              string(fsEntry.Type),
+		Name:              fsEntry.Name,
+		Path:              fsEntry.Path,
+		Owner:             fsEntry.Owner,
+		Size:              fsEntry.Size,
+		DataType:          fsEntry.DataType,
+		CreateTime:        irodsfs_common_utils.MakeTimeToString(fsEntry.CreateTime),
+		ModifyTime:        irodsfs_common_utils.MakeTimeToString(fsEntry.ModifyTime),
+		ChecksumAlgorithm: string(fsEntry.CheckSumAlgorithm),
+		Checksum:          fsEntry.CheckSum,
 	}
 
 	response := &api.CreateFileResponse{
@@ -1025,16 +1033,17 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 	fsEntry := irodsFsFileHandle.GetEntry()
 
 	responseEntry := &api.Entry{
-		Id:         fsEntry.ID,
-		Type:       string(fsEntry.Type),
-		Name:       fsEntry.Name,
-		Path:       fsEntry.Path,
-		Owner:      fsEntry.Owner,
-		Size:       fsEntry.Size,
-		DataType:   fsEntry.DataType,
-		CreateTime: irodsfs_common_utils.MakeTimeToString(fsEntry.CreateTime),
-		ModifyTime: irodsfs_common_utils.MakeTimeToString(fsEntry.ModifyTime),
-		Checksum:   fsEntry.CheckSum,
+		Id:                fsEntry.ID,
+		Type:              string(fsEntry.Type),
+		Name:              fsEntry.Name,
+		Path:              fsEntry.Path,
+		Owner:             fsEntry.Owner,
+		Size:              fsEntry.Size,
+		DataType:          fsEntry.DataType,
+		CreateTime:        irodsfs_common_utils.MakeTimeToString(fsEntry.CreateTime),
+		ModifyTime:        irodsfs_common_utils.MakeTimeToString(fsEntry.ModifyTime),
+		ChecksumAlgorithm: string(fsEntry.CheckSumAlgorithm),
+		Checksum:          fsEntry.CheckSum,
 	}
 
 	response := &api.OpenFileResponse{

@@ -145,12 +145,15 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 	var sslConf *api.SSLConfiguration
 	if account.SSLConfiguration != nil {
 		sslConf = &api.SSLConfiguration{
-			CACertificateFile:   account.SSLConfiguration.CACertificateFile,
-			CACertificatePath:   account.SSLConfiguration.CACertificatePath,
-			EncryptionKeySize:   int32(account.SSLConfiguration.EncryptionKeySize),
-			EncryptionAlgorithm: account.SSLConfiguration.EncryptionAlgorithm,
-			SaltSize:            int32(account.SSLConfiguration.SaltSize),
-			HashRounds:          int32(account.SSLConfiguration.HashRounds),
+			CaCertificateFile:       account.SSLConfiguration.CACertificateFile,
+			CaCertificatePath:       account.SSLConfiguration.CACertificatePath,
+			EncryptionKeySize:       int32(account.SSLConfiguration.EncryptionKeySize),
+			EncryptionAlgorithm:     account.SSLConfiguration.EncryptionAlgorithm,
+			EncryptionSaltSize:      int32(account.SSLConfiguration.EncryptionSaltSize),
+			EncryptionNumHashRounds: int32(account.SSLConfiguration.EncryptionNumHashRounds),
+			VerifyServer:            string(account.SSLConfiguration.VerifyServer),
+			DhParamsFile:            account.SSLConfiguration.DHParamsFile,
+			ServerName:              account.SSLConfiguration.ServerName,
 		}
 	}
 
@@ -168,8 +171,9 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 			Password:                account.Password,
 			Ticket:                  account.Ticket,
 			DefaultResource:         account.DefaultResource,
+			DefaultHashScheme:       account.DefaultHashScheme,
 			PamTtl:                  int32(account.PamTTL),
-			PamToken:                account.PamToken,
+			PamToken:                account.PAMToken,
 			SslConfiguration:        sslConf,
 		},
 		ApplicationName: applicationName,
@@ -452,16 +456,17 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 		}
 
 		irodsEntry := &irodsclient_fs.Entry{
-			ID:         entry.Id,
-			Type:       irodsclient_fs.EntryType(entry.Type),
-			Name:       entry.Name,
-			Path:       entry.Path,
-			Owner:      entry.Owner,
-			Size:       entry.Size,
-			DataType:   entry.DataType,
-			CreateTime: createTime,
-			ModifyTime: modifyTime,
-			CheckSum:   entry.Checksum,
+			ID:                entry.Id,
+			Type:              irodsclient_fs.EntryType(entry.Type),
+			Name:              entry.Name,
+			Path:              entry.Path,
+			Owner:             entry.Owner,
+			Size:              entry.Size,
+			DataType:          entry.DataType,
+			CreateTime:        createTime,
+			ModifyTime:        modifyTime,
+			CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(entry.ChecksumAlgorithm),
+			CheckSum:          entry.Checksum,
 		}
 
 		irodsEntries = append(irodsEntries, irodsEntry)
@@ -530,16 +535,17 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 	}
 
 	irodsEntry := &irodsclient_fs.Entry{
-		ID:         response.Entry.Id,
-		Type:       irodsclient_fs.EntryType(response.Entry.Type),
-		Name:       response.Entry.Name,
-		Path:       response.Entry.Path,
-		Owner:      response.Entry.Owner,
-		Size:       response.Entry.Size,
-		DataType:   response.Entry.DataType,
-		CreateTime: createTime,
-		ModifyTime: modifyTime,
-		CheckSum:   response.Entry.Checksum,
+		ID:                response.Entry.Id,
+		Type:              irodsclient_fs.EntryType(response.Entry.Type),
+		Name:              response.Entry.Name,
+		Path:              response.Entry.Path,
+		Owner:             response.Entry.Owner,
+		Size:              response.Entry.Size,
+		DataType:          response.Entry.DataType,
+		CreateTime:        createTime,
+		ModifyTime:        modifyTime,
+		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
+		CheckSum:          response.Entry.Checksum,
 	}
 
 	// put to cache
@@ -1260,16 +1266,17 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 	}
 
 	irodsEntry := &irodsclient_fs.Entry{
-		ID:         response.Entry.Id,
-		Type:       irodsclient_fs.EntryType(response.Entry.Type),
-		Name:       response.Entry.Name,
-		Path:       response.Entry.Path,
-		Owner:      response.Entry.Owner,
-		Size:       response.Entry.Size,
-		DataType:   response.Entry.DataType,
-		CreateTime: createTime,
-		ModifyTime: modifyTime,
-		CheckSum:   response.Entry.Checksum,
+		ID:                response.Entry.Id,
+		Type:              irodsclient_fs.EntryType(response.Entry.Type),
+		Name:              response.Entry.Name,
+		Path:              response.Entry.Path,
+		Owner:             response.Entry.Owner,
+		Size:              response.Entry.Size,
+		DataType:          response.Entry.DataType,
+		CreateTime:        createTime,
+		ModifyTime:        modifyTime,
+		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
+		CheckSum:          response.Entry.Checksum,
 	}
 
 	// remove cache
@@ -1333,16 +1340,17 @@ func (session *PoolServiceSession) OpenFile(path string, resource string, mode s
 	}
 
 	irodsEntry := &irodsclient_fs.Entry{
-		ID:         response.Entry.Id,
-		Type:       irodsclient_fs.EntryType(response.Entry.Type),
-		Name:       response.Entry.Name,
-		Path:       response.Entry.Path,
-		Owner:      response.Entry.Owner,
-		Size:       response.Entry.Size,
-		DataType:   response.Entry.DataType,
-		CreateTime: createTime,
-		ModifyTime: modifyTime,
-		CheckSum:   response.Entry.Checksum,
+		ID:                response.Entry.Id,
+		Type:              irodsclient_fs.EntryType(response.Entry.Type),
+		Name:              response.Entry.Name,
+		Path:              response.Entry.Path,
+		Owner:             response.Entry.Owner,
+		Size:              response.Entry.Size,
+		DataType:          response.Entry.DataType,
+		CreateTime:        createTime,
+		ModifyTime:        modifyTime,
+		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
+		CheckSum:          response.Entry.Checksum,
 	}
 
 	return &PoolServiceFileHandle{

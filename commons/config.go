@@ -1,6 +1,7 @@
 package commons
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -11,7 +12,7 @@ import (
 	"golang.org/x/xerrors"
 	yaml "gopkg.in/yaml.v2"
 
-	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
+	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	"github.com/rs/xid"
 )
 
@@ -34,31 +35,24 @@ func GetDefaultDataRootDirPath() string {
 	return dirPath
 }
 
-// MetadataCacheTimeoutSetting defines cache timeout for path
-type MetadataCacheTimeoutSetting struct {
-	Path    string                        `yaml:"path" json:"path"`
-	Timeout irodsfs_common_utils.Duration `yaml:"timeout" json:"timeout"`
-	Inherit bool                          `yaml:"inherit,omitempty" json:"inherit,omitempty"`
-}
-
 // Config holds the parameters list which can be configured
 type Config struct {
-	ServiceEndpoint      string                        `yaml:"service_endpoint"`
-	DataCacheSizeMax     int64                         `yaml:"data_cache_size_max"`
-	DataRootPath         string                        `yaml:"data_root_path,omitempty"`
-	CacheTimeoutSettings []MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty"`
+	ServiceEndpoint      string                                       `yaml:"service_endpoint" json:"service_endpoint"`
+	DataCacheSizeMax     int64                                        `yaml:"data_cache_size_max,omitempty" json:"data_cache_size_max,omitempty"`
+	DataRootPath         string                                       `yaml:"data_root_path,omitempty" json:"data_root_path,omitempty"`
+	CacheTimeoutSettings []irodsclient_fs.MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty" json:"cache_timeout_settings,omitempty"`
 
-	LogPath string `yaml:"log_path,omitempty"`
+	LogPath string `yaml:"log_path,omitempty" json:"log_path,omitempty"`
 
-	Profile                bool `yaml:"profile,omitempty"`
-	ProfileServicePort     int  `yaml:"profile_service_port,omitempty"`
-	PrometheusExporterPort int  `yaml:"prometheus_exporter_port,omitempty"`
+	Profile                bool `yaml:"profile,omitempty" json:"profile,omitempty"`
+	ProfileServicePort     int  `yaml:"profile_service_port,omitempty" json:"profile_service_port,omitempty"`
+	PrometheusExporterPort int  `yaml:"prometheus_exporter_port,omitempty" json:"prometheus_exporter_port,omitempty"`
 
-	Foreground   bool `yaml:"foreground,omitempty"`
-	Debug        bool `yaml:"debug,omitempty"`
-	ChildProcess bool `yaml:"childprocess,omitempty"`
+	Foreground   bool `yaml:"foreground,omitempty" json:"foreground,omitempty"`
+	Debug        bool `yaml:"debug,omitempty" json:"debug,omitempty"`
+	ChildProcess bool `yaml:"childprocess,omitempty" json:"childprocess,omitempty"`
 
-	InstanceID string `yaml:"instanceid,omitempty"`
+	InstanceID string `yaml:"instanceid,omitempty" json:"instanceid,omitempty"`
 }
 
 // NewDefaultConfig returns a default config
@@ -67,7 +61,7 @@ func NewDefaultConfig() *Config {
 		ServiceEndpoint:      "",
 		DataCacheSizeMax:     DataCacheSizeMaxDefault,
 		DataRootPath:         GetDefaultDataRootDirPath(),
-		CacheTimeoutSettings: []MetadataCacheTimeoutSetting{},
+		CacheTimeoutSettings: []irodsclient_fs.MetadataCacheTimeoutSetting{},
 
 		LogPath: "", // use default
 
@@ -90,6 +84,18 @@ func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
 	err := yaml.Unmarshal(yamlBytes, config)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to unmarshal yaml into config: %w", err)
+	}
+
+	return config, nil
+}
+
+// NewConfigFromJSON creates Config from JSON
+func NewConfigFromJSON(jsonBytes []byte) (*Config, error) {
+	config := NewDefaultConfig()
+
+	err := json.Unmarshal(jsonBytes, config)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to unmarshal json into config: %w", err)
 	}
 
 	return config, nil

@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/cyverse/go-irodsclient/config"
 	"github.com/cyverse/go-irodsclient/fs"
-	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/irodsfs-pool/client"
 
 	log "github.com/sirupsen/logrus"
@@ -31,18 +31,13 @@ func main() {
 	inputPath := args[0]
 
 	// Read account configuration from YAML file
-	yaml, err := os.ReadFile("account.yml")
+	cfg, err := config.NewConfigFromYAMLFile(config.GetDefaultConfig(), "account.yml")
 	if err != nil {
-		logger.Errorf("%+v", err)
+		logger.Error(err)
 		panic(err)
 	}
 
-	account, err := types.CreateIRODSAccountFromYAML(yaml)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		panic(err)
-	}
-
+	account := cfg.ToIRODSAccount()
 	logger.Debugf("Account : %v", account.GetRedacted())
 
 	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, "test_client_1")

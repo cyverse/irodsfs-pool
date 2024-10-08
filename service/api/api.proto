@@ -8,12 +8,15 @@ message Empty {
 }
 
 message SSLConfiguration{
-	string CACertificateFile = 1;
-	string CACertificatePath = 2;
-	int32 EncryptionKeySize = 3;
-	string EncryptionAlgorithm = 4;
-	int32 SaltSize = 5;
-	int32 HashRounds = 6;
+	string ca_certificate_file = 1;
+	string ca_certificate_path = 2;
+	int32 encryption_key_size = 3;
+	string encryption_algorithm = 4;
+	int32 encryption_salt_size = 5;
+	int32 encryption_num_hash_rounds = 6;
+	string verify_server = 7;
+	string dh_params_file = 8;
+	string server_name = 9;
 }
 
 message Account{
@@ -29,9 +32,10 @@ message Account{
 	string password = 10;
 	string ticket = 11;
 	string default_resource = 12;
-	int32 pam_ttl = 13;
-	string pam_token = 14;
-	SSLConfiguration ssl_configuration = 15;
+	string default_hash_scheme = 13;
+	int32 pam_ttl = 14;
+	string pam_token = 15;
+	SSLConfiguration ssl_configuration = 16;
 }
 
 message Entry {
@@ -44,7 +48,8 @@ message Entry {
 	string data_type = 7;
 	string create_time = 8; // RFC3339 format
 	string modify_time = 9; // RFC3339 format
-	bytes checksum = 10;
+	string checksum_algorithm = 10;
+	bytes checksum = 11;
 }
 
 message Access {
@@ -56,9 +61,10 @@ message Access {
 }
 
 message User {
-	string name = 1;
-	string zone = 2;
-	string type = 3;
+	int64 id = 1;
+	string name = 2;
+	string zone = 3;
+	string type = 4;
 
 }
 
@@ -67,6 +73,8 @@ message Metadata {
 	string name = 2;
 	string value = 3;
 	string unit = 4;
+	string create_time = 5; // RFC3339 format
+	string modify_time = 6; // RFC3339 format
 }
 
 message CacheEvent {

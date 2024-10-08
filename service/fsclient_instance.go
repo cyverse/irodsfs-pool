@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sync"
-	"time"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
@@ -218,7 +217,7 @@ type IRODSFSClientInstance struct {
 }
 
 // newIRODSFSClientInstance creates a new IRODSFSClientInstance
-func newIRODSFSClientInstance(irodsFsClientInstanceID string, account *api.Account, applicationName string, cacheTimeoutSettings []commons.MetadataCacheTimeoutSetting) (*IRODSFSClientInstance, error) {
+func newIRODSFSClientInstance(irodsFsClientInstanceID string, account *api.Account, applicationName string, cacheTimeoutSettings []irodsclient_fs.MetadataCacheTimeoutSetting) (*IRODSFSClientInstance, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"function": "newIRODSFSClientInstance",
@@ -229,19 +228,22 @@ func newIRODSFSClientInstance(irodsFsClientInstanceID string, account *api.Accou
 	var sslConf *irodsclient_types.IRODSSSLConfig
 	if account.SslConfiguration != nil {
 		sslConf = &irodsclient_types.IRODSSSLConfig{
-			CACertificateFile:   account.SslConfiguration.CACertificateFile,
-			CACertificatePath:   account.SslConfiguration.CACertificatePath,
-			EncryptionKeySize:   int(account.SslConfiguration.EncryptionKeySize),
-			EncryptionAlgorithm: account.SslConfiguration.EncryptionAlgorithm,
-			SaltSize:            int(account.SslConfiguration.SaltSize),
-			HashRounds:          int(account.SslConfiguration.HashRounds),
+			CACertificateFile:       account.SslConfiguration.CaCertificateFile,
+			CACertificatePath:       account.SslConfiguration.CaCertificatePath,
+			EncryptionKeySize:       int(account.SslConfiguration.EncryptionKeySize),
+			EncryptionAlgorithm:     account.SslConfiguration.EncryptionAlgorithm,
+			EncryptionSaltSize:      int(account.SslConfiguration.EncryptionSaltSize),
+			EncryptionNumHashRounds: int(account.SslConfiguration.EncryptionNumHashRounds),
+			VerifyServer:            irodsclient_types.SSLVerifyServer(account.SslConfiguration.VerifyServer),
+			DHParamsFile:            account.SslConfiguration.DhParamsFile,
+			ServerName:              account.SslConfiguration.ServerName,
 		}
 	}
 
 	irodsAccount := &irodsclient_types.IRODSAccount{
 		AuthenticationScheme:    irodsclient_types.AuthScheme(account.AuthenticationScheme),
 		ClientServerNegotiation: account.ClientServerNegotiation,
-		CSNegotiationPolicy:     irodsclient_types.CSNegotiationRequire(account.CsNegotiationPolicy),
+		CSNegotiationPolicy:     irodsclient_types.CSNegotiationPolicyRequest(account.CsNegotiationPolicy),
 		Host:                    account.Host,
 		Port:                    int(account.Port),
 		ClientUser:              account.ClientUser,
@@ -251,22 +253,14 @@ func newIRODSFSClientInstance(irodsFsClientInstanceID string, account *api.Accou
 		Password:                account.Password,
 		Ticket:                  account.Ticket,
 		DefaultResource:         account.DefaultResource,
+		DefaultHashScheme:       account.DefaultHashScheme,
 		PamTTL:                  int(account.PamTtl),
-		PamToken:                account.PamToken,
+		PAMToken:                account.PamToken,
 		SSLConfiguration:        sslConf,
 	}
 
 	irodsConfig := irodsclient_fs.NewFileSystemConfig(applicationName)
-
-	for _, cacheTimeoutSetting := range cacheTimeoutSettings {
-		cacheTimeoutSettingConv := irodsclient_fs.MetadataCacheTimeoutSetting{
-			Path:    cacheTimeoutSetting.Path,
-			Timeout: time.Duration(cacheTimeoutSetting.Timeout),
-			Inherit: cacheTimeoutSetting.Inherit,
-		}
-
-		irodsConfig.Cache.MetadataTimeoutSettings = append(irodsConfig.Cache.MetadataTimeoutSettings, cacheTimeoutSettingConv)
-	}
+	irodsConfig.Cache.MetadataTimeoutSettings = cacheTimeoutSettings
 
 	irodsFsClient, err := irodsfs_common_irods.NewIRODSFSClientDirect(irodsAccount, irodsConfig)
 	if err != nil {

@@ -56,10 +56,8 @@ github.com/cncf/udpa/go v0.0.0-20191209042840-269d4d468f6f/go.mod h1:M8M6+tZqaGX
 github.com/cpuguy83/go-md2man/v2 v2.0.2/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/cyverse/go-irodsclient v0.15.5 h1:uJfhyjldYuEG7nQf4Q3GxJ+ppRu5ITFD6y0Q2S2eP60=
 github.com/cyverse/go-irodsclient v0.15.5/go.mod h1:NN+PxHfLDUmsqfqSY84JfmqXS4EYiuiNW6ti6oPGCgk=
-github.com/cyverse/irodsfs-common v0.0.0-20241008231943-9d992141db47 h1:S4TeabMriwS3RRKzdSQChKgyigTSO3ahaovecQU30GI=
-github.com/cyverse/irodsfs-common v0.0.0-20241008231943-9d992141db47/go.mod h1:dCM4lp3PqWfTiQf9v643ejlgzoKaZvNnh7SqdrHHcIE=
-github.com/cyverse/irodsfs-monitor v0.0.0-20220809235922-daf13261a2dc h1:gIpG0ETQOEZloFwB5iU2zljVsoUDTpUEl/3WF19gLNk=
-github.com/cyverse/irodsfs-monitor v0.0.0-20220809235922-daf13261a2dc/go.mod h1:8UE1mT26+0vAsqS9UJ6Q/vlKq3da6FLdt5p6Tt1AIC4=
+github.com/cyverse/irodsfs-common v0.0.0-20241010190648-fd912aaeb245 h1:ance5KyaguNYkWdmBFy9Ab0n0MQcEjCtDXh53cSj1KE=
+github.com/cyverse/irodsfs-common v0.0.0-20241010190648-fd912aaeb245/go.mod h1:lDqnnyB5s0p4Dqjkh7UuZX+IOaYxc3P5WSceZQ40Tsk=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -138,7 +136,6 @@ github.com/google/pprof v0.0.0-20211214055906-6f57359322fd/go.mod h1:KgnwoLYCZ8I
 github.com/google/renameio v0.1.0/go.mod h1:KWCgfxg9yswjAJkECMjeO8J8rahYeXnNhOm40UhjYkI=
 github.com/googleapis/gax-go/v2 v2.0.4/go.mod h1:0Wqv26UfaUD9n4G6kQubkQ+KchISgw+vpHVxEJEs9eg=
 github.com/googleapis/gax-go/v2 v2.0.5/go.mod h1:DWXyrwAJ9X0FpwwEdw+IPEYBICEFu5mhpdKc/us6bOk=
-github.com/gorilla/mux v1.8.0/go.mod h1:DVbg23sWSpFRCP0SfiEN6jmj59UnW/n46BH5rLB71So=
 github.com/hashicorp/go-rootcerts v1.0.2 h1:jzhAVGtqPKbwpyCPELlgNWhE1znq+qwJtW5Oi2viEzc=
 github.com/hashicorp/go-rootcerts v1.0.2/go.mod h1:pqUvnprVnM5bf7AOirdbb01K4ccR319Vf4pU3K5EGc8=
 github.com/hashicorp/golang-lru v0.5.0/go.mod h1:/m3WP610KZHVQ1SGc6re/UDhFvYD7pJ4Ao+sR/qLZy8=

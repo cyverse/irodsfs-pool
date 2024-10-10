@@ -54,7 +54,7 @@ func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsFile
 		writer = irodsfs_common_io.NewNilWriter(fsClient, irodsFsFileHandle)
 
 		// reader
-		syncReader := irodsfs_common_io.NewSyncReader(fsClient, irodsFsFileHandle, nil)
+		syncReader := irodsfs_common_io.NewSyncReader(fsClient, irodsFsFileHandle)
 
 		// use prefetching
 		// requires multiple readers
@@ -62,7 +62,7 @@ func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsFile
 		readers = append(readers, syncReader)
 
 		for _, prefetchingHandle := range irodsFsFileHandlesForPrefetching {
-			readerForPrefetching := irodsfs_common_io.NewSyncReader(fsClient, prefetchingHandle, nil)
+			readerForPrefetching := irodsfs_common_io.NewSyncReader(fsClient, prefetchingHandle)
 			readers = append(readers, readerForPrefetching)
 			readersForPrefetching = append(readersForPrefetching, readerForPrefetching)
 		}
@@ -74,15 +74,15 @@ func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsFile
 		}
 	} else if openMode.IsWriteOnly() {
 		// writer
-		syncWriter := irodsfs_common_io.NewSyncWriter(fsClient, irodsFsFileHandle, nil)
+		syncWriter := irodsfs_common_io.NewSyncWriter(fsClient, irodsFsFileHandle)
 		syncBufferedWriter := irodsfs_common_io.NewSyncBufferedWriter(syncWriter, iRODSIOBlockSize)
 		writer = irodsfs_common_io.NewAsyncWriter(syncBufferedWriter)
 
 		// reader
 		reader = irodsfs_common_io.NewNilReader(fsClient, irodsFsFileHandle)
 	} else {
-		writer = irodsfs_common_io.NewSyncWriter(fsClient, irodsFsFileHandle, nil)
-		reader = irodsfs_common_io.NewSyncReader(fsClient, irodsFsFileHandle, nil)
+		writer = irodsfs_common_io.NewSyncWriter(fsClient, irodsFsFileHandle)
+		reader = irodsfs_common_io.NewSyncReader(fsClient, irodsFsFileHandle)
 	}
 
 	return &PoolFileHandle{
@@ -175,7 +175,7 @@ func (handle *PoolFileHandle) AddFileHandlesForPrefetching(irodsFsFileHandles []
 
 	if reader, ok := handle.reader.(*irodsfs_common_io.AsyncCacheThroughReader); ok {
 		for _, irodsFsFileHandle := range irodsFsFileHandles {
-			readerForPrefetching := irodsfs_common_io.NewSyncReader(handle.fsClient, irodsFsFileHandle, nil)
+			readerForPrefetching := irodsfs_common_io.NewSyncReader(handle.fsClient, irodsFsFileHandle)
 			readersForPrefetching = append(readersForPrefetching, readerForPrefetching)
 		}
 

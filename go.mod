@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/cyverse/go-irodsclient v0.15.5
-	github.com/cyverse/irodsfs-common v0.0.0-20241008231943-9d992141db47
+	github.com/cyverse/irodsfs-common v0.0.0-20241010190648-fd912aaeb245
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/profile v1.7.0
 	github.com/prometheus/client_golang v1.13.0
@@ -21,7 +21,6 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
-	github.com/cyverse/irodsfs-monitor v0.0.0-20220809235922-daf13261a2dc // indirect
 	github.com/felixge/fgprof v0.9.3 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/pprof v0.0.0-20211214055906-6f57359322fd // indirect

@@ -68,7 +68,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, clientID str
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
 
-	session := newPoolSession(manager, clientID)
+	session := newPoolSession(clientID)
 
 	// add the session to instance
 	instanceID, err := manager.irodsFsClientInstanceManager.AddPoolSession(account, session, appName)
@@ -300,7 +300,7 @@ type PoolSession struct {
 	mutex sync.RWMutex
 }
 
-func newPoolSession(manager *PoolSessionManager, poolClientID string) *PoolSession {
+func newPoolSession(poolClientID string) *PoolSession {
 	return &PoolSession{
 		id:                      xid.New().String(),
 		poolClientID:            poolClientID,

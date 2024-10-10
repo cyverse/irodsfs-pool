@@ -238,7 +238,7 @@ func (server *PoolServer) CollectPrometheusMetrics() {
 
 }
 
-func (server *PoolServer) CollectMetrics() irodsclient_metrics.IRODSMetrics {
+func (server *PoolServer) CollectMetrics() *irodsclient_metrics.IRODSMetrics {
 	server.mutex.Lock()
 
 	instances := server.sessionManager.GetIRODSFSClientInstances()
@@ -288,5 +288,5 @@ func (server *PoolServer) CollectMetrics() irodsclient_metrics.IRODSMetrics {
 		metricsTotal.IncreaseCounterForConnectionPoolFailures(metric.GetAndClearCounterForConnectionPoolFailures())
 	}
 
-	return metricsTotal
+	return &metricsTotal
 }

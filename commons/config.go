@@ -16,21 +16,16 @@ import (
 	"github.com/rs/xid"
 )
 
-const (
-	DataCacheSizeMaxDefault int64 = 1024 * 1024 * 1024 * 20 // 20GB
-
-	ProfileServicePortDefault     int = 12021
-	PrometheusExporterPortDefault int = 12022
-)
-
+// GetDefaultInstanceID returns default instance id
 func GetDefaultInstanceID() string {
 	return xid.New().String()
 }
 
+// GetDefaultDataRootDirPath returns default data root path
 func GetDefaultDataRootDirPath() string {
 	dirPath, err := os.Getwd()
 	if err != nil {
-		return "/var/lib/irodsfs_pool"
+		return DataRootPathDefault
 	}
 	return dirPath
 }

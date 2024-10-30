@@ -164,6 +164,7 @@ func childMain(command *cobra.Command, args []string) {
 
 	if logWriter != nil {
 		logWriter.Close()
+		logWriter = nil
 	}
 }
 

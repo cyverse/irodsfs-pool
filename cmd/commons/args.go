@@ -270,7 +270,7 @@ func PrintHelp(command *cobra.Command) error {
 }
 
 func getLogWriterForParentProcess(logPath string) (io.WriteCloser, string) {
-	logFilePath := fmt.Sprintf("%q.parent", logPath)
+	logFilePath := fmt.Sprintf("%s.parent", logPath)
 	return &lumberjack.Logger{
 		Filename:   logFilePath,
 		MaxSize:    50, // 50MB
@@ -281,7 +281,7 @@ func getLogWriterForParentProcess(logPath string) (io.WriteCloser, string) {
 }
 
 func getLogWriterForChildProcess(logPath string) (io.WriteCloser, string) {
-	logFilePath := fmt.Sprintf("%q.child", logPath)
+	logFilePath := fmt.Sprintf("%s.child", logPath)
 	return &lumberjack.Logger{
 		Filename:   logFilePath,
 		MaxSize:    50, // 50MB

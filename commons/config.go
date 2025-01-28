@@ -14,6 +14,7 @@ import (
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 )
 
 // GetDefaultInstanceID returns default instance id
@@ -126,8 +127,16 @@ func (config *Config) GetInstanceDataRootDirPath() string {
 
 // MakeLogDir makes a log dir required
 func (config *Config) MakeLogDir() error {
+	logger := log.WithFields(log.Fields{
+		"package":  "commons",
+		"object":   "Config",
+		"function": "MakeLogDir",
+	})
+
 	logFilePath := config.GetLogFilePath()
 	logDirPath := filepath.Dir(logFilePath)
+
+	logger.Debugf("making log dir %q", logDirPath)
 	err := config.makeDir(logDirPath)
 	if err != nil {
 		return err
@@ -138,7 +147,14 @@ func (config *Config) MakeLogDir() error {
 
 // MakeWorkDirs makes dirs required
 func (config *Config) MakeWorkDirs() error {
+	logger := log.WithFields(log.Fields{
+		"package":  "commons",
+		"object":   "Config",
+		"function": "MakeWorkDirs",
+	})
+
 	cacheDirPath := config.GetDataCacheRootDirPath()
+	logger.Debugf("making cache dir %q", cacheDirPath)
 	err := config.makeDir(cacheDirPath)
 	if err != nil {
 		return err

@@ -79,7 +79,12 @@ func (client *PoolServiceClient) Connect() error {
 
 	client.connected = false
 
-	conn, err := grpc.Dial(client.address, grpc.WithInsecure())
+	_, addr, err := commons.ParsePoolServiceEndpoint(client.address)
+	if err != nil {
+		return err
+	}
+
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
 		grpcErr := xerrors.Errorf("failed to dial to %q: %w", client.address, err)
 		logger.Errorf("%+v", grpcErr)

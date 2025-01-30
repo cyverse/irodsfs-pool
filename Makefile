@@ -26,4 +26,44 @@ protobuf:
 .PHONY: examples
 examples:
 	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/list_dir/list_dir.out ./client_examples/list_dir/list_dir.go
-	
+
+
+.PHONY: release
+release: build
+	mkdir -p release
+	mkdir -p release/bin
+	cp bin/irodsfs-pool release/bin
+	mkdir -p release/install
+	cp install/config.yaml release/install
+	cp install/irodsfs-pool.service release/install
+	cp install/README.md release/install
+	cp Makefile.release release/Makefile
+	cd release && tar zcvf ../irodsfs-pool.tar.gz *
+
+.PHONY: install_centos
+install_centos:
+	cp bin/irodsfs-pool /usr/bin
+	cp install/irodsfs-pool.service /usr/lib/systemd/system/
+	id -u irodsfs-pool &> /dev/null || adduser -r -d /dev/null -s /sbin/nologin irodsfs-pool
+	mkdir -p /etc/irodsfs-pool
+	cp install/config.yaml /etc/irodsfs-pool
+	chown irodsfs-pool /etc/irodsfs-pool/config.yaml
+	chmod 660 /etc/irodsfs-pool/config.yaml
+
+.PHONY: install_ubuntu
+install_ubuntu:
+	cp bin/irodsfs-pool /usr/bin
+	cp install/irodsfs-pool.service /etc/systemd/system/
+	id -u irodsfs-pool &> /dev/null || adduser --system --home /dev/null --shell /sbin/nologin irodsfs-pool
+	mkdir -p /etc/irodsfs-pool
+	cp install/config.yaml /etc/irodsfs-pool
+	chown irodsfs-pool /etc/irodsfs-pool/config.yaml
+	chmod 660 /etc/irodsfs-pool/config.yaml
+
+.PHONY: uninstall
+uninstall:
+	rm -f /usr/bin/irodsfs-pool
+	rm -f /etc/systemd/system/irodsfs-pool.service
+	rm -f /usr/lib/systemd/system/irodsfs-pool.service
+	userdel irodsfs-pool | true
+	rm -rf /etc/irodsfs-pool

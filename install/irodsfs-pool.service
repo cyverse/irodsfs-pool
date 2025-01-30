@@ -1,0 +1,15 @@
+[Unit]
+Description=iRODS FS Pool Server
+After=network-online.target nss-lookup.target
+
+[Service]
+Type=forking
+KillMode=process
+
+ExecStart=/usr/bin/irodsfs-pool -c /etc/irodsfs-pool/config.yaml
+Restart=on-failure
+
+User=irodsfs-pool
+
+[Install]
+WantedBy=multi-user.target

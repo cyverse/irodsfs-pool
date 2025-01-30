@@ -1,0 +1,10 @@
+service_endpoint: tcp://0.0.0.0:12020
+debug: true
+data_cache_size_max: 10737418240 # 10 GB
+data_root_path: /irodsfs_pool_data
+instanceid: irodsfs_pool_svc
+cache_timeout_settings:
+  - path: "/"
+    timeout: "100s"
+    inherit: true
+

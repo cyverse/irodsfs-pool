@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -93,7 +94,12 @@ func (client *PoolServiceClient) Connect() error {
 	}
 
 	logger.Infof("Connecting to %s endpoint: %q", scheme, endpoint)
-	conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	dialer := func(ctx context.Context, address string) (net.Conn, error) {
+		return net.Dial(scheme, address)
+	}
+
+	conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(dialer))
 	if err != nil {
 		grpcErr := xerrors.Errorf("failed to dial to %q: %w", client.address, err)
 		logger.Errorf("%+v", grpcErr)

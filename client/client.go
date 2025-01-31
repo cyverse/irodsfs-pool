@@ -17,6 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -79,12 +80,20 @@ func (client *PoolServiceClient) Connect() error {
 
 	client.connected = false
 
-	_, addr, err := commons.ParsePoolServiceEndpoint(client.address)
+	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(client.address)
 	if err != nil {
 		return err
 	}
 
-	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	logger.Infof("scheme: %s, endpoint: %s", scheme, endpoint)
+
+	if scheme != "unix" && scheme != "tcp" {
+		logger.Errorf("unknown protocol %q", scheme)
+		return xerrors.Errorf("unknown protocol %q", scheme)
+	}
+
+	logger.Infof("Connecting to %s endpoint: %q", scheme, endpoint)
+	conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		grpcErr := xerrors.Errorf("failed to dial to %q: %w", client.address, err)
 		logger.Errorf("%+v", grpcErr)
@@ -92,7 +101,7 @@ func (client *PoolServiceClient) Connect() error {
 	}
 
 	client.grpcConnection = conn
-	client.apiClient = api.NewPoolAPIClient(conn)
+	client.apiClient = api.NewPoolAPIClient(client.grpcConnection)
 	client.connected = true
 	return nil
 }

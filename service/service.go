@@ -173,6 +173,8 @@ func (svc *PoolService) Start() error {
 		return err
 	}
 
+	logger.Infof("scheme: %s, endpoint: %s", scheme, endpoint)
+
 	switch scheme {
 	case "unix":
 		unixListener, err := net.Listen("unix", endpoint)

@@ -565,7 +565,7 @@ func (server *PoolServer) ListUserGroups(context context.Context, request *api.L
 
 	session.UpdateLastAccessTime()
 
-	groups, err := fsClient.ListUserGroups(request.UserName)
+	groups, err := fsClient.ListUserGroups(request.Zone, request.UserName)
 	if err != nil {
 		logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)

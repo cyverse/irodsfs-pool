@@ -829,7 +829,7 @@ func (session *PoolServiceSession) ExistsFile(path string) bool {
 }
 
 // ListUserGroups lists iRODS Groups that a user belongs to
-func (session *PoolServiceSession) ListUserGroups(user string) ([]*irodsclient_types.IRODSUser, error) {
+func (session *PoolServiceSession) ListUserGroups(zone string, user string) ([]*irodsclient_types.IRODSUser, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "client",
 		"struct":   "PoolServiceSession",
@@ -844,6 +844,7 @@ func (session *PoolServiceSession) ListUserGroups(user string) ([]*irodsclient_t
 
 		request := &api.ListUserGroupsRequest{
 			SessionId: session.id,
+			Zone:      zone,
 			UserName:  user,
 		}
 

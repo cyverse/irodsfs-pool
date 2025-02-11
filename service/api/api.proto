@@ -166,7 +166,8 @@ message ExistsFileResponse {
 
 message ListUserGroupsRequest {
 	string session_id = 1;
-    string user_name = 2;
+	string zone = 2;
+    string user_name = 3;
 }
 
 message ListUserGroupsResponse {

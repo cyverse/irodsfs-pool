@@ -6,6 +6,7 @@ LDFLAGS?="-X '${PKG}/commons.serviceVersion=${VERSION}' -X '${PKG}/commons.gitCo
 GO111MODULE=on
 GOPROXY=direct
 GOPATH=$(shell go env GOPATH)
+SHELL:=/bin/bash
 
 .EXPORT_ALL_VARIABLES:
 
@@ -47,23 +48,30 @@ install_centos:
 	id -u irodsfs-pool &> /dev/null || adduser -r -d /dev/null -s /sbin/nologin irodsfs-pool
 	mkdir -p /etc/irodsfs-pool
 	cp install/config.yaml /etc/irodsfs-pool
-	chown irodsfs-pool /etc/irodsfs-pool/config.yaml
+	chown irodsfs-pool:irodsfs-pool /etc/irodsfs-pool/config.yaml
 	chmod 660 /etc/irodsfs-pool/config.yaml
+	mkdir -p $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
+	chown irodsfs-pool:irodsfs-pool $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
 
 .PHONY: install_ubuntu
 install_ubuntu:
 	cp bin/irodsfs-pool /usr/bin
-	cp install/irodsfs-pool.service /etc/systemd/system/
-	id -u irodsfs-pool &> /dev/null || adduser --system --home /dev/null --shell /sbin/nologin irodsfs-pool
+	cp install/irodsfs-pool.service /usr/lib/systemd/system/
+	id -u irodsfs-pool &> /dev/null || adduser --system --no-create-home --shell /sbin/nologin --group irodsfs-pool
 	mkdir -p /etc/irodsfs-pool
 	cp install/config.yaml /etc/irodsfs-pool
-	chown irodsfs-pool /etc/irodsfs-pool/config.yaml
+	chown irodsfs-pool:irodsfs-pool /etc/irodsfs-pool/config.yaml
 	chmod 660 /etc/irodsfs-pool/config.yaml
+	mkdir -p $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
+	chown irodsfs-pool:irodsfs-pool $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
 
 .PHONY: uninstall
 uninstall:
 	rm -f /usr/bin/irodsfs-pool
-	rm -f /etc/systemd/system/irodsfs-pool.service
+	rm -f /etc/systemd/system/multi-user.target.wants/irodsfs-pool.service || true
 	rm -f /usr/lib/systemd/system/irodsfs-pool.service
-	userdel irodsfs-pool | true
+	userdel irodsfs-pool || true
+	groupdel irodsfs-pool || true
+	rm -rf $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
 	rm -rf /etc/irodsfs-pool
+

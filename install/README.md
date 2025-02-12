@@ -1,18 +1,28 @@
 # Setup irodsfs-pool systemd service
 
-Copy the iRODS FS Pool Server binary `bin/irodsfs-pool` to `/usr/bin/`.
+Use `Makefile` in install package. 
 
-Copy the systemd service `irodsfs-pool.service` to `/usr/lib/systemd/system/`.
-
-Create a service user `irodsfs-pool`.
+If you are installing on ubuntu,
 ```bash
-sudo adduser -r -d /dev/null -s /sbin/nologin irodsfs-pool
+sudo make install_ubuntu
 ```
 
-Copy the iRODS FS Pool Server configuration `config.yaml` to `/etc/irodsfs-pool/`.
-Be sure that this file must be only accessible by the `irodsfs-pool` user.
+If you are installing on CentOS,
+```bash
+sudo make install_centos
+```
+
+Enable the service.
+```bash
+sudo systemctl enable irodsfs-pool.service
+```
 
 Start the service.
 ```bash
 sudo service irodsfs-pool start
+```
+
+Check the service status.
+```bash
+sudo service irodsfs-pool status
 ```

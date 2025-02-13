@@ -1,11 +1,9 @@
 package service
 
 import (
-	"container/list"
 	"context"
 	"fmt"
 	"io"
-	"sync"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
@@ -22,8 +20,7 @@ import (
 )
 
 const (
-	cacheEntrySizeMax  int = 4 * 1024 * 1024 // 4MB
-	cacheEventQueueMax int = 100000
+	cacheEntrySizeMax int = 4 * 1024 * 1024 // 4MB
 )
 
 // PoolServerConfig is a configuration for Server
@@ -31,13 +28,7 @@ type PoolServerConfig struct {
 	CacheSizeMax         int64
 	CacheRootPath        string
 	CacheTimeoutSettings []irodsclient_fs.MetadataCacheTimeoutSetting
-}
-
-type PoolServerCacheEventSubscription struct {
-	sessionID string
-	handlerID string
-	eventList list.List // type of api.CacheEvent
-	mutex     sync.Mutex
+	OperationTimeout     int
 }
 
 // PoolServer is a struct for PoolServer
@@ -46,10 +37,8 @@ type PoolServer struct {
 
 	config *PoolServerConfig
 
-	cacheStore              irodsfs_common_cache.CacheStore
-	sessionManager          *PoolSessionManager
-	cacheEventSubscriptions map[string]*PoolServerCacheEventSubscription
-	mutex                   sync.RWMutex
+	cacheStore     irodsfs_common_cache.CacheStore
+	sessionManager *PoolSessionManager
 }
 
 func NewPoolServer(config *PoolServerConfig) (*PoolServer, error) {
@@ -65,10 +54,8 @@ func NewPoolServer(config *PoolServerConfig) (*PoolServer, error) {
 	return &PoolServer{
 		config: config,
 
-		cacheStore:              diskCacheStore,
-		sessionManager:          NewPoolSessionManager(config),
-		cacheEventSubscriptions: map[string]*PoolServerCacheEventSubscription{},
-		mutex:                   sync.RWMutex{},
+		cacheStore:     diskCacheStore,
+		sessionManager: NewPoolSessionManager(config),
 	}, nil
 }
 
@@ -81,11 +68,7 @@ func (server *PoolServer) Release() {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	server.mutex.Lock()
-
 	server.sessionManager.Release()
-
-	server.mutex.Unlock()
 
 	if server.cacheStore != nil {
 		server.cacheStore.Release()
@@ -94,9 +77,6 @@ func (server *PoolServer) Release() {
 }
 
 func (server *PoolServer) GetSessionManager() *PoolSessionManager {
-	server.mutex.RLock()
-	defer server.mutex.RUnlock()
-
 	return server.sessionManager
 }
 
@@ -113,13 +93,12 @@ func (server *PoolServer) Login(context context.Context, request *api.LoginReque
 	defer logger.Infof("Login response to client id %q, host %q, user %q", request.ClientId, request.Account.Host, request.Account.ClientUser)
 
 	promCounterForGRPCCalls.Inc()
-
-	server.mutex.Lock()
-	defer server.mutex.Unlock()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, err := server.sessionManager.NewSession(request.Account, request.ClientId, request.ApplicationName)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		sessionErr := xerrors.Errorf("Failed to create a new session for client id %q, host %q, user %q: %w", request.ClientId, request.Account.Host, request.Account.ClientUser, err)
+		logger.Errorf("%+v", sessionErr)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -143,12 +122,10 @@ func (server *PoolServer) Logout(context context.Context, request *api.LogoutReq
 	defer logger.Infof("Logout response to client, pool session id %q", request.SessionId)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	// collect metrics before release
 	server.CollectPrometheusMetrics()
-
-	server.mutex.Lock()
-	defer server.mutex.Unlock()
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
@@ -156,17 +133,6 @@ func (server *PoolServer) Logout(context context.Context, request *api.LogoutReq
 		sessionErr := xerrors.Errorf("failed to logout because the session for id %q is not found, ignoring...: %w", request.SessionId, err)
 		logger.Errorf("%+v", sessionErr)
 		return &api.Empty{}, nil
-	}
-
-	subscription, ok := server.cacheEventSubscriptions[request.SessionId]
-	if ok {
-		delete(server.cacheEventSubscriptions, request.SessionId)
-
-		promCounterForCacheEventSubscriptions.Dec()
-	}
-
-	if ok && subscription != nil {
-		session.RemovePoolCacheEventHandler(subscription.handlerID)
 	}
 
 	server.sessionManager.ReleaseSession(session.GetID())
@@ -185,23 +151,14 @@ func (server *PoolServer) LogoutAll() {
 	logger.Info("Logout All")
 	defer logger.Info("Logged-out All")
 
-	server.mutex.Lock()
-	defer server.mutex.Unlock()
-
 	server.sessionManager.Release()
 }
 
 func (server *PoolServer) GetPoolSessions() int {
-	server.mutex.RLock()
-	defer server.mutex.RUnlock()
-
 	return server.sessionManager.GetTotalSessions()
 }
 
 func (server *PoolServer) GetIRODSFSClientInstances() int {
-	server.mutex.RLock()
-	defer server.mutex.RUnlock()
-
 	return server.sessionManager.GetTotalIRODSFSClientInstances()
 }
 
@@ -213,9 +170,6 @@ func (server *PoolServer) GetIRODSConnections() int {
 	})
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	server.mutex.RLock()
-	defer server.mutex.RUnlock()
 
 	return server.sessionManager.GetTotalIRODSFSClientConnections()
 }
@@ -233,6 +187,7 @@ func (server *PoolServer) List(context context.Context, request *api.ListRequest
 	defer logger.Infof("List response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -287,6 +242,7 @@ func (server *PoolServer) Stat(context context.Context, request *api.StatRequest
 	defer logger.Infof("Stat response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -339,6 +295,7 @@ func (server *PoolServer) ListXattr(context context.Context, request *api.ListXa
 	defer logger.Infof("ListXattr response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -388,6 +345,7 @@ func (server *PoolServer) GetXattr(context context.Context, request *api.GetXatt
 	defer logger.Infof("GetXattr response to pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -438,6 +396,7 @@ func (server *PoolServer) SetXattr(context context.Context, request *api.SetXatt
 	defer logger.Infof("SetXattr response to pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -469,6 +428,7 @@ func (server *PoolServer) RemoveXattr(context context.Context, request *api.Remo
 	defer logger.Infof("RemoveXattr response to pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -500,6 +460,7 @@ func (server *PoolServer) ExistsDir(context context.Context, request *api.Exists
 	defer logger.Infof("ExistsDir response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -528,6 +489,7 @@ func (server *PoolServer) ExistsFile(context context.Context, request *api.Exist
 	defer logger.Infof("ExistsFile response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -556,6 +518,7 @@ func (server *PoolServer) ListUserGroups(context context.Context, request *api.L
 	defer logger.Infof("ListUserGroups response to pool session id %q, user name %q", request.SessionId, request.UserName)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -603,6 +566,7 @@ func (server *PoolServer) ListDirACLs(context context.Context, request *api.List
 	defer logger.Infof("ListDirACLs response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -651,6 +615,7 @@ func (server *PoolServer) ListFileACLs(context context.Context, request *api.Lis
 	defer logger.Infof("ListFileACLs response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -699,6 +664,7 @@ func (server *PoolServer) ListACLsForEntries(context context.Context, request *a
 	defer logger.Infof("ListACLsForEntries response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -747,6 +713,7 @@ func (server *PoolServer) RemoveFile(context context.Context, request *api.Remov
 	defer logger.Infof("RemoveFile response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -781,6 +748,7 @@ func (server *PoolServer) RemoveDir(context context.Context, request *api.Remove
 	defer logger.Infof("RemoveDir response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -812,6 +780,7 @@ func (server *PoolServer) MakeDir(context context.Context, request *api.MakeDirR
 	defer logger.Infof("MakeDir response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -843,6 +812,7 @@ func (server *PoolServer) RenameDirToDir(context context.Context, request *api.R
 	defer logger.Infof("RenameDirToDir response to pool session id %q, source path %q -> destination path %q", request.SessionId, request.SourcePath, request.DestinationPath)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -874,6 +844,7 @@ func (server *PoolServer) RenameFileToFile(context context.Context, request *api
 	defer logger.Infof("RenameFileToFile response to pool session id %q, source path %q -> destination path %q", request.SessionId, request.SourcePath, request.DestinationPath)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -908,6 +879,7 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 	defer logger.Infof("CreateFile response to pool session id %q, path %q, mode %q", request.SessionId, request.Path, request.Mode)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -979,6 +951,7 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 	defer logger.Infof("OpenFile response to pool session id %q, path %q, mode %q", request.SessionId, request.Path, request.Mode)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -1020,11 +993,11 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 					prefetchingIrodsFsFileHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
 					if err != nil {
 						logger.Errorf("%+v", err)
-						return
+						poolFileHandle.AddExpectedFileHandlesForPrefetching(-1)
+					} else {
+						irodsFsFileHandlesForPrefetching := []irodsfs_common.IRODSFSFileHandle{prefetchingIrodsFsFileHandle}
+						poolFileHandle.AddFileHandlesForPrefetching(irodsFsFileHandlesForPrefetching)
 					}
-
-					irodsFsFileHandlesForPrefetching := []irodsfs_common.IRODSFSFileHandle{prefetchingIrodsFsFileHandle}
-					poolFileHandle.AddFileHandlesForPrefetching(irodsFsFileHandlesForPrefetching)
 				}
 			}()
 		}
@@ -1069,6 +1042,7 @@ func (server *PoolServer) TruncateFile(context context.Context, request *api.Tru
 	defer logger.Infof("TruncateFile response to pool session id %q, path %q", request.SessionId, request.Path)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
 	if err != nil {
@@ -1103,6 +1077,7 @@ func (server *PoolServer) GetOffset(context context.Context, request *api.GetOff
 	defer logger.Debugf("GetOffset response to pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
@@ -1138,6 +1113,7 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 	defer logger.Debugf("ReadAt response to pool session id %q, pool file handle id %q, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
@@ -1184,6 +1160,7 @@ func (server *PoolServer) WriteAt(context context.Context, request *api.WriteAtR
 	defer logger.Debugf("WriteAt response to pool session id %q, pool file handle id %q, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
@@ -1221,6 +1198,7 @@ func (server *PoolServer) Truncate(context context.Context, request *api.Truncat
 	defer logger.Infof("Truncate response to pool session id %q, pool file handle id %q, size %d", request.SessionId, request.FileHandleId, request.Size)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
@@ -1258,6 +1236,7 @@ func (server *PoolServer) Flush(context context.Context, request *api.FlushReque
 	defer logger.Infof("Flush response to pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
@@ -1295,6 +1274,7 @@ func (server *PoolServer) Close(context context.Context, request *api.CloseReque
 	defer logger.Infof("Close response to pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
 
 	promCounterForGRPCCalls.Inc()
+	defer promCounterForGRPCCallReturns.Inc()
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
@@ -1322,170 +1302,6 @@ func (server *PoolServer) Close(context context.Context, request *api.CloseReque
 	if err != nil {
 		logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
-	}
-
-	return &api.Empty{}, nil
-}
-
-func (server *PoolServer) cacheEventHandler(sessionID string, path string, eventType irodsclient_fs.FilesystemCacheEventType) {
-	event := &api.CacheEvent{
-		EventType: string(eventType),
-		Path:      path,
-	}
-
-	server.mutex.RLock()
-	subscription, ok := server.cacheEventSubscriptions[sessionID]
-	if ok {
-		server.mutex.RUnlock()
-
-		subscription.mutex.Lock()
-		defer subscription.mutex.Unlock()
-
-		subscription.eventList.PushBack(event)
-
-		// remove overflows to not maintain too many of them
-		if subscription.eventList.Len() > cacheEventQueueMax {
-			for i := 0; i < subscription.eventList.Len()-cacheEventQueueMax; i++ {
-				front := subscription.eventList.Front()
-				if front == nil {
-					break
-				}
-
-				subscription.eventList.Remove(front)
-			}
-		}
-
-		return
-	}
-
-	server.mutex.RUnlock()
-}
-
-func (server *PoolServer) SubscribeCacheEvents(context context.Context, request *api.SubscribeCacheEventsRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "SubscribeCacheEvents",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("SubscribeCacheEvents request from pool session id %q", request.SessionId)
-	defer logger.Infof("SubscribeCacheEvents response to pool session id %q", request.SessionId)
-
-	promCounterForGRPCCalls.Inc()
-
-	session, err := server.sessionManager.GetSession(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	session.UpdateLastAccessTime()
-
-	// subscription
-	cacheEventHandler := func(path string, eventType irodsclient_fs.FilesystemCacheEventType) {
-		server.cacheEventHandler(request.SessionId, path, eventType)
-	}
-	cacheEventHandlerID := session.AddPoolCacheEventHandler(cacheEventHandler)
-
-	subscription := &PoolServerCacheEventSubscription{
-		sessionID: request.SessionId,
-		handlerID: cacheEventHandlerID,
-		mutex:     sync.Mutex{},
-	}
-
-	server.mutex.Lock()
-
-	server.cacheEventSubscriptions[request.SessionId] = subscription
-
-	server.mutex.Unlock()
-
-	promCounterForCacheEventSubscriptions.Inc()
-
-	return &api.Empty{}, nil
-}
-
-func (server *PoolServer) PullCacheEvents(context context.Context, request *api.PullCacheEventsRequest) (*api.PullCacheEventsResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "PullCacheEvents",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	promCounterForGRPCCalls.Inc()
-
-	session, err := server.sessionManager.GetSession(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	session.UpdateLastAccessTime()
-
-	server.mutex.RLock()
-
-	responseEvents := []*api.CacheEvent{}
-	subscription, ok := server.cacheEventSubscriptions[request.SessionId]
-	if ok {
-		subscription.mutex.Lock()
-		for {
-			front := subscription.eventList.Front()
-			if front == nil {
-				break
-			}
-
-			responseEvents = append(responseEvents, front.Value.(*api.CacheEvent))
-			subscription.eventList.Remove(front)
-		}
-		subscription.mutex.Unlock()
-	}
-
-	server.mutex.RUnlock()
-
-	response := &api.PullCacheEventsResponse{
-		Events: responseEvents,
-	}
-
-	return response, nil
-}
-
-func (server *PoolServer) UnsubscribeCacheEvents(context context.Context, request *api.UnsubscribeCacheEventsRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "UnsubscribeCacheEvents",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("UnsubscribeCacheEvents request from pool session id %q", request.SessionId)
-	defer logger.Infof("UnsubscribeCacheEvents response to pool session id %q", request.SessionId)
-
-	promCounterForGRPCCalls.Inc()
-
-	session, err := server.sessionManager.GetSession(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	session.UpdateLastAccessTime()
-
-	// unsubscribe
-	server.mutex.Lock()
-	subscription, ok := server.cacheEventSubscriptions[request.SessionId]
-	if ok {
-		delete(server.cacheEventSubscriptions, request.SessionId)
-
-		promCounterForCacheEventSubscriptions.Dec()
-	}
-	server.mutex.Unlock()
-
-	if ok && subscription != nil {
-		session.RemovePoolCacheEventHandler(subscription.handlerID)
 	}
 
 	return &api.Empty{}, nil

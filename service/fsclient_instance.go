@@ -62,7 +62,6 @@ func (manager *IRODSFSClientInstanceManager) AddPoolSession(account *api.Account
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	manager.mutex.Lock()
-	defer manager.mutex.Unlock()
 
 	instanceID := manager.makeInstanceID(account)
 
@@ -71,6 +70,8 @@ func (manager *IRODSFSClientInstanceManager) AddPoolSession(account *api.Account
 		logger.Infof("Reusing the existing irods fs client instance %q for session %q", instanceID, session.GetID())
 
 		instance.addPoolSession(session)
+
+		manager.mutex.Unlock()
 	} else {
 		logger.Infof("Creating a new irods fs client instance %q for session %q", instanceID, session.GetID())
 
@@ -84,6 +85,16 @@ func (manager *IRODSFSClientInstanceManager) AddPoolSession(account *api.Account
 
 		instance.addPoolSession(session)
 		manager.instances[instanceID] = instance
+
+		manager.mutex.Unlock()
+
+		// initialize the instance
+		err = instance.init()
+		if err != nil {
+			instanceErr := xerrors.Errorf("failed to create a new irods fs client instance: %w", err)
+			logger.Errorf("%+v", instanceErr)
+			return "", err
+		}
 	}
 
 	return instanceID, nil
@@ -106,10 +117,9 @@ func (manager *IRODSFSClientInstanceManager) RemovePoolSession(instanceID string
 
 		// if there's no sessions using the instance, release it
 		if instance.getPoolSessions() == 0 {
+			delete(manager.instances, instanceID)
 			instance.release()
 		}
-
-		delete(manager.instances, instanceID)
 	}
 }
 
@@ -208,12 +218,12 @@ func (manager *IRODSFSClientInstanceManager) makeInstanceID(account *api.Account
 type IRODSFSClientInstance struct {
 	id            string // iRODS fs client instance id
 	irodsAccount  *irodsclient_types.IRODSAccount
+	irodsConfig   *irodsclient_fs.FileSystemConfig
 	irodsFsClient irodsfs_common_irods.IRODSFSClient
-
-	cacheEventHandlerID string
 
 	poolSessions map[string]*PoolSession // key: session id
 	mutex        sync.RWMutex            // mutex to access pool sessions
+	initWait     sync.WaitGroup
 }
 
 // newIRODSFSClientInstance creates a new IRODSFSClientInstance
@@ -262,36 +272,54 @@ func newIRODSFSClientInstance(irodsFsClientInstanceID string, account *api.Accou
 	irodsConfig := irodsclient_fs.NewFileSystemConfig(applicationName)
 	irodsConfig.Cache.MetadataTimeoutSettings = cacheTimeoutSettings
 
-	irodsFsClient, err := irodsfs_common_irods.NewIRODSFSClientDirect(irodsAccount, irodsConfig)
-	if err != nil {
-		return nil, err
-	}
-
 	instance := &IRODSFSClientInstance{
 		id:            irodsFsClientInstanceID,
 		irodsAccount:  irodsAccount,
-		irodsFsClient: irodsFsClient,
+		irodsConfig:   irodsConfig,
+		irodsFsClient: nil, // nil now
 
 		poolSessions: map[string]*PoolSession{},
 		mutex:        sync.RWMutex{},
+		initWait:     sync.WaitGroup{},
 	}
 
-	cacheEventHandlerID, err := irodsFsClient.AddCacheEventHandler(instance.handleCacheEvent)
-	if err != nil {
-		irodsFsClient.Release()
-		return nil, err
-	}
-
-	instance.cacheEventHandlerID = cacheEventHandlerID
+	instance.initWait.Add(1)
 
 	return instance, nil
+}
+
+func (instance *IRODSFSClientInstance) init() error {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "IRODSFSClientInstance",
+		"function": "init",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	defer instance.initWait.Done()
+
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+
+	logger.Infof("creating a new irods fs client for user %q", instance.irodsAccount.ClientUser)
+	irodsFsClient, err := irodsfs_common_irods.NewIRODSFSClientDirect(instance.irodsAccount, instance.irodsConfig)
+	if err != nil {
+		logger.Errorf("failed to create a new irods fs client for user %q", instance.irodsAccount.ClientUser)
+		return err
+	}
+
+	logger.Infof("created a new irods fs client for user %q", instance.irodsAccount.ClientUser)
+
+	instance.irodsFsClient = irodsFsClient
+	return nil
 }
 
 func (instance *IRODSFSClientInstance) release() {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"struct":   "IRODSFSClientInstance",
-		"function": "Release",
+		"function": "release",
 	})
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
@@ -299,28 +327,18 @@ func (instance *IRODSFSClientInstance) release() {
 	instance.mutex.Lock()
 	defer instance.mutex.Unlock()
 
+	instance.initWait.Wait()
+
 	// close file system for connection
 	if instance.irodsFsClient != nil {
-		if len(instance.cacheEventHandlerID) > 0 {
-			instance.irodsFsClient.RemoveCacheEventHandler(instance.cacheEventHandlerID)
-			instance.cacheEventHandlerID = ""
-		}
-
-		instance.irodsFsClient.Release()
+		irodsFsClient := instance.irodsFsClient
 		instance.irodsFsClient = nil
+
+		go irodsFsClient.Release() // release asynchronously
 	}
 
 	// empty
 	instance.poolSessions = map[string]*PoolSession{}
-}
-
-func (instance *IRODSFSClientInstance) handleCacheEvent(path string, eventType irodsclient_fs.FilesystemCacheEventType) {
-	instance.mutex.RLock()
-	defer instance.mutex.RUnlock()
-
-	for _, session := range instance.poolSessions {
-		session.handleCacheEvent(path, eventType)
-	}
 }
 
 func (instance *IRODSFSClientInstance) GetID() string {
@@ -333,6 +351,8 @@ func (instance *IRODSFSClientInstance) GetID() string {
 func (instance *IRODSFSClientInstance) GetFSClient() irodsfs_common_irods.IRODSFSClient {
 	instance.mutex.RLock()
 	defer instance.mutex.RUnlock()
+
+	instance.initWait.Wait()
 
 	return instance.irodsFsClient
 }

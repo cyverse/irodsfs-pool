@@ -4,7 +4,6 @@ import (
 	"sync"
 	"time"
 
-	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 	"github.com/cyverse/irodsfs-pool/commons"
@@ -45,13 +44,26 @@ func (manager *PoolSessionManager) Release() {
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
 
-	for _, session := range manager.sessions {
-		manager.irodsFsClientInstanceManager.RemovePoolSession(session.GetIRODSFSClientInstanceID(), session.GetID())
+	wg := sync.WaitGroup{}
 
-		session.release()
+	for _, session := range manager.sessions {
+		wg.Add(1)
+
+		// release the session first as it needs irodsfs client instance to close open file handles
+		go func(sess *PoolSession) {
+			defer wg.Done()
+
+			instanceID := sess.GetIRODSFSClientInstanceID()
+			sessionID := sess.GetID()
+
+			sess.release()
+			manager.irodsFsClientInstanceManager.RemovePoolSession(instanceID, sessionID)
+		}(session)
 	}
 
 	manager.sessions = map[string]*PoolSession{}
+
+	wg.Wait()
 
 	manager.irodsFsClientInstanceManager.Release()
 }
@@ -65,21 +77,25 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, clientID str
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	manager.mutex.Lock()
-	defer manager.mutex.Unlock()
+	logger.Infof("Creating a new pool session for client id %q", clientID)
 
 	session := newPoolSession(clientID)
 
 	// add the session to instance
 	instanceID, err := manager.irodsFsClientInstanceManager.AddPoolSession(account, session, appName)
 	if err != nil {
+		logger.Errorf("Failed to create a new pool session for session id %q, client id %q: %+v", session.GetID(), session.GetPoolClientID(), err)
 		return nil, err
 	}
 
 	// let session know instance ID
 	session.SetIRODSFSClientInstanceID(instanceID)
 
+	manager.mutex.Lock()
 	manager.sessions[session.GetID()] = session
+	defer manager.mutex.Unlock()
+
+	logger.Infof("Created a new pool session for session id %q, client id %q", session.GetID(), session.GetPoolClientID())
 	return session, nil
 }
 
@@ -93,13 +109,19 @@ func (manager *PoolSessionManager) ReleaseSession(sessionID string) {
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
 	manager.mutex.Lock()
-	defer manager.mutex.Unlock()
 
 	if session, ok := manager.sessions[sessionID]; ok {
-		manager.irodsFsClientInstanceManager.RemovePoolSession(session.GetIRODSFSClientInstanceID(), sessionID)
-
-		session.release()
 		delete(manager.sessions, sessionID)
+		manager.mutex.Unlock()
+
+		instanceID := session.GetIRODSFSClientInstanceID()
+		sessionID := session.GetID()
+
+		// release the session first as it needs irodsfs client instance to close open file handles
+		session.release()
+		manager.irodsFsClientInstanceManager.RemovePoolSession(instanceID, sessionID)
+	} else {
+		manager.mutex.Unlock()
 	}
 }
 
@@ -292,10 +314,8 @@ type PoolSession struct {
 	poolClientID            string
 	irodsFsClientInstanceID string
 
-	lastAccessTime                   time.Time
-	irodsFsClientCacheEventHandlerID string
-	poolFileHandles                  map[string]*PoolFileHandle
-	poolCacheEventHandlers           map[string]irodsclient_fs.FilesystemCacheEventHandler
+	lastAccessTime  time.Time
+	poolFileHandles map[string]*PoolFileHandle
 
 	mutex sync.RWMutex
 }
@@ -306,10 +326,8 @@ func newPoolSession(poolClientID string) *PoolSession {
 		poolClientID:            poolClientID,
 		irodsFsClientInstanceID: "", // to be set later
 
-		lastAccessTime:                   time.Now(),
-		irodsFsClientCacheEventHandlerID: "",
-		poolFileHandles:                  map[string]*PoolFileHandle{},
-		poolCacheEventHandlers:           map[string]irodsclient_fs.FilesystemCacheEventHandler{},
+		lastAccessTime:  time.Now(),
+		poolFileHandles: map[string]*PoolFileHandle{},
 
 		mutex: sync.RWMutex{},
 	}
@@ -329,16 +347,21 @@ func (session *PoolSession) release() {
 
 	logger.Infof("Release the pool session for session id %q, client id %q", session.id, session.poolClientID)
 
+	wg := sync.WaitGroup{}
 	for _, fileHandle := range session.poolFileHandles {
-		fileHandle.Release()
+		wg.Add(1)
+		go func(handle *PoolFileHandle) {
+			defer wg.Done()
+			handle.Release() // release file handles asynchronously
+		}(fileHandle)
 	}
+
+	wg.Wait()
 
 	session.irodsFsClientInstanceID = ""
 
 	// empty
-	session.irodsFsClientCacheEventHandlerID = ""
 	session.poolFileHandles = map[string]*PoolFileHandle{}
-	session.poolCacheEventHandlers = map[string]irodsclient_fs.FilesystemCacheEventHandler{}
 }
 
 func (session *PoolSession) GetID() string {
@@ -399,51 +422,4 @@ func (session *PoolSession) GetPoolFileHandle(poolFileHandleID string) (*PoolFil
 	}
 
 	return nil, xerrors.Errorf("failed to find the pool file handle for handle id %q: %w", poolFileHandleID, commons.NewFileHandleNotFoundError(poolFileHandleID))
-}
-
-func (session *PoolSession) handleCacheEvent(path string, eventType irodsclient_fs.FilesystemCacheEventType) {
-	session.mutex.RLock()
-	defer session.mutex.RUnlock()
-
-	for _, handler := range session.poolCacheEventHandlers {
-		handler(path, eventType)
-	}
-}
-
-func (session *PoolSession) AddPoolCacheEventHandler(handler irodsclient_fs.FilesystemCacheEventHandler) string {
-	handlerID := xid.New().String()
-
-	session.mutex.Lock()
-	defer session.mutex.Unlock()
-
-	session.poolCacheEventHandlers[handlerID] = handler
-
-	return handlerID
-}
-
-func (session *PoolSession) RemovePoolCacheEventHandler(handlerID string) {
-	session.mutex.Lock()
-	defer session.mutex.Unlock()
-
-	delete(session.poolCacheEventHandlers, handlerID)
-}
-
-func (session *PoolSession) GetPoolCacheEventHandler(handlerID string) (irodsclient_fs.FilesystemCacheEventHandler, error) {
-	session.mutex.RLock()
-	defer session.mutex.RUnlock()
-
-	if handler, ok := session.poolCacheEventHandlers[handlerID]; ok {
-		return handler, nil
-	}
-
-	return nil, xerrors.Errorf("failed to find the cache event handler for handler id %q", handlerID)
-}
-
-func (session *PoolSession) HandleCacheEvent(path string, eventType irodsclient_fs.FilesystemCacheEventType) {
-	session.mutex.RLock()
-	defer session.mutex.RUnlock()
-
-	for _, handler := range session.poolCacheEventHandlers {
-		handler(path, eventType)
-	}
 }

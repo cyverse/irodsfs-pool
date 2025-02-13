@@ -96,6 +96,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		CacheSizeMax:         config.DataCacheSizeMax,
 		CacheRootPath:        config.GetDataCacheRootDirPath(),
 		CacheTimeoutSettings: config.CacheTimeoutSettings,
+		OperationTimeout:     config.OperationTimeout,
 	}
 
 	poolServer, err := NewPoolServer(poolServerConfig)
@@ -109,7 +110,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		poolServer:      poolServer,
 		liveConnections: 0,
 	}
-	grpcServer := grpc.NewServer(grpc.StatsHandler(statHandler))
+	grpcServer := grpc.NewServer(grpc.StatsHandler(statHandler), grpc.MaxConcurrentStreams(0))
 	api.RegisterPoolAPIServer(grpcServer, poolServer)
 
 	service := &PoolService{

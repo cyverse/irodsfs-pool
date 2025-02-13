@@ -2,14 +2,8 @@
 
 Use `Makefile` in install package. 
 
-If you are installing on ubuntu,
 ```bash
-sudo make install_ubuntu
-```
-
-If you are installing on CentOS,
-```bash
-sudo make install_centos
+sudo make install
 ```
 
 Enable the service.

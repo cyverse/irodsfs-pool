@@ -37,6 +37,7 @@ type Config struct {
 	DataCacheSizeMax     int64                                        `yaml:"data_cache_size_max,omitempty" json:"data_cache_size_max,omitempty"`
 	DataRootPath         string                                       `yaml:"data_root_path,omitempty" json:"data_root_path,omitempty"`
 	CacheTimeoutSettings []irodsclient_fs.MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty" json:"cache_timeout_settings,omitempty"`
+	OperationTimeout     int                                          `yaml:"operation_timeout,omitempty" json:"operation_timeout,omitempty"`
 
 	LogPath string `yaml:"log_path,omitempty" json:"log_path,omitempty"`
 
@@ -58,6 +59,7 @@ func NewDefaultConfig() *Config {
 		DataCacheSizeMax:     DataCacheSizeMaxDefault,
 		DataRootPath:         GetDefaultDataRootDirPath(),
 		CacheTimeoutSettings: []irodsclient_fs.MetadataCacheTimeoutSetting{},
+		OperationTimeout:     OperationTimeoutDefault,
 
 		LogPath: "", // use default
 

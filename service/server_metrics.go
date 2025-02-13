@@ -133,13 +133,13 @@ var (
 		Name: "irodsfs_pool_grpc_calls_total",
 		Help: "The total number of GRPC calls",
 	})
+	promCounterForGRPCCallReturns = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "irodsfs_pool_grpc_call_returns_total",
+		Help: "The total number of GRPC call returns",
+	})
 	promCounterForGRPCClients = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "irodsfs_pool_grpc_clients",
 		Help: "The number of GRPC clients",
-	})
-	promCounterForCacheEventSubscriptions = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "irodsfs_pool_cache_event_subscriptions",
-		Help: "The number of cache event subscriptions",
 	})
 )
 
@@ -235,12 +235,9 @@ func (server *PoolServer) CollectPrometheusMetrics() {
 
 	connectionPoolFailures := metrics.GetCounterForConnectionPoolFailures()
 	promCounterForConnectionPoolFailures.Add(float64(connectionPoolFailures))
-
 }
 
 func (server *PoolServer) CollectMetrics() *irodsclient_metrics.IRODSMetrics {
-	server.mutex.Lock()
-
 	instances := server.sessionManager.GetIRODSFSClientInstances()
 	metrics := make([]*irodsclient_metrics.IRODSMetrics, len(instances))
 
@@ -249,7 +246,6 @@ func (server *PoolServer) CollectMetrics() *irodsclient_metrics.IRODSMetrics {
 		metrics[idx] = instance.GetFSClient().GetMetrics()
 		idx++
 	}
-	server.mutex.Unlock()
 
 	// sum up
 	metricsTotal := irodsclient_metrics.IRODSMetrics{}

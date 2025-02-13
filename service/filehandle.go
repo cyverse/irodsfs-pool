@@ -1,7 +1,7 @@
 package service
 
 import (
-	"sync"
+	"time"
 
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	irodsfs_common_io "github.com/cyverse/irodsfs-common/io"
@@ -30,7 +30,7 @@ type PoolFileHandle struct {
 
 	readersForPrefetching            []irodsfs_common_io.Reader
 	irodsFsFileHandlesForPrefetching []irodsfs_common_irods.IRODSFSFileHandle
-	fileHandlesWaiter                sync.WaitGroup
+	fileHandlesWaiter                *irodsfs_common_utils.TimeoutWaitGroup
 }
 
 // NewPoolFileHandle creates a new pool file handle
@@ -98,7 +98,7 @@ func NewPoolFileHandle(poolServer *PoolServer, poolSessionID string, irodsFsFile
 
 		readersForPrefetching:            readersForPrefetching,
 		irodsFsFileHandlesForPrefetching: irodsFsFileHandlesForPrefetching,
-		fileHandlesWaiter:                sync.WaitGroup{},
+		fileHandlesWaiter:                irodsfs_common_utils.NewTimeoutWaitGroup(),
 	}, nil
 }
 
@@ -123,7 +123,8 @@ func (handle *PoolFileHandle) Release() error {
 		handle.writer = nil
 	}
 
-	handle.fileHandlesWaiter.Wait()
+	timeout := time.Duration(handle.poolServer.config.OperationTimeout) * time.Second
+	handle.fileHandlesWaiter.WaitTimeout(timeout)
 
 	if handle.reader != nil {
 		err := handle.reader.GetError()
@@ -167,7 +168,7 @@ func (handle *PoolFileHandle) Release() error {
 }
 
 func (handle *PoolFileHandle) AddExpectedFileHandlesForPrefetching(count int) {
-	handle.fileHandlesWaiter.Add(count)
+	handle.fileHandlesWaiter.Add(int32(count))
 }
 
 func (handle *PoolFileHandle) AddFileHandlesForPrefetching(irodsFsFileHandles []irodsfs_common_irods.IRODSFSFileHandle) {
@@ -181,7 +182,10 @@ func (handle *PoolFileHandle) AddFileHandlesForPrefetching(irodsFsFileHandles []
 
 		if len(readersForPrefetching) > 0 {
 			reader.AddReadersForPrefetching(readersForPrefetching)
-			defer handle.fileHandlesWaiter.Done()
+
+			for i := 0; i < len(irodsFsFileHandles); i++ {
+				defer handle.fileHandlesWaiter.Done()
+			}
 		}
 	}
 

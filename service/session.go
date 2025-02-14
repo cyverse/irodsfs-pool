@@ -172,7 +172,12 @@ func (manager *PoolSessionManager) releaseStaleSessions() {
 	manager.mutex.Unlock()
 
 	for _, sessionID := range staleSessionIDs {
-		diff := time.Now().Sub(manager.sessions[sessionID].lastAccessTime)
+		if len(manager.terminateChan) > 0 {
+			// terminate
+			return
+		}
+
+		diff := time.Since(manager.sessions[sessionID].lastAccessTime)
 		logger.Infof("Releasing the pool session for session id %q as it was idle for %s", sessionID, diff.String())
 		manager.ReleaseSession(sessionID)
 	}

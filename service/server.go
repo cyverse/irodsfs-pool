@@ -69,6 +69,9 @@ func (server *PoolServer) Release() {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	logger.Info("Releasing the iRODS FUSE Lite Pool server")
+	defer logger.Info("Released the iRODS FUSE Lite Pool server")
+
 	server.sessionManager.Release()
 
 	if server.cacheStore != nil {
@@ -152,7 +155,7 @@ func (server *PoolServer) LogoutAll() {
 	logger.Info("Logout All")
 	defer logger.Info("Logged-out All")
 
-	server.sessionManager.Release()
+	server.sessionManager.ReleaseAllSessions()
 }
 
 func (server *PoolServer) KeepAlive(context context.Context, request *api.KeepAliveRequest) (*api.Empty, error) {

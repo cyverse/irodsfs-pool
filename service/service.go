@@ -135,9 +135,10 @@ func (svc *PoolService) Release() {
 		"function": "Release",
 	})
 
-	logger.Info("Releasing the iRODS FUSE Lite Pool service")
-
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	logger.Info("Releasing the iRODS FUSE Lite Pool service")
+	defer logger.Info("Released the iRODS FUSE Lite Pool service")
 
 	if svc.grpcServer != nil {
 		svc.grpcServer = nil
@@ -243,7 +244,7 @@ func (svc *PoolService) Stop() {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"struct":   "PoolService",
-		"function": "Destroy",
+		"function": "Stop",
 	})
 
 	logger.Info("Stopping the iRODS FUSE Lite Pool service")

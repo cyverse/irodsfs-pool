@@ -34,10 +34,10 @@ func NewPoolSessionManager(config *PoolServerConfig) *PoolSessionManager {
 	}
 
 	// run a goroutine to release stale sessions
-	tickerReleaseStaleConnections := time.NewTicker(1 * time.Second)
-	defer tickerReleaseStaleConnections.Stop()
-
 	go func() {
+		tickerReleaseStaleConnections := time.NewTicker(1 * time.Second)
+		defer tickerReleaseStaleConnections.Stop()
+
 		for {
 			select {
 			case <-manager.terminateChan:
@@ -61,6 +61,9 @@ func (manager *PoolSessionManager) Release() {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	logger.Infof("Releasing the pool session manager")
+	defer logger.Infof("Released the pool session manager")
+
 	manager.terminateChan <- true
 
 	manager.mutex.Lock()
@@ -78,8 +81,12 @@ func (manager *PoolSessionManager) Release() {
 			instanceID := sess.GetIRODSFSClientInstanceID()
 			sessionID := sess.GetID()
 
+			logger.Infof("Releasing the pool session for session id %q, client id %q", sessionID, sess.GetPoolClientID())
 			sess.release()
+			logger.Infof("Released the pool session for session id %q, client id %q", sessionID, sess.GetPoolClientID())
+
 			manager.irodsFsClientInstanceManager.RemovePoolSession(instanceID, sessionID)
+			logger.Infof("Removed the pool session for session id %q from client id %q", sessionID, sess.GetPoolClientID())
 		}(session)
 	}
 
@@ -149,6 +156,37 @@ func (manager *PoolSessionManager) ReleaseSession(sessionID string) {
 	}
 }
 
+func (manager *PoolSessionManager) ReleaseAllSessions() {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolSessionManager",
+		"function": "ReleaseAllSessions",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	sessionIDs := []string{}
+
+	manager.mutex.Lock()
+
+	for _, session := range manager.sessions {
+		sessionIDs = append(sessionIDs, session.GetID())
+	}
+
+	manager.mutex.Unlock()
+
+	for _, sessionID := range sessionIDs {
+		if len(manager.terminateChan) > 0 {
+			// terminate
+			return
+		}
+
+		diff := time.Since(manager.sessions[sessionID].lastAccessTime)
+		logger.Infof("Releasing the pool session for session id %q as it was idle for %s", sessionID, diff.String())
+		manager.ReleaseSession(sessionID)
+	}
+}
+
 func (manager *PoolSessionManager) releaseStaleSessions() {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
@@ -162,8 +200,10 @@ func (manager *PoolSessionManager) releaseStaleSessions() {
 
 	manager.mutex.Lock()
 
+	sessionTimeout := time.Duration(manager.config.SessionTimeout) * time.Second
+
 	for _, session := range manager.sessions {
-		if session.lastAccessTime.Add(time.Duration(manager.config.SessionTimeout)).Before(time.Now()) {
+		if session.lastAccessTime.Add(sessionTimeout).Before(time.Now()) {
 			// stale
 			staleSessionIDs = append(staleSessionIDs, session.GetID())
 		}

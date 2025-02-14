@@ -11,6 +11,8 @@ SHELL:=/bin/bash
 ADDUSER_FLAGS:=
 ifeq (${OS_NAME},centos)
 	ADDUSER_FLAGS=-r -d /dev/null -s /sbin/nologin 
+else ifeq (${OS_NAME},almalinux)
+	ADDUSER_FLAGS=-r -d /dev/null -s /sbin/nologin 
 else ifeq (${OS_NAME},ubuntu)
 	ADDUSER_FLAGS=--system --no-create-home --shell /sbin/nologin --group
 else 

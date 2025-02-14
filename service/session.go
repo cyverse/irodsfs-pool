@@ -19,17 +19,37 @@ type PoolSessionManager struct {
 	sessions                     map[string]*PoolSession // key: pool session id
 	irodsFsClientInstanceManager *IRODSFSClientInstanceManager
 
-	mutex sync.RWMutex // mutex to access PoolSessionManager
+	mutex         sync.RWMutex // mutex to access PoolSessionManager
+	terminateChan chan bool
 }
 
 func NewPoolSessionManager(config *PoolServerConfig) *PoolSessionManager {
-	return &PoolSessionManager{
+	manager := &PoolSessionManager{
 		config:                       config,
 		sessions:                     map[string]*PoolSession{},
 		irodsFsClientInstanceManager: NewIRODSFSClientInstanceManager(config),
 
-		mutex: sync.RWMutex{},
+		mutex:         sync.RWMutex{},
+		terminateChan: make(chan bool),
 	}
+
+	// run a goroutine to release stale sessions
+	tickerReleaseStaleConnections := time.NewTicker(1 * time.Second)
+	defer tickerReleaseStaleConnections.Stop()
+
+	go func() {
+		for {
+			select {
+			case <-manager.terminateChan:
+				// terminate
+				return
+			case <-tickerReleaseStaleConnections.C:
+				manager.releaseStaleSessions()
+			}
+		}
+	}()
+
+	return manager
 }
 
 func (manager *PoolSessionManager) Release() {
@@ -40,6 +60,8 @@ func (manager *PoolSessionManager) Release() {
 	})
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	manager.terminateChan <- true
 
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
@@ -108,6 +130,8 @@ func (manager *PoolSessionManager) ReleaseSession(sessionID string) {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
+	logger.Infof("Releasing the pool session for session id %q", sessionID)
+
 	manager.mutex.Lock()
 
 	if session, ok := manager.sessions[sessionID]; ok {
@@ -122,6 +146,35 @@ func (manager *PoolSessionManager) ReleaseSession(sessionID string) {
 		manager.irodsFsClientInstanceManager.RemovePoolSession(instanceID, sessionID)
 	} else {
 		manager.mutex.Unlock()
+	}
+}
+
+func (manager *PoolSessionManager) releaseStaleSessions() {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolSessionManager",
+		"function": "releaseStaleSessions",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	staleSessionIDs := []string{}
+
+	manager.mutex.Lock()
+
+	for _, session := range manager.sessions {
+		if session.lastAccessTime.Add(time.Duration(manager.config.SessionTimeout)).Before(time.Now()) {
+			// stale
+			staleSessionIDs = append(staleSessionIDs, session.GetID())
+		}
+	}
+
+	manager.mutex.Unlock()
+
+	for _, sessionID := range staleSessionIDs {
+		diff := time.Now().Sub(manager.sessions[sessionID].lastAccessTime)
+		logger.Infof("Releasing the pool session for session id %q as it was idle for %s", sessionID, diff.String())
+		manager.ReleaseSession(sessionID)
 	}
 }
 
@@ -397,6 +450,13 @@ func (session *PoolSession) UpdateLastAccessTime() {
 	defer session.mutex.Unlock()
 
 	session.lastAccessTime = time.Now()
+}
+
+func (session *PoolSession) GetLastAccessTime() time.Time {
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	return session.lastAccessTime
 }
 
 func (session *PoolSession) AddPoolFileHandle(poolFileHandle *PoolFileHandle) {

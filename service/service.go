@@ -97,6 +97,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		CacheRootPath:        config.GetDataCacheRootDirPath(),
 		CacheTimeoutSettings: config.CacheTimeoutSettings,
 		OperationTimeout:     config.OperationTimeout,
+		SessionTimeout:       config.SessionTimeout,
 	}
 
 	poolServer, err := NewPoolServer(poolServerConfig)

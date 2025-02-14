@@ -91,6 +91,10 @@ message LogoutRequest{
 	string session_id = 1;
 }
 
+message KeepAliveRequest{
+	string session_id = 1;
+}
+
 message ListRequest {
 	string session_id = 1;
     string path = 2;
@@ -315,6 +319,7 @@ message CloseRequest {
 service PoolAPI {
 	rpc Login(LoginRequest) returns (LoginResponse) {}
 	rpc Logout(LogoutRequest) returns (Empty) {}
+	rpc KeepAlive(KeepAliveRequest) returns (Empty) {}
 	rpc List(ListRequest) returns (ListResponse) {}
 	rpc Stat(StatRequest) returns (StatResponse) {}
 	rpc ListXattr(ListXattrRequest) returns (ListXattrResponse) {}

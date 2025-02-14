@@ -29,6 +29,7 @@ type PoolServerConfig struct {
 	CacheRootPath        string
 	CacheTimeoutSettings []irodsclient_fs.MetadataCacheTimeoutSetting
 	OperationTimeout     int
+	SessionTimeout       int
 }
 
 // PoolServer is a struct for PoolServer
@@ -152,6 +153,27 @@ func (server *PoolServer) LogoutAll() {
 	defer logger.Info("Logged-out All")
 
 	server.sessionManager.Release()
+}
+
+func (server *PoolServer) KeepAlive(context context.Context, request *api.KeepAliveRequest) (*api.Empty, error) {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolServer",
+		"function": "KeepAlive",
+	})
+
+	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		// session might be already closed due to timeout, so ignore error
+		sessionErr := xerrors.Errorf("failed to find the session for id %q: %w", request.SessionId, err)
+		logger.Errorf("%+v", sessionErr)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	session.UpdateLastAccessTime()
+	return &api.Empty{}, nil
 }
 
 func (server *PoolServer) GetPoolSessions() int {

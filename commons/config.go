@@ -38,6 +38,7 @@ type Config struct {
 	DataRootPath         string                                       `yaml:"data_root_path,omitempty" json:"data_root_path,omitempty"`
 	CacheTimeoutSettings []irodsclient_fs.MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty" json:"cache_timeout_settings,omitempty"`
 	OperationTimeout     int                                          `yaml:"operation_timeout,omitempty" json:"operation_timeout,omitempty"`
+	SessionTimeout       int                                          `yaml:"session_timeout,omitempty" json:"session_timeout,omitempty"`
 
 	LogPath string `yaml:"log_path,omitempty" json:"log_path,omitempty"`
 
@@ -60,6 +61,7 @@ func NewDefaultConfig() *Config {
 		DataRootPath:         GetDefaultDataRootDirPath(),
 		CacheTimeoutSettings: []irodsclient_fs.MetadataCacheTimeoutSetting{},
 		OperationTimeout:     OperationTimeoutDefault,
+		SessionTimeout:       SessionTimeoutDefault,
 
 		LogPath: "", // use default
 

@@ -24,6 +24,7 @@ const _ = grpc.SupportPackageIsVersion7
 type PoolAPIClient interface {
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*Empty, error)
+	KeepAlive(ctx context.Context, in *KeepAliveRequest, opts ...grpc.CallOption) (*Empty, error)
 	List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (*ListResponse, error)
 	Stat(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
 	ListXattr(ctx context.Context, in *ListXattrRequest, opts ...grpc.CallOption) (*ListXattrResponse, error)
@@ -76,6 +77,15 @@ func (c *poolAPIClient) Login(ctx context.Context, in *LoginRequest, opts ...grp
 func (c *poolAPIClient) Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*Empty, error) {
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, "/api.PoolAPI/Logout", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *poolAPIClient) KeepAlive(ctx context.Context, in *KeepAliveRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/api.PoolAPI/KeepAlive", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -349,6 +359,7 @@ func (c *poolAPIClient) Close(ctx context.Context, in *CloseRequest, opts ...grp
 type PoolAPIServer interface {
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	Logout(context.Context, *LogoutRequest) (*Empty, error)
+	KeepAlive(context.Context, *KeepAliveRequest) (*Empty, error)
 	List(context.Context, *ListRequest) (*ListResponse, error)
 	Stat(context.Context, *StatRequest) (*StatResponse, error)
 	ListXattr(context.Context, *ListXattrRequest) (*ListXattrResponse, error)
@@ -391,6 +402,9 @@ func (UnimplementedPoolAPIServer) Login(context.Context, *LoginRequest) (*LoginR
 }
 func (UnimplementedPoolAPIServer) Logout(context.Context, *LogoutRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Logout not implemented")
+}
+func (UnimplementedPoolAPIServer) KeepAlive(context.Context, *KeepAliveRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method KeepAlive not implemented")
 }
 func (UnimplementedPoolAPIServer) List(context.Context, *ListRequest) (*ListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method List not implemented")
@@ -524,6 +538,24 @@ func _PoolAPI_Logout_Handler(srv interface{}, ctx context.Context, dec func(inte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(PoolAPIServer).Logout(ctx, req.(*LogoutRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PoolAPI_KeepAlive_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(KeepAliveRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).KeepAlive(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.PoolAPI/KeepAlive",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).KeepAlive(ctx, req.(*KeepAliveRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1064,6 +1096,10 @@ var PoolAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Logout",
 			Handler:    _PoolAPI_Logout_Handler,
+		},
+		{
+			MethodName: "KeepAlive",
+			Handler:    _PoolAPI_KeepAlive_Handler,
 		},
 		{
 			MethodName: "List",

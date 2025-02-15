@@ -47,8 +47,9 @@ type PoolServiceSession struct {
 	account           *irodsclient_types.IRODSAccount
 	applicationName   string
 
-	loggedIn bool
-	mutex    sync.RWMutex // mutex to access PoolServiceSession
+	loggedIn      bool
+	mutex         sync.RWMutex // mutex to access PoolServiceSession
+	terminateChan chan bool
 }
 
 // NewPoolServiceClient creates a new pool service client
@@ -216,7 +217,35 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 		applicationName:   applicationName,
 		loggedIn:          true,
 		mutex:             sync.RWMutex{},
+		terminateChan:     make(chan bool),
 	}
+
+	// run a goroutine to send keepalive
+	go func() {
+		tickerKeepalive := time.NewTicker(10 * time.Second)
+		defer tickerKeepalive.Stop()
+
+		for {
+			select {
+			case <-session.terminateChan:
+				// terminate
+				return
+			case <-tickerKeepalive.C:
+				// send keep alive
+				session.mutex.RLock()
+				loggedIn := session.loggedIn
+				session.mutex.RUnlock()
+
+				if loggedIn {
+					request := &api.KeepAliveRequest{
+						SessionId: session.id,
+					}
+
+					session.poolServiceClient.apiClient.KeepAlive(context.Background(), request)
+				}
+			}
+		}
+	}()
 
 	return session, nil
 }
@@ -230,6 +259,8 @@ func (session *PoolServiceSession) Release() {
 	})
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+
+	session.terminateChan <- true
 
 	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()

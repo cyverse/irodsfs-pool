@@ -36,7 +36,7 @@ func NewMetadataCache(cacheTimeout time.Duration, cleanup time.Duration) *Metada
 }
 
 // AddDirCache adds a dir cache
-func (cache *MetadataCache) AddDirCache(path string, entries []*irodsclient_fs.Entry) {
+func (cache *MetadataCache) AddDirCache(path string, entries []string) {
 	cache.dirCache.Set(path, entries, 0)
 }
 
@@ -46,10 +46,10 @@ func (cache *MetadataCache) RemoveDirCache(path string) {
 }
 
 // GetDirCache retrives a dir cache
-func (cache *MetadataCache) GetDirCache(path string) []*irodsclient_fs.Entry {
+func (cache *MetadataCache) GetDirCache(path string) []string {
 	data, exist := cache.dirCache.Get(path)
 	if exist {
-		if entries, ok := data.([]*irodsclient_fs.Entry); ok {
+		if entries, ok := data.([]string); ok {
 			return entries
 		}
 	}

@@ -124,7 +124,10 @@ func (handle *PoolFileHandle) Release() error {
 	}
 
 	timeout := time.Duration(handle.poolServer.config.OperationTimeout) * time.Second
-	handle.fileHandlesWaiter.WaitTimeout(timeout)
+	if !handle.fileHandlesWaiter.WaitTimeout(timeout) {
+		// timed out
+		logger.Errorf("Timed out waiting for file handles for prefetching")
+	}
 
 	if handle.reader != nil {
 		err := handle.reader.GetError()

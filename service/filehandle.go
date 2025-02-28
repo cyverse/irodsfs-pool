@@ -171,7 +171,7 @@ func (handle *PoolFileHandle) Release() error {
 }
 
 func (handle *PoolFileHandle) AddExpectedFileHandlesForPrefetching(count int) {
-	handle.fileHandlesWaiter.Add(int32(count))
+	handle.fileHandlesWaiter.Add(count)
 }
 
 func (handle *PoolFileHandle) AddFileHandlesForPrefetching(irodsFsFileHandles []irodsfs_common_irods.IRODSFSFileHandle) {

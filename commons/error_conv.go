@@ -254,27 +254,11 @@ func IsReloginRequiredError(err error) bool {
 			return false
 		default:
 			switch st.Code() {
-			case codes.Unauthenticated:
+			case codes.Unauthenticated, codes.Unavailable:
 				return true
 			default:
 				return false
 			}
-		}
-	}
-
-	return false
-}
-
-// IsDisconnectedError returns true if connection is unavailable
-func IsDisconnectedError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	st, _ := status.FromError(err)
-	if st != nil {
-		if st.Code() == codes.Unavailable {
-			return true
 		}
 	}
 

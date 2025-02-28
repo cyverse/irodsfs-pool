@@ -78,7 +78,9 @@ func (client *PoolServiceClient) Connect() error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	client.connected = false
+	if client.connected {
+		return xerrors.Errorf("already connected to %q", client.address)
+	}
 
 	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(client.address)
 	if err != nil {
@@ -128,6 +130,8 @@ func (client *PoolServiceClient) Disconnect() {
 // disconnected unintentionally
 func (client *PoolServiceClient) disconnected() {
 	client.connected = false
+	client.apiClient = nil
+	client.grpcConnection = nil
 
 	// clear all cache
 	client.fsCache.ClearDirCache()
@@ -201,15 +205,10 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 
 	response, err := client.apiClient.Login(ctx, request)
 	if err != nil {
-		if commons.IsDisconnectedError(err) {
-			client.disconnected()
-		}
-
 		logger.Errorf("%+v", err)
 		return nil, commons.StatusToError(err)
 	}
 
-	// subscribe cache update event
 	session := &PoolServiceSession{
 		poolServiceClient: client,
 		id:                response.SessionId,
@@ -222,7 +221,7 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 
 	// run a goroutine to send keepalive
 	go func() {
-		tickerKeepalive := time.NewTicker(10 * time.Second)
+		tickerKeepalive := time.NewTicker(5 * time.Minute)
 		defer tickerKeepalive.Stop()
 
 		for {
@@ -241,7 +240,14 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 						SessionId: session.id,
 					}
 
-					session.poolServiceClient.apiClient.KeepAlive(context.Background(), request)
+					_, err := session.poolServiceClient.apiClient.KeepAlive(context.Background(), request)
+					if err != nil {
+						session.mutex.Lock()
+						session.loggedIn = false
+						session.mutex.Unlock()
+
+						logger.Errorf("%+v", err)
+					}
 				}
 			}
 		}
@@ -275,10 +281,6 @@ func (session *PoolServiceSession) Release() {
 
 	_, err := session.poolServiceClient.apiClient.Logout(ctx, request)
 	if err != nil {
-		if commons.IsDisconnectedError(err) {
-			session.poolServiceClient.disconnected()
-		}
-
 		logger.Errorf("%+v", err)
 		return
 	}
@@ -294,21 +296,60 @@ func (session *PoolServiceSession) Relogin() error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	client := session.poolServiceClient
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
 
-	newSession, err := client.NewSession(session.account, session.applicationName)
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	var sslConf *api.SSLConfiguration
+	if session.account.SSLConfiguration != nil {
+		sslConf = &api.SSLConfiguration{
+			CaCertificateFile:       session.account.SSLConfiguration.CACertificateFile,
+			CaCertificatePath:       session.account.SSLConfiguration.CACertificatePath,
+			EncryptionKeySize:       int32(session.account.SSLConfiguration.EncryptionKeySize),
+			EncryptionAlgorithm:     session.account.SSLConfiguration.EncryptionAlgorithm,
+			EncryptionSaltSize:      int32(session.account.SSLConfiguration.EncryptionSaltSize),
+			EncryptionNumHashRounds: int32(session.account.SSLConfiguration.EncryptionNumHashRounds),
+			VerifyServer:            string(session.account.SSLConfiguration.VerifyServer),
+			DhParamsFile:            session.account.SSLConfiguration.DHParamsFile,
+			ServerName:              session.account.SSLConfiguration.ServerName,
+		}
+	}
+
+	request := &api.LoginRequest{
+		Account: &api.Account{
+			AuthenticationScheme:    string(session.account.AuthenticationScheme),
+			ClientServerNegotiation: session.account.ClientServerNegotiation,
+			CsNegotiationPolicy:     string(session.account.CSNegotiationPolicy),
+			Host:                    session.account.Host,
+			Port:                    int32(session.account.Port),
+			ClientUser:              session.account.ClientUser,
+			ClientZone:              session.account.ClientZone,
+			ProxyUser:               session.account.ProxyUser,
+			ProxyZone:               session.account.ProxyZone,
+			Password:                session.account.Password,
+			Ticket:                  session.account.Ticket,
+			DefaultResource:         session.account.DefaultResource,
+			DefaultHashScheme:       session.account.DefaultHashScheme,
+			PamTtl:                  int32(session.account.PamTTL),
+			PamToken:                session.account.PAMToken,
+			SslConfiguration:        sslConf,
+		},
+		ApplicationName: session.applicationName,
+		ClientId:        session.poolServiceClient.id,
+	}
+
+	response, err := session.poolServiceClient.apiClient.Login(ctx, request)
 	if err != nil {
 		logger.Errorf("%+v", err)
-		return err
+		return commons.StatusToError(err)
 	}
 
-	if newPoolServiceSession, ok := newSession.(*PoolServiceSession); ok {
-		// update session ID
-		session.id = newPoolServiceSession.id
-		return nil
-	}
-
-	return xerrors.Errorf("cannot convert new session to PoolServiceSession type")
+	// update session ID
+	session.id = response.SessionId
+	session.loggedIn = true
+	return nil
 }
 
 func (session *PoolServiceSession) GetAccount() *irodsclient_types.IRODSAccount {
@@ -330,13 +371,28 @@ func (session *PoolServiceSession) GetMetrics() *irodsclient_metrics.IRODSMetric
 }
 
 func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) (interface{}, error) {
+	session.mutex.RLock()
+	loggedIn := session.loggedIn
+	session.mutex.RUnlock()
+
+	if !loggedIn {
+		// keepalive detected logged out
+		// relogin first
+		err := session.Relogin()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// now let's go
 	res, err := f()
 	if err != nil {
-		if commons.IsDisconnectedError(err) {
+		// relogin required
+		if commons.IsReloginRequiredError(err) {
+			session.mutex.Lock()
 			session.loggedIn = false
-			session.poolServiceClient.disconnected()
-			return res, err
-		} else if commons.IsReloginRequiredError(err) {
+			session.mutex.Unlock()
+
 			// relogin
 			err2 := session.Relogin()
 			if err2 != nil {
@@ -345,6 +401,13 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 
 			// retry
 			res, err = f()
+			if commons.IsReloginRequiredError(err) {
+				// logged out
+				session.mutex.Lock()
+				session.loggedIn = false
+				session.mutex.Unlock()
+			}
+
 			return res, err
 		}
 
@@ -1489,22 +1552,27 @@ func (handle *PoolServiceFileHandle) GetOffset() int64 {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.GetOffsetRequest{
-		SessionId:    handle.poolServiceSession.id,
-		FileHandleId: handle.id,
-	}
+	getOffsetFunc := func() (interface{}, error) {
+		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+		defer cancel()
 
-	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
-	response, err := handle.poolServiceClient.apiClient.GetOffset(ctx, request)
-	if err != nil {
-		if commons.IsDisconnectedError(err) {
-			handle.poolServiceSession.loggedIn = false
-			handle.poolServiceClient.disconnected()
+		request := &api.GetOffsetRequest{
+			SessionId:    handle.poolServiceSession.id,
+			FileHandleId: handle.id,
 		}
 
+		return handle.poolServiceClient.apiClient.GetOffset(ctx, request)
+	}
+
+	res, err := handle.poolServiceSession.doWithRelogin(getOffsetFunc)
+	if err != nil {
 		logger.Errorf("%+v", err)
+		return -1
+	}
+
+	response, ok := res.(*api.GetOffsetResponse)
+	if !ok {
+		logger.Error("failed to convert interface to GetOffsetResponse")
 		return -1
 	}
 
@@ -1539,25 +1607,30 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 			curLength = fileRWLengthMax
 		}
 
-		request := &api.ReadAtRequest{
-			SessionId:    handle.poolServiceSession.id,
-			FileHandleId: handle.id,
-			Offset:       curOffset,
-			Length:       int32(curLength),
-		}
+		readAtFunc := func() (interface{}, error) {
+			ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+			defer cancel()
 
-		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		response, err := handle.poolServiceClient.apiClient.ReadAt(ctx, request, getLargeReadOption())
-		if err != nil {
-			if commons.IsDisconnectedError(err) {
-				handle.poolServiceSession.loggedIn = false
-				handle.poolServiceClient.disconnected()
+			request := &api.ReadAtRequest{
+				SessionId:    handle.poolServiceSession.id,
+				FileHandleId: handle.id,
+				Offset:       curOffset,
+				Length:       int32(curLength),
 			}
 
+			return handle.poolServiceClient.apiClient.ReadAt(ctx, request, getLargeReadOption())
+		}
+
+		res, err := handle.poolServiceSession.doWithRelogin(readAtFunc)
+		if err != nil {
 			logger.Errorf("%+v", err)
 			return 0, commons.StatusToError(err)
+		}
+
+		response, ok := res.(*api.ReadAtResponse)
+		if !ok {
+			logger.Error("failed to convert interface to ReadAtResponse")
+			return 0, xerrors.Errorf("failed to convert interface to ReadAtResponse")
 		}
 
 		if len(response.Data) > 0 {
@@ -1614,23 +1687,22 @@ func (handle *PoolServiceFileHandle) WriteAt(data []byte, offset int64) (int, er
 			curLength = fileRWLengthMax
 		}
 
-		request := &api.WriteAtRequest{
-			SessionId:    handle.poolServiceSession.id,
-			FileHandleId: handle.id,
-			Offset:       curOffset,
-			Data:         data[totalWriteLength : totalWriteLength+curLength],
-		}
+		writeAtFunc := func() (interface{}, error) {
+			ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+			defer cancel()
 
-		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		_, err := handle.poolServiceClient.apiClient.WriteAt(ctx, request, getLargeWriteOption())
-		if err != nil {
-			if commons.IsDisconnectedError(err) {
-				handle.poolServiceSession.loggedIn = false
-				handle.poolServiceClient.disconnected()
+			request := &api.WriteAtRequest{
+				SessionId:    handle.poolServiceSession.id,
+				FileHandleId: handle.id,
+				Offset:       curOffset,
+				Data:         data[totalWriteLength : totalWriteLength+curLength],
 			}
 
+			return handle.poolServiceClient.apiClient.WriteAt(ctx, request, getLargeWriteOption())
+		}
+
+		_, err := handle.poolServiceSession.doWithRelogin(writeAtFunc)
+		if err != nil {
 			logger.Errorf("%+v", err)
 			return 0, commons.StatusToError(err)
 		}
@@ -1658,22 +1730,21 @@ func (handle *PoolServiceFileHandle) Lock(wait bool) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-	defer cancel()
+	lockFunc := func() (interface{}, error) {
+		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+		defer cancel()
 
-	request := &api.LockRequest{
-		SessionId:    handle.poolServiceSession.id,
-		FileHandleId: handle.id,
-		Wait:         wait,
-	}
-
-	_, err := handle.poolServiceClient.apiClient.Lock(ctx, request)
-	if err != nil {
-		if commons.IsDisconnectedError(err) {
-			handle.poolServiceSession.loggedIn = false
-			handle.poolServiceClient.disconnected()
+		request := &api.LockRequest{
+			SessionId:    handle.poolServiceSession.id,
+			FileHandleId: handle.id,
+			Wait:         wait,
 		}
 
+		return handle.poolServiceClient.apiClient.Lock(ctx, request)
+	}
+
+	_, err := handle.poolServiceSession.doWithRelogin(lockFunc)
+	if err != nil {
 		logger.Errorf("%+v", err)
 		return commons.StatusToError(err)
 	}
@@ -1691,22 +1762,21 @@ func (handle *PoolServiceFileHandle) RLock(wait bool) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-	defer cancel()
+	rlockFunc := func() (interface{}, error) {
+		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+		defer cancel()
 
-	request := &api.LockRequest{
-		SessionId:    handle.poolServiceSession.id,
-		FileHandleId: handle.id,
-		Wait:         wait,
-	}
-
-	_, err := handle.poolServiceClient.apiClient.RLock(ctx, request)
-	if err != nil {
-		if commons.IsDisconnectedError(err) {
-			handle.poolServiceSession.loggedIn = false
-			handle.poolServiceClient.disconnected()
+		request := &api.LockRequest{
+			SessionId:    handle.poolServiceSession.id,
+			FileHandleId: handle.id,
+			Wait:         wait,
 		}
 
+		return handle.poolServiceClient.apiClient.RLock(ctx, request)
+	}
+
+	_, err := handle.poolServiceSession.doWithRelogin(rlockFunc)
+	if err != nil {
 		logger.Errorf("%+v", err)
 		return commons.StatusToError(err)
 	}
@@ -1724,21 +1794,20 @@ func (handle *PoolServiceFileHandle) Unlock() error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-	defer cancel()
+	unlockFunc := func() (interface{}, error) {
+		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+		defer cancel()
 
-	request := &api.UnlockRequest{
-		SessionId:    handle.poolServiceSession.id,
-		FileHandleId: handle.id,
-	}
-
-	_, err := handle.poolServiceClient.apiClient.Unlock(ctx, request)
-	if err != nil {
-		if commons.IsDisconnectedError(err) {
-			handle.poolServiceSession.loggedIn = false
-			handle.poolServiceClient.disconnected()
+		request := &api.UnlockRequest{
+			SessionId:    handle.poolServiceSession.id,
+			FileHandleId: handle.id,
 		}
 
+		return handle.poolServiceClient.apiClient.Unlock(ctx, request)
+	}
+
+	_, err := handle.poolServiceSession.doWithRelogin(unlockFunc)
+	if err != nil {
 		logger.Errorf("%+v", err)
 		return commons.StatusToError(err)
 	}
@@ -1756,22 +1825,21 @@ func (handle *PoolServiceFileHandle) Truncate(size int64) error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-	defer cancel()
+	truncateFunc := func() (interface{}, error) {
+		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+		defer cancel()
 
-	request := &api.TruncateRequest{
-		SessionId:    handle.poolServiceSession.id,
-		FileHandleId: handle.id,
-		Size:         size,
-	}
-
-	_, err := handle.poolServiceClient.apiClient.Truncate(ctx, request)
-	if err != nil {
-		if commons.IsDisconnectedError(err) {
-			handle.poolServiceSession.loggedIn = false
-			handle.poolServiceClient.disconnected()
+		request := &api.TruncateRequest{
+			SessionId:    handle.poolServiceSession.id,
+			FileHandleId: handle.id,
+			Size:         size,
 		}
 
+		return handle.poolServiceClient.apiClient.Truncate(ctx, request)
+	}
+
+	_, err := handle.poolServiceSession.doWithRelogin(truncateFunc)
+	if err != nil {
 		logger.Errorf("%+v", err)
 		return commons.StatusToError(err)
 	}
@@ -1794,21 +1862,20 @@ func (handle *PoolServiceFileHandle) Flush() error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-	defer cancel()
+	flushFunc := func() (interface{}, error) {
+		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+		defer cancel()
 
-	request := &api.FlushRequest{
-		SessionId:    handle.poolServiceSession.id,
-		FileHandleId: handle.id,
-	}
-
-	_, err := handle.poolServiceClient.apiClient.Flush(ctx, request)
-	if err != nil {
-		if commons.IsDisconnectedError(err) {
-			handle.poolServiceSession.loggedIn = false
-			handle.poolServiceClient.disconnected()
+		request := &api.FlushRequest{
+			SessionId:    handle.poolServiceSession.id,
+			FileHandleId: handle.id,
 		}
 
+		return handle.poolServiceClient.apiClient.Flush(ctx, request)
+	}
+
+	_, err := handle.poolServiceSession.doWithRelogin(flushFunc)
+	if err != nil {
 		logger.Errorf("%+v", err)
 		return commons.StatusToError(err)
 	}
@@ -1830,21 +1897,20 @@ func (handle *PoolServiceFileHandle) Close() error {
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	request := &api.CloseRequest{
-		SessionId:    handle.poolServiceSession.id,
-		FileHandleId: handle.id,
-	}
+	closeFunc := func() (interface{}, error) {
+		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+		defer cancel()
 
-	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
-	_, err := handle.poolServiceClient.apiClient.Close(ctx, request)
-	if err != nil {
-		if commons.IsDisconnectedError(err) {
-			handle.poolServiceSession.loggedIn = false
-			handle.poolServiceClient.disconnected()
+		request := &api.CloseRequest{
+			SessionId:    handle.poolServiceSession.id,
+			FileHandleId: handle.id,
 		}
 
+		return handle.poolServiceClient.apiClient.Close(ctx, request)
+	}
+
+	_, err := handle.poolServiceSession.doWithRelogin(closeFunc)
+	if err != nil {
 		logger.Errorf("%+v", err)
 		return commons.StatusToError(err)
 	}

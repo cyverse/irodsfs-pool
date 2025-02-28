@@ -84,6 +84,16 @@ func (server *PoolServer) GetSessionManager() *PoolSessionManager {
 	return server.sessionManager
 }
 
+func (server *PoolServer) PrintConnectionStat() {
+	logger := log.WithFields(log.Fields{
+		"package":  "service",
+		"struct":   "PoolServer",
+		"function": "PrintConnectionStat",
+	})
+
+	logger.Infof("Total %d pool sessions, %d FS client instances, %d iRODS connections", server.GetPoolSessions(), server.GetIRODSFSClientInstances(), server.GetIRODSConnections())
+}
+
 func (server *PoolServer) Login(context context.Context, request *api.LoginRequest) (*api.LoginResponse, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
@@ -171,7 +181,7 @@ func (server *PoolServer) KeepAlive(context context.Context, request *api.KeepAl
 	if err != nil {
 		// session might be already closed due to timeout, so ignore error
 		sessionErr := xerrors.Errorf("failed to find the session for id %q: %w", request.SessionId, err)
-		logger.Errorf("%+v", sessionErr)
+		logger.Debugf("%+v", sessionErr)
 		return nil, commons.ErrorToStatus(err)
 	}
 

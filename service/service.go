@@ -71,6 +71,8 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 			handler.poolServer.LogoutAll()
 		}
 
+		handler.poolServer.PrintConnectionStat()
+
 	case *stats.ConnBegin:
 		handler.mutex.Lock()
 		defer handler.mutex.Unlock()
@@ -80,6 +82,8 @@ func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.Con
 		promCounterForGRPCClients.Inc()
 
 		logger.Infof("Client is connected - total %d connections", handler.liveConnections)
+
+		handler.poolServer.PrintConnectionStat()
 	}
 }
 
@@ -205,11 +209,6 @@ func (svc *PoolService) Start() error {
 	}
 
 	go func() {
-		logger := log.WithFields(log.Fields{
-			"package": "service",
-			"struct":  "PoolService",
-		})
-
 		tickerConnDisplay := time.NewTicker(1 * time.Minute)
 		tickerMetricsCollection := time.NewTicker(5 * time.Second)
 		defer tickerConnDisplay.Stop()
@@ -221,7 +220,7 @@ func (svc *PoolService) Start() error {
 				// terminate
 				return
 			case <-tickerConnDisplay.C:
-				logger.Infof("Total %d pool sessions, %d FS client instances, %d iRODS connections", svc.poolServer.GetPoolSessions(), svc.poolServer.GetIRODSFSClientInstances(), svc.poolServer.GetIRODSConnections())
+				svc.poolServer.PrintConnectionStat()
 			case <-tickerMetricsCollection.C:
 				svc.poolServer.CollectPrometheusMetrics()
 			}

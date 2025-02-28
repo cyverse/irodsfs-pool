@@ -5,8 +5,8 @@ go 1.22
 toolchain go1.22.10
 
 require (
-	github.com/cyverse/go-irodsclient v0.16.6
-	github.com/cyverse/irodsfs-common v0.0.0-20250227051119-e6777d255a9f
+	github.com/cyverse/go-irodsclient v0.16.7
+	github.com/cyverse/irodsfs-common v0.0.0-20250228195047-f25ba69386ce
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/profile v1.7.0
 	github.com/prometheus/client_golang v1.17.0

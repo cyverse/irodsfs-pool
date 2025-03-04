@@ -127,15 +127,31 @@ var (
 		Name: "irodsfs_pool_connection_pool_failures_total",
 		Help: "The total number of connection pool failures",
 	})
+	promCounterForLoginFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "irodsfs_pool_login_failures_total",
+		Help: "The total number of login failures",
+	})
+	promCounterForLogins = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "irodsfs_pool_logins_total",
+		Help: "The total number of logins",
+	})
 
 	// iRODSFS-Pool metrics
-	promCounterForGRPCCalls = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "irodsfs_pool_grpc_calls_total",
-		Help: "The total number of GRPC calls",
+	promCounterForGRPCRequests = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "irodsfs_pool_grpc_requests_total",
+		Help: "The total number of GRPC requests",
 	})
-	promCounterForGRPCCallReturns = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "irodsfs_pool_grpc_call_returns_total",
-		Help: "The total number of GRPC call returns",
+	promCounterForGRPCResponses = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "irodsfs_pool_grpc_responses_total",
+		Help: "The total number of GRPC responses",
+	})
+	promCounterForGRPCRequestsTimedout = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "irodsfs_pool_grpc_requests_timedout_total",
+		Help: "The total number of GRPC requests timedout",
+	})
+	promCounterForGRPCRequestsCanceled = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "irodsfs_pool_grpc_requests_canceled_total",
+		Help: "The total number of GRPC requests canceled",
 	})
 	promCounterForGRPCClients = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "irodsfs_pool_grpc_clients",

@@ -1,10 +1,8 @@
 package service
 
 import (
-	"context"
 	"net"
 	"os"
-	"sync"
 	"time"
 
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
@@ -13,7 +11,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/stats"
 )
 
 // PoolService is a service object
@@ -25,66 +22,6 @@ type PoolService struct {
 	statHandler *PoolServiceStatHandler
 
 	terminateChan chan bool
-}
-
-type PoolServiceStatHandler struct {
-	poolServer      *PoolServer
-	liveConnections int
-	mutex           sync.Mutex
-}
-
-func (handler *PoolServiceStatHandler) TagRPC(context.Context, *stats.RPCTagInfo) context.Context {
-	return context.Background()
-}
-
-// HandleRPC processes the RPC stats.
-func (handler *PoolServiceStatHandler) HandleRPC(context.Context, stats.RPCStats) {
-}
-
-func (handler *PoolServiceStatHandler) TagConn(context.Context, *stats.ConnTagInfo) context.Context {
-	return context.Background()
-}
-
-// HandleConn processes the Conn stats.
-func (handler *PoolServiceStatHandler) HandleConn(c context.Context, s stats.ConnStats) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServiceStatHandler",
-		"function": "HandleConn",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	switch s.(type) {
-	case *stats.ConnEnd:
-		handler.mutex.Lock()
-		defer handler.mutex.Unlock()
-
-		handler.liveConnections--
-
-		promCounterForGRPCClients.Dec()
-
-		logger.Infof("Client is disconnected - total %d live connections", handler.liveConnections)
-
-		if handler.liveConnections <= 0 {
-			handler.liveConnections = 0
-			handler.poolServer.LogoutAll()
-		}
-
-		handler.poolServer.PrintConnectionStat()
-
-	case *stats.ConnBegin:
-		handler.mutex.Lock()
-		defer handler.mutex.Unlock()
-
-		handler.liveConnections++
-
-		promCounterForGRPCClients.Inc()
-
-		logger.Infof("Client is connected - total %d connections", handler.liveConnections)
-
-		handler.poolServer.PrintConnectionStat()
-	}
 }
 
 // NewPoolService creates a new pool service
@@ -112,10 +49,11 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 	}
 
 	statHandler := &PoolServiceStatHandler{
-		poolServer:      poolServer,
 		liveConnections: 0,
+		poolServer:      poolServer,
 	}
-	grpcServer := grpc.NewServer(grpc.StatsHandler(statHandler), grpc.MaxConcurrentStreams(0))
+
+	grpcServer := grpc.NewServer(grpc.StatsHandler(statHandler), grpc.UnaryInterceptor(statHandler.UnaryInterceptor), grpc.MaxConcurrentStreams(0))
 	api.RegisterPoolAPIServer(grpcServer, poolServer)
 
 	service := &PoolService{

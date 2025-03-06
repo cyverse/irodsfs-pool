@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 	"github.com/cyverse/irodsfs-pool/commons"
@@ -106,14 +107,16 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, clientID str
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
 
-	logger.Infof("Creating a new pool session for client id %q", clientID)
+	logger.Infof("Creating a new pool session for client id %q, username %q", clientID, account.ClientUser)
 
-	session := newPoolSession(clientID)
+	irodsAccount := convertAccountFromAPIToIRODS(account)
+
+	session := newPoolSession(clientID, irodsAccount)
 
 	// add the session to instance
-	instanceID, err := manager.irodsFsClientInstanceManager.AddPoolSession(account, session, appName)
+	instanceID, err := manager.irodsFsClientInstanceManager.AddPoolSession(irodsAccount, session, appName)
 	if err != nil {
-		logger.Errorf("Failed to create a new pool session for session id %q, client id %q: %+v", session.GetID(), session.GetPoolClientID(), err)
+		logger.Errorf("Failed to create a new pool session for session id %q, client id %q, username %q: %+v", session.GetID(), session.GetPoolClientID(), irodsAccount.ClientUser, err)
 		return nil, err
 	}
 
@@ -124,7 +127,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, clientID str
 	manager.sessions[session.GetID()] = session
 	defer manager.mutex.Unlock()
 
-	logger.Infof("Created a new pool session for session id %q, client id %q", session.GetID(), session.GetPoolClientID())
+	logger.Infof("Created a new pool session for session id %q, client id %q, username %q", session.GetID(), session.GetPoolClientID(), irodsAccount.ClientUser)
 	return session, nil
 }
 
@@ -410,6 +413,7 @@ func (manager *PoolSessionManager) GetIRODSFSClientInstances() []*IRODSFSClientI
 type PoolSession struct {
 	id                      string // pool session id
 	poolClientID            string
+	irodsAccount            *irodsclient_types.IRODSAccount
 	irodsFsClientInstanceID string
 
 	lastAccessTime  time.Time
@@ -418,10 +422,11 @@ type PoolSession struct {
 	mutex sync.RWMutex
 }
 
-func newPoolSession(poolClientID string) *PoolSession {
+func newPoolSession(poolClientID string, irodsAccount *irodsclient_types.IRODSAccount) *PoolSession {
 	return &PoolSession{
 		id:                      xid.New().String(),
 		poolClientID:            poolClientID,
+		irodsAccount:            irodsAccount,
 		irodsFsClientInstanceID: "", // to be set later
 
 		lastAccessTime:  time.Now(),
@@ -474,6 +479,13 @@ func (session *PoolSession) GetPoolClientID() string {
 	defer session.mutex.RUnlock()
 
 	return session.poolClientID
+}
+
+func (session *PoolSession) GetIRODSAccount() *irodsclient_types.IRODSAccount {
+	session.mutex.RLock()
+	defer session.mutex.RUnlock()
+
+	return session.irodsAccount
 }
 
 func (session *PoolSession) SetIRODSFSClientInstanceID(irodsFsClientInstanceID string) {

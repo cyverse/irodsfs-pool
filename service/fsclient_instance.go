@@ -11,7 +11,6 @@ import (
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
 	"github.com/cyverse/irodsfs-pool/commons"
-	"github.com/cyverse/irodsfs-pool/service/api"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/xerrors"
 )
@@ -52,7 +51,7 @@ func (manager *IRODSFSClientInstanceManager) Release() {
 	manager.instances = map[string]*IRODSFSClientInstance{}
 }
 
-func (manager *IRODSFSClientInstanceManager) AddPoolSession(account *api.Account, session *PoolSession, appName string) (string, error) {
+func (manager *IRODSFSClientInstanceManager) AddPoolSession(irodsAccount *irodsclient_types.IRODSAccount, session *PoolSession, appName string) (string, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"struct":   "IRODSFSClientInstanceManager",
@@ -63,7 +62,7 @@ func (manager *IRODSFSClientInstanceManager) AddPoolSession(account *api.Account
 
 	manager.mutex.Lock()
 
-	instanceID := manager.makeInstanceID(account)
+	instanceID := manager.makeInstanceID(irodsAccount)
 
 	if instance, ok := manager.instances[instanceID]; ok {
 		// if we have the instance already
@@ -76,7 +75,7 @@ func (manager *IRODSFSClientInstanceManager) AddPoolSession(account *api.Account
 		logger.Infof("Creating a new irods fs client instance %q for session %q", instanceID, session.GetID())
 
 		// new irods fs client instance
-		instance, err := newIRODSFSClientInstance(instanceID, account, appName, manager.config.CacheTimeoutSettings)
+		instance, err := newIRODSFSClientInstance(instanceID, irodsAccount, appName, manager.config.CacheTimeoutSettings)
 		if err != nil {
 			instanceErr := xerrors.Errorf("failed to create a new irods fs client instance: %w", err)
 			logger.Errorf("%+v", instanceErr)
@@ -200,7 +199,7 @@ func (manager *IRODSFSClientInstanceManager) GetTotalConnections() int {
 }
 
 // makeInstanceID creates an ID of iRODSFSClientInstance
-func (manager *IRODSFSClientInstanceManager) makeInstanceID(account *api.Account) string {
+func (manager *IRODSFSClientInstanceManager) makeInstanceID(account *irodsclient_types.IRODSAccount) string {
 	hash := sha1.New()
 	hash.Write([]byte(account.Host))
 	hash.Write([]byte(fmt.Sprintf("%d", account.Port)))
@@ -227,47 +226,13 @@ type IRODSFSClientInstance struct {
 }
 
 // newIRODSFSClientInstance creates a new IRODSFSClientInstance
-func newIRODSFSClientInstance(irodsFsClientInstanceID string, account *api.Account, applicationName string, cacheTimeoutSettings []irodsclient_fs.MetadataCacheTimeoutSetting) (*IRODSFSClientInstance, error) {
+func newIRODSFSClientInstance(irodsFsClientInstanceID string, irodsAccount *irodsclient_types.IRODSAccount, applicationName string, cacheTimeoutSettings []irodsclient_fs.MetadataCacheTimeoutSetting) (*IRODSFSClientInstance, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "service",
 		"function": "newIRODSFSClientInstance",
 	})
 
 	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	var sslConf *irodsclient_types.IRODSSSLConfig
-	if account.SslConfiguration != nil {
-		sslConf = &irodsclient_types.IRODSSSLConfig{
-			CACertificateFile:       account.SslConfiguration.CaCertificateFile,
-			CACertificatePath:       account.SslConfiguration.CaCertificatePath,
-			EncryptionKeySize:       int(account.SslConfiguration.EncryptionKeySize),
-			EncryptionAlgorithm:     account.SslConfiguration.EncryptionAlgorithm,
-			EncryptionSaltSize:      int(account.SslConfiguration.EncryptionSaltSize),
-			EncryptionNumHashRounds: int(account.SslConfiguration.EncryptionNumHashRounds),
-			VerifyServer:            irodsclient_types.SSLVerifyServer(account.SslConfiguration.VerifyServer),
-			DHParamsFile:            account.SslConfiguration.DhParamsFile,
-			ServerName:              account.SslConfiguration.ServerName,
-		}
-	}
-
-	irodsAccount := &irodsclient_types.IRODSAccount{
-		AuthenticationScheme:    irodsclient_types.AuthScheme(account.AuthenticationScheme),
-		ClientServerNegotiation: account.ClientServerNegotiation,
-		CSNegotiationPolicy:     irodsclient_types.CSNegotiationPolicyRequest(account.CsNegotiationPolicy),
-		Host:                    account.Host,
-		Port:                    int(account.Port),
-		ClientUser:              account.ClientUser,
-		ClientZone:              account.ClientZone,
-		ProxyUser:               account.ProxyUser,
-		ProxyZone:               account.ProxyZone,
-		Password:                account.Password,
-		Ticket:                  account.Ticket,
-		DefaultResource:         account.DefaultResource,
-		DefaultHashScheme:       account.DefaultHashScheme,
-		PamTTL:                  int(account.PamTtl),
-		PAMToken:                account.PamToken,
-		SSLConfiguration:        sslConf,
-	}
 
 	irodsConfig := irodsclient_fs.NewFileSystemConfig(applicationName)
 	irodsConfig.Cache.MetadataTimeoutSettings = cacheTimeoutSettings

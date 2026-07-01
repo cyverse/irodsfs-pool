@@ -37,6 +37,8 @@ func SetCommonFlags(command *cobra.Command) {
 	command.Flags().Int("prometheus_exporter_port", -1, "Set prometheus exporter port")
 
 	command.Flags().Bool(ChildProcessArgument, false, "")
+
+	command.Flags().MarkHidden(ChildProcessArgument)
 }
 
 func ProcessCommonFlags(command *cobra.Command) (*commons.Config, io.WriteCloser, bool, error) {

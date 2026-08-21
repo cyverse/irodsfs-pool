@@ -21,6 +21,7 @@ metadata_cache_ttl: 1m
 
 staging_root_path: /irodsfs_pool/staging
 staging_data_grace_period: 10s
+max_staging_data_size: 536870912000 #500GB
 
 operation_timeout: 5m
 

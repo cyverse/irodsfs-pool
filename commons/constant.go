@@ -17,6 +17,7 @@ const (
 	MaxMetadataCacheBufferItemsPerSessionDefault int64         = 256
 	MetadataCacheTTLDefault                      time.Duration = 1 * time.Minute
 	StagingRootPathDefault                       string        = "staging"
+	MaxStagingDataSizeDefault                    int64         = 500 * 1024 * 1024 * 1024 // 500GB
 	StagingDataGracePeriodDefault                time.Duration = 10 * time.Second
 	OperationTimeoutDefault                      time.Duration = 5 * time.Minute
 

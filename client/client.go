@@ -954,7 +954,7 @@ func (session *PoolServiceSession) OpenFile(path string, mode string) (irodsfs_c
 				nextBuf: make([]byte, prefetchBlockSize),
 			}
 		} else {
-			go session.CacheFile(irodsEntry.Path, nil)
+			session.CacheFileAsync(irodsEntry.Path)
 		}
 	} else if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
 		count := atomic.AddInt32(&session.openWriteOnlyHandles, 1)
@@ -1257,7 +1257,7 @@ func (session *PoolServiceSession) UploadFileParallel(localPath string, irodsPat
 	return session.UploadFile(localPath, irodsPath, transferCallback)
 }
 
-// CacheFile requests the pool server to cache file content
+// CacheFile requests the pool server to cache file content (synchronous)
 func (session *PoolServiceSession) CacheFile(irodsPath string, transferCallback irodsclient_common.TransferTrackerCallback) error {
 	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
@@ -1280,6 +1280,31 @@ func (session *PoolServiceSession) CacheFile(irodsPath string, transferCallback 
 	}
 
 	return nil
+}
+
+// CacheFileAsync requests the pool server to cache file content in background.
+// The server returns immediately and caches asynchronously.
+// Session release on the server waits for the caching to complete.
+func (session *PoolServiceSession) CacheFileAsync(irodsPath string) {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	cacheFileFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		request := &api.CacheFileRequest{
+			SessionId: session.id,
+			IrodsPath: irodsPath,
+			Async:     true,
+		}
+
+		return session.poolServiceClient.apiClient.CacheFile(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(cacheFileFunc)
+	if err != nil {
+		session.logger.Errorf("%+v", err)
+	}
 }
 
 // InvalidateAllCache removes all caches
@@ -1379,6 +1404,9 @@ type PoolServiceFileHandle struct {
 	writeBufferSize   int
 
 	prefetch *prefetchState
+
+	closed bool
+	mutex  sync.Mutex
 
 	logger *log.Entry
 }
@@ -1493,7 +1521,7 @@ func (handle *PoolServiceFileHandle) readWithPrefetch(buffer []byte, offset int6
 		irodsPath := handle.entry.Path
 		pf.mu.Unlock()
 
-		go handle.poolServiceSession.CacheFile(irodsPath, nil)
+		handle.poolServiceSession.CacheFileAsync(irodsPath)
 		return handle.readFromServer(buffer, offset)
 	}
 	pf.mu.Unlock()
@@ -1815,6 +1843,14 @@ func (handle *PoolServiceFileHandle) Flush() error {
 // Close closes iRODS data object handle
 func (handle *PoolServiceFileHandle) Close() error {
 	defer irodsfs_common_util.StackTraceFromPanic(handle.logger)
+
+	handle.mutex.Lock()
+	if handle.closed {
+		handle.mutex.Unlock()
+		return nil
+	}
+	handle.closed = true
+	handle.mutex.Unlock()
 
 	if err := handle.flushWriteBuffer(); err != nil {
 		return err

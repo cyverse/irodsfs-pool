@@ -51,6 +51,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		maxMetadataCacheBufferItemsPerSession: config.MaxMetadataCacheBufferItemsPerSession,
 		metadataCacheTTL:                      time.Duration(config.MetadataCacheTTL),
 		stagingRootPath:                       config.StagingRootPath,
+		maxStagingDataSize:                    config.MaxStagingDataSize,
 		stagingDataGracePeriod:                time.Duration(config.StagingDataGracePeriod),
 	}
 
@@ -212,10 +213,10 @@ func (svc *PoolService) checkResourceAvailability() {
 	}
 
 	_, diskFree := getDiskInfo(stagingPath)
-	minDiskRequired := uint64(1 << 30) // 1 GB minimum
-	if diskFree > 0 && diskFree < minDiskRequired {
-		svc.logger.Warnf("Low disk space for staging at %q: available %s (minimum recommended: %s)",
-			stagingPath, formatBytes(int64(diskFree)), formatBytes(int64(minDiskRequired)))
+	requiredDisk := uint64(svc.config.MaxStagingDataSize)
+	if diskFree > 0 && diskFree < requiredDisk {
+		svc.logger.Warnf("Insufficient disk space for staging at %q: available %s, but staging requires %s",
+			stagingPath, formatBytes(int64(diskFree)), formatBytes(int64(requiredDisk)))
 	}
 }
 

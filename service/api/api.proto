@@ -252,6 +252,7 @@ message CloseRequest {
 message CacheFileRequest {
 	string session_id = 1;
 	string irods_path = 2;
+	bool async = 3;
 }
 
 message SyncRequest {

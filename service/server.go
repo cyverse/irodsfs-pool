@@ -29,6 +29,7 @@ type PoolServerConfig struct {
 	maxMetadataCacheBufferItemsPerSession int64
 	metadataCacheTTL                      time.Duration
 	stagingRootPath                       string
+	maxStagingDataSize                    int64
 	stagingDataGracePeriod                time.Duration
 	logger                                *log.Entry
 }
@@ -572,6 +573,9 @@ func (server *PoolServer) ReadAt(ctx context.Context, request *api.ReadAtRequest
 
 	session.UpdateLastAccessTime()
 
+	session.backgroundWg.Add(1)
+	defer session.backgroundWg.Done()
+
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
 		server.logger.Errorf("%+v", err)
@@ -601,6 +605,9 @@ func (server *PoolServer) WriteAt(ctx context.Context, request *api.WriteAtReque
 	}
 
 	session.UpdateLastAccessTime()
+
+	session.backgroundWg.Add(1)
+	defer session.backgroundWg.Done()
 
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
@@ -734,6 +741,9 @@ func (server *PoolServer) ReadStream(request *api.ReadStreamRequest, stream api.
 
 	session.UpdateLastAccessTime()
 
+	session.backgroundWg.Add(1)
+	defer session.backgroundWg.Done()
+
 	client := session.GetIRODSFSClient()
 
 	blockSize := int(request.BlockSize)
@@ -772,6 +782,9 @@ func (server *PoolServer) ReadStreamParallel(request *api.ReadStreamParallelRequ
 	}
 
 	session.UpdateLastAccessTime()
+
+	session.backgroundWg.Add(1)
+	defer session.backgroundWg.Done()
 
 	client := session.GetIRODSFSClient()
 
@@ -812,6 +825,13 @@ func (server *PoolServer) WriteStream(stream api.PoolAPI_WriteStreamServer) erro
 	var totalWritten int64
 	var handle *PoolFileHandle
 	var session *PoolSession
+	var wgAdded bool
+
+	defer func() {
+		if wgAdded && session != nil {
+			session.backgroundWg.Done()
+		}
+	}()
 
 	for {
 		request, err := stream.Recv()
@@ -832,6 +852,9 @@ func (server *PoolServer) WriteStream(stream api.PoolAPI_WriteStreamServer) erro
 			}
 
 			session.UpdateLastAccessTime()
+
+			session.backgroundWg.Add(1)
+			wgAdded = true
 
 			handle, err = session.GetPoolFileHandle(request.FileHandleId)
 			if err != nil {
@@ -862,6 +885,21 @@ func (server *PoolServer) CacheFile(ctx context.Context, request *api.CacheFileR
 	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
+
+	if request.Async {
+		session.backgroundWg.Add(1)
+		go func() {
+			defer session.backgroundWg.Done()
+			err := fsClient.CacheFile(request.IrodsPath, nil)
+			if err != nil {
+				server.logger.Errorf("async CacheFile %q: %+v", request.IrodsPath, err)
+			}
+		}()
+		return &api.Empty{}, nil
+	}
+
+	session.backgroundWg.Add(1)
+	defer session.backgroundWg.Done()
 
 	err = fsClient.CacheFile(request.IrodsPath, nil)
 	if err != nil {

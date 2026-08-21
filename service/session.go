@@ -163,11 +163,12 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	}
 
 	buffConfig := &irodsfs_common_irods.IRODSFSClientBufferedConfig{
-		BlockSize:       int(manager.config.dataBlockSize),
-		StagingRootPath: manager.config.stagingRootPath,
-		SyncInterval:    manager.config.stagingDataGracePeriod / 2,
-		GracePeriod:     manager.config.stagingDataGracePeriod,
-		UsePersistence:  true,
+		BlockSize:          int(manager.config.dataBlockSize),
+		StagingRootPath:    manager.config.stagingRootPath,
+		MaxStagingDataSize: manager.config.maxStagingDataSize,
+		SyncInterval:       manager.config.stagingDataGracePeriod / 2,
+		GracePeriod:        manager.config.stagingDataGracePeriod,
+		UsePersistence:     true,
 	}
 
 	fsClient, err := irodsfs_common_irods.NewIRODSFSClientBuffered(fs, manager.cacheManager, buffConfig)
@@ -427,6 +428,8 @@ type PoolSession struct {
 	lastAccessTime  time.Time
 	poolFileHandles map[string]*PoolFileHandle
 
+	backgroundWg sync.WaitGroup
+
 	logger *log.Entry
 
 	mutex sync.RWMutex
@@ -434,6 +437,8 @@ type PoolSession struct {
 
 func (session *PoolSession) release() {
 	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	session.backgroundWg.Wait()
 
 	session.mutex.Lock()
 	defer session.mutex.Unlock()

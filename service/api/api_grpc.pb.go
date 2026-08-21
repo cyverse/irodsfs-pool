@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.2
 // - protoc             v3.21.12
-// source: service/api/api.proto
+// source: api.proto
 
 package api
 
@@ -1083,5 +1083,5 @@ var PoolAPI_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "service/api/api.proto",
+	Metadata: "api.proto",
 }

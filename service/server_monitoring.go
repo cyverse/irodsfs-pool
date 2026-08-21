@@ -119,7 +119,7 @@ func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 	sessions := h.poolServer.GetSessionManager().GetAllSessions()
 
 	var totalStagedSize int64
-	var totalStagedMax int64
+	stagingMax := h.config.MaxStagingDataSize
 	type stagingItem struct {
 		sessionUser string
 		path        string
@@ -142,7 +142,6 @@ func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 			continue
 		}
 		totalStagedSize += stagingFS.GetCurrentDataSize()
-		totalStagedMax += stagingFS.GetMaxDataSize()
 
 		user := session.irodsAccount.ClientUser
 		allMeta := stagingFS.GetAll()
@@ -157,15 +156,13 @@ func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 		}
 	}
 
-	minDiskRequired := uint64(1 << 30) // 1 GB
-
 	fmt.Fprint(w, `<table>`)
-	fmt.Fprintf(w, `<tr><th>Staged Data</th><td>%s / %s (configured max)</td></tr>`, formatBytes(totalStagedSize), formatBytes(totalStagedMax))
+	fmt.Fprintf(w, `<tr><th>Staged Data</th><td>%s / %s (configured max)</td></tr>`, formatBytes(totalStagedSize), formatBytes(stagingMax))
 	fmt.Fprintf(w, `<tr><th>Disk</th><td>%s total, %s free</td></tr>`, formatBytes(int64(diskTotal)), formatBytes(int64(diskFree)))
 	fmt.Fprintf(w, `<tr><th>Staging Path</th><td>%s</td></tr>`, stagingPath)
 	fmt.Fprintf(w, `<tr><th>Staged Files</th><td>%d</td></tr>`, len(items))
-	if diskFree > 0 && diskFree < minDiskRequired {
-		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Low disk space: available %s < recommended minimum %s</td></tr>`, formatBytes(int64(diskFree)), formatBytes(int64(minDiskRequired)))
+	if diskFree > 0 && diskFree < uint64(stagingMax) {
+		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient disk space: available %s < configured staging max %s</td></tr>`, formatBytes(int64(diskFree)), formatBytes(stagingMax))
 	}
 	fmt.Fprint(w, `</table>`)
 

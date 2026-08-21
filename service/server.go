@@ -2,82 +2,81 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"io"
+	"time"
 
+	"github.com/cockroachdb/errors"
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
-	irodsfs_common_cache "github.com/cyverse/irodsfs-common/io/cache"
-	irodsfs_common "github.com/cyverse/irodsfs-common/irods"
-	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
+	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/xerrors"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
-const (
-	cacheEntrySizeMax int = 4 * 1024 * 1024 // 4MB
-)
-
-// PoolServerConfig is a configuration for Server
 type PoolServerConfig struct {
-	CacheSizeMax         int64
-	CacheRootPath        string
-	CacheTimeoutSettings []irodsclient_fs.MetadataCacheTimeoutSetting
-	OperationTimeout     int
-	SessionTimeout       int
+	sessionTimeout                        time.Duration
+	sessionTimeoutCheckInterval           time.Duration
+	dataBlockSize                         int64
+	maxDataMemCacheSize                   int64
+	maxDataMemCacheBufferItems            int64
+	dataMemCacheTTL                       time.Duration
+	maxIOConnectionPerSession             int
+	metadataCacheTimeoutSettings          []irodsclient_fs.MetadataCacheTimeoutSetting
+	startNewTransaction                   bool
+	maxMetadataCacheEntriesPerSession     int64
+	maxMetadataCacheSizePerSession        int64
+	maxMetadataCacheBufferItemsPerSession int64
+	metadataCacheTTL                      time.Duration
+	stagingRootPath                       string
+	stagingDataGracePeriod                time.Duration
+	logger                                *log.Entry
 }
 
 // PoolServer is a struct for PoolServer
 type PoolServer struct {
 	api.UnimplementedPoolAPIServer
 
-	config *PoolServerConfig
-
-	cacheStore     irodsfs_common_cache.CacheStore
+	config         *PoolServerConfig
 	sessionManager *PoolSessionManager
+	logger         *log.Entry
 }
 
 func NewPoolServer(config *PoolServerConfig) (*PoolServer, error) {
-	var err error
-	var diskCacheStore irodsfs_common_cache.CacheStore
-	if config.CacheSizeMax > 0 {
-		diskCacheStore, err = irodsfs_common_cache.NewDiskCacheStore(config.CacheSizeMax, cacheEntrySizeMax, config.CacheRootPath)
-		if err != nil {
-			return nil, err
-		}
+	if config == nil {
+		return nil, errors.New("config is required")
 	}
 
-	return &PoolServer{
-		config: config,
+	var myLogger *log.Entry
+	if config != nil && config.logger != nil {
+		myLogger = config.logger
+	} else {
+		// create new logger object
+		myLogger = log.StandardLogger().WithFields(log.Fields{})
+	}
 
-		cacheStore:     diskCacheStore,
-		sessionManager: NewPoolSessionManager(config),
-	}, nil
+	sessionManager, err := NewPoolSessionManager(config)
+	if err != nil {
+		return nil, err
+	}
+
+	server := &PoolServer{
+		config:         config,
+		logger:         myLogger,
+		sessionManager: sessionManager,
+	}
+
+	return server, nil
 }
 
 func (server *PoolServer) Release() {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "Release",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Info("Releasing the iRODS FUSE Lite Pool server")
-	defer logger.Info("Released the iRODS FUSE Lite Pool server")
+	server.logger.Info("Releasing the iRODS FUSE Lite Pool server")
+	defer server.logger.Info("Released the iRODS FUSE Lite Pool server")
 
 	server.sessionManager.Release()
 
-	if server.cacheStore != nil {
-		server.cacheStore.Release()
-		server.cacheStore = nil
-	}
 }
 
 func (server *PoolServer) GetSessionManager() *PoolSessionManager {
@@ -85,32 +84,25 @@ func (server *PoolServer) GetSessionManager() *PoolSessionManager {
 }
 
 func (server *PoolServer) PrintConnectionStat() {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "PrintConnectionStat",
-	})
-
-	logger.Infof("Total %d pool sessions, %d FS client instances, %d iRODS connections", server.GetPoolSessions(), server.GetIRODSFSClientInstances(), server.GetIRODSConnections())
+	server.logger.Infof("Total %d pool sessions, %d FS client instances, %d iRODS connections", server.GetPoolSessions(), server.GetIRODSFSClientInstances(), server.GetIRODSConnections())
 }
 
-func (server *PoolServer) Login(context context.Context, request *api.LoginRequest) (*api.LoginResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "Login",
-	})
+func (server *PoolServer) Login(ctx context.Context, request *api.LoginRequest) (*api.LoginResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	server.logger.Infof("Login request to host %q, user %q", request.Account.Host, request.Account.ClientUser)
+	defer server.logger.Infof("Login response for host %q, user %q", request.Account.Host, request.Account.ClientUser)
 
-	logger.Infof("Login request from client id %q, host %q, user %q", request.ClientId, request.Account.Host, request.Account.ClientUser)
-	defer logger.Infof("Login response to client id %q, host %q, user %q", request.ClientId, request.Account.Host, request.Account.ClientUser)
-
-	session, err := server.sessionManager.NewSession(request.Account, request.ClientId, request.ApplicationName)
+	session, err := server.sessionManager.NewSession(request.Account, request.ApplicationName)
 	if err != nil {
-		sessionErr := xerrors.Errorf("Failed to create a new session for client id %q, host %q, user %q: %w", request.ClientId, request.Account.Host, request.Account.ClientUser, err)
-		logger.Errorf("%+v", sessionErr)
+		sessionErr := errors.Wrapf(err, "Failed to create a new session for host %q, user %q", request.Account.Host, request.Account.ClientUser)
+		server.logger.Errorf("%+v", sessionErr)
 		return nil, commons.ErrorToStatus(err)
+	}
+
+	connID := ConnIDFromContext(ctx)
+	if connID != "" {
+		server.sessionManager.AddConnection(connID, session.GetID())
 	}
 
 	response := &api.LoginResponse{
@@ -120,62 +112,45 @@ func (server *PoolServer) Login(context context.Context, request *api.LoginReque
 	return response, nil
 }
 
-func (server *PoolServer) Logout(context context.Context, request *api.LogoutRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "Logout",
-	})
+func (server *PoolServer) Logout(ctx context.Context, request *api.LogoutRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	server.logger.Infof("Logout request from client, pool session id %q", request.SessionId)
+	defer server.logger.Infof("Logout response to client, pool session id %q", request.SessionId)
 
-	logger.Infof("Logout request from client, pool session id %q", request.SessionId)
-	defer logger.Infof("Logout response to client, pool session id %q", request.SessionId)
-
-	// collect metrics before release
 	server.CollectPrometheusMetrics()
 
-	session, err := server.sessionManager.GetSession(request.SessionId)
+	_, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		// session might be already closed due to timeout, so ignore error
-		sessionErr := xerrors.Errorf("failed to logout because the session for id %q is not found, ignoring...: %w", request.SessionId, err)
-		logger.Errorf("%+v", sessionErr)
+		sessionErr := errors.Errorf("failed to logout because the session for id %q is not found, ignoring...: %w", request.SessionId, err)
+		server.logger.Errorf("%+v", sessionErr)
 		return &api.Empty{}, nil
 	}
 
-	server.sessionManager.ReleaseSession(session.GetID())
+	connID := ConnIDFromContext(ctx)
+	if connID != "" {
+		server.sessionManager.RemoveConnection(connID)
+	}
+
 	return &api.Empty{}, nil
 }
 
 func (server *PoolServer) LogoutAll() {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "LogoutAll",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Info("Logout All")
-	defer logger.Info("Logged-out All")
+	server.logger.Info("LogoutAll - releasing all sessions")
+	defer server.logger.Info("LogoutAll - released all sessions")
 
 	server.sessionManager.ReleaseAllSessions()
 }
 
-func (server *PoolServer) KeepAlive(context context.Context, request *api.KeepAliveRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "KeepAlive",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+func (server *PoolServer) KeepAlive(ctx context.Context, request *api.KeepAliveRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		// session might be already closed due to timeout, so ignore error
-		sessionErr := xerrors.Errorf("failed to find the session for id %q: %w", request.SessionId, err)
-		logger.Debugf("%+v", sessionErr)
+		sessionErr := errors.Errorf("failed to find the session for id %q: %w", request.SessionId, err)
+		server.logger.Debugf("%+v", sessionErr)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -192,46 +167,30 @@ func (server *PoolServer) GetIRODSFSClientInstances() int {
 }
 
 func (server *PoolServer) GetIRODSConnections() int {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "GetIRODSConnections",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
 	return server.sessionManager.GetTotalIRODSFSClientConnections()
 }
 
-func (server *PoolServer) List(context context.Context, request *api.ListRequest) (*api.ListResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "List",
-	})
+func (server *PoolServer) List(ctx context.Context, request *api.ListRequest) (*api.ListResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("List request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("List response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
+
+	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
 
 	entries, err := fsClient.List(request.Path)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	responseEntries := make([]*api.Entry, len(entries))
-	idx := 0
-	for _, entry := range entries {
+	for idx, entry := range entries {
 		responseEntries[idx] = &api.Entry{
 			Id:                entry.ID,
 			Type:              string(entry.Type),
@@ -240,47 +199,37 @@ func (server *PoolServer) List(context context.Context, request *api.ListRequest
 			Owner:             entry.Owner,
 			Size:              entry.Size,
 			DataType:          entry.DataType,
-			CreateTime:        irodsfs_common_utils.MakeTimeToString(entry.CreateTime),
-			ModifyTime:        irodsfs_common_utils.MakeTimeToString(entry.ModifyTime),
+			CreateTime:        irodsfs_common_util.TimeString(entry.CreateTime),
+			ModifyTime:        irodsfs_common_util.TimeString(entry.ModifyTime),
+			AccessTime:        irodsfs_common_util.TimeString(entry.AccessTime),
 			ChecksumAlgorithm: string(entry.CheckSumAlgorithm),
 			Checksum:          entry.CheckSum,
 		}
-		idx++
 	}
 
-	response := &api.ListResponse{
+	return &api.ListResponse{
 		Entries: responseEntries,
-	}
-
-	return response, nil
+	}, nil
 }
 
-func (server *PoolServer) Stat(context context.Context, request *api.StatRequest) (*api.StatResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "Stat",
-	})
+func (server *PoolServer) Stat(ctx context.Context, request *api.StatRequest) (*api.StatResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("Stat request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("Stat response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
+
+	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
 
 	entry, err := fsClient.Stat(request.Path)
 	if err != nil {
 		if !irodsclient_types.IsFileNotFoundError(err) {
-			logger.Errorf("%+v", err)
+			server.logger.Errorf("%+v", err)
 		}
-
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -292,189 +241,28 @@ func (server *PoolServer) Stat(context context.Context, request *api.StatRequest
 		Owner:             entry.Owner,
 		Size:              entry.Size,
 		DataType:          entry.DataType,
-		CreateTime:        irodsfs_common_utils.MakeTimeToString(entry.CreateTime),
-		ModifyTime:        irodsfs_common_utils.MakeTimeToString(entry.ModifyTime),
+		CreateTime:        irodsfs_common_util.TimeString(entry.CreateTime),
+		ModifyTime:        irodsfs_common_util.TimeString(entry.ModifyTime),
+		AccessTime:        irodsfs_common_util.TimeString(entry.AccessTime),
 		ChecksumAlgorithm: string(entry.CheckSumAlgorithm),
 		Checksum:          entry.CheckSum,
 	}
 
-	response := &api.StatResponse{
+	return &api.StatResponse{
 		Entry: responseEntry,
-	}
-
-	return response, nil
+	}, nil
 }
 
-func (server *PoolServer) ListXattr(context context.Context, request *api.ListXattrRequest) (*api.ListXattrResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "ListXattr",
-	})
+func (server *PoolServer) ExistsDir(ctx context.Context, request *api.ExistsDirRequest) (*api.ExistsDirResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("ListXattr request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("ListXattr response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	session.UpdateLastAccessTime()
-
-	irodsMetadata, err := fsClient.ListXattr(request.Path)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	responseMetadata := make([]*api.Metadata, len(irodsMetadata))
-	idx := 0
-	for _, irodsMeta := range irodsMetadata {
-		responseMetadata[idx] = &api.Metadata{
-			Id:         irodsMeta.AVUID,
-			Name:       irodsMeta.Name,
-			Value:      irodsMeta.Value,
-			Unit:       irodsMeta.Units,
-			CreateTime: irodsfs_common_utils.MakeTimeToString(irodsMeta.CreateTime),
-			ModifyTime: irodsfs_common_utils.MakeTimeToString(irodsMeta.ModifyTime),
-		}
-		idx++
-	}
-
-	response := &api.ListXattrResponse{
-		Metadata: responseMetadata,
-	}
-
-	return response, nil
-}
-
-func (server *PoolServer) GetXattr(context context.Context, request *api.GetXattrRequest) (*api.GetXattrResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "GetXattr",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("GetXattr request from pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
-	defer logger.Infof("GetXattr response to pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	session.UpdateLastAccessTime()
-
-	irodsMeta, err := fsClient.GetXattr(request.Path, request.Name)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	if irodsMeta == nil {
-		// not exist
-		errorMessage := fmt.Sprintf("failed to find xattr %q", request.Name)
-		return nil, status.Error(codes.NotFound, errorMessage)
-	}
-
-	responseMeta := &api.Metadata{
-		Id:         irodsMeta.AVUID,
-		Name:       irodsMeta.Name,
-		Value:      irodsMeta.Value,
-		Unit:       irodsMeta.Units,
-		CreateTime: irodsfs_common_utils.MakeTimeToString(irodsMeta.CreateTime),
-		ModifyTime: irodsfs_common_utils.MakeTimeToString(irodsMeta.ModifyTime),
-	}
-
-	response := &api.GetXattrResponse{
-		Metadata: responseMeta,
-	}
-
-	return response, nil
-}
-
-func (server *PoolServer) SetXattr(context context.Context, request *api.SetXattrRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "SetXattr",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("SetXattr request from pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
-	defer logger.Infof("SetXattr response to pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	session.UpdateLastAccessTime()
-
-	err = fsClient.SetXattr(request.Path, request.Name, request.Value)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	return &api.Empty{}, nil
-}
-
-func (server *PoolServer) RemoveXattr(context context.Context, request *api.RemoveXattrRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "RemoveXattr",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("RemoveXattr request from pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
-	defer logger.Infof("RemoveXattr response to pool session id %q, path %q, name %q", request.SessionId, request.Path, request.Name)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	session.UpdateLastAccessTime()
-
-	err = fsClient.RemoveXattr(request.Path, request.Name)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	return &api.Empty{}, nil
-}
-
-func (server *PoolServer) ExistsDir(context context.Context, request *api.ExistsDirRequest) (*api.ExistsDirResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "ExistsDir",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("ExistsDir request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("ExistsDir response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
+	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
 
@@ -484,23 +272,16 @@ func (server *PoolServer) ExistsDir(context context.Context, request *api.Exists
 	}, nil
 }
 
-func (server *PoolServer) ExistsFile(context context.Context, request *api.ExistsFileRequest) (*api.ExistsFileResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "ExistsFile",
-	})
+func (server *PoolServer) ExistsFile(ctx context.Context, request *api.ExistsFileRequest) (*api.ExistsFileResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("ExistsFile request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("ExistsFile response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
+
+	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
 
@@ -510,378 +291,138 @@ func (server *PoolServer) ExistsFile(context context.Context, request *api.Exist
 	}, nil
 }
 
-func (server *PoolServer) ListUserGroups(context context.Context, request *api.ListUserGroupsRequest) (*api.ListUserGroupsResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "ListUserGroups",
-	})
+func (server *PoolServer) RemoveFile(ctx context.Context, request *api.RemoveFileRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("ListUserGroups request from pool session id %q, user name %q", request.SessionId, request.UserName)
-	defer logger.Infof("ListUserGroups response to pool session id %q, user name %q", request.SessionId, request.UserName)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	session.UpdateLastAccessTime()
-
-	groups, err := fsClient.ListUserGroups(request.Zone, request.UserName)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	responseGroups := make([]*api.User, len(groups))
-	idx := 0
-	for _, group := range groups {
-		responseGroups[idx] = &api.User{
-			Id:   group.ID,
-			Name: group.Name,
-			Zone: group.Zone,
-			Type: string(group.Type),
-		}
-		idx++
-	}
-
-	response := &api.ListUserGroupsResponse{
-		Users: responseGroups,
-	}
-
-	return response, nil
-}
-
-func (server *PoolServer) ListDirACLs(context context.Context, request *api.ListDirACLsRequest) (*api.ListDirACLsResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "ListDirACLs",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("ListDirACLs request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("ListDirACLs response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	session.UpdateLastAccessTime()
-
-	accesses, err := fsClient.ListDirACLs(request.Path)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	responseAccesses := make([]*api.Access, len(accesses))
-	idx := 0
-	for _, access := range accesses {
-		responseAccesses[idx] = &api.Access{
-			Path:        access.Path,
-			UserName:    access.UserName,
-			UserZone:    access.UserZone,
-			UserType:    string(access.UserType),
-			AccessLevel: string(access.AccessLevel),
-		}
-		idx++
-	}
-
-	response := &api.ListDirACLsResponse{
-		Accesses: responseAccesses,
-	}
-
-	return response, nil
-}
-
-func (server *PoolServer) ListFileACLs(context context.Context, request *api.ListFileACLsRequest) (*api.ListFileACLsResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "ListFileACLs",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("ListFileACLs request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("ListFileACLs response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	session.UpdateLastAccessTime()
-
-	accesses, err := fsClient.ListFileACLs(request.Path)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	responseAccesses := make([]*api.Access, len(accesses))
-	idx := 0
-	for _, access := range accesses {
-		responseAccesses[idx] = &api.Access{
-			Path:        access.Path,
-			UserName:    access.UserName,
-			UserZone:    access.UserZone,
-			UserType:    string(access.UserType),
-			AccessLevel: string(access.AccessLevel),
-		}
-		idx++
-	}
-
-	response := &api.ListFileACLsResponse{
-		Accesses: responseAccesses,
-	}
-
-	return response, nil
-}
-
-func (server *PoolServer) ListACLsForEntries(context context.Context, request *api.ListACLsForEntriesRequest) (*api.ListACLsForEntriesResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "ListACLsForEntries",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("ListACLsForEntries request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("ListACLsForEntries response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	session.UpdateLastAccessTime()
-
-	accesses, err := fsClient.ListACLsForEntries(request.Path)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	responseAccesses := make([]*api.Access, len(accesses))
-	idx := 0
-	for _, access := range accesses {
-		responseAccesses[idx] = &api.Access{
-			Path:        access.Path,
-			UserName:    access.UserName,
-			UserZone:    access.UserZone,
-			UserType:    string(access.UserType),
-			AccessLevel: string(access.AccessLevel),
-		}
-		idx++
-	}
-
-	response := &api.ListACLsForEntriesResponse{
-		Accesses: responseAccesses,
-	}
-
-	return response, nil
-}
-
-func (server *PoolServer) RemoveFile(context context.Context, request *api.RemoveFileRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "RemoveFile",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("RemoveFile request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("RemoveFile response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
+	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
 
 	err = fsClient.RemoveFile(request.Path, request.Force)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
-
-	// clear cache for the path if exists
-	server.cacheStore.DeleteAllEntriesForGroup(request.Path)
 
 	return &api.Empty{}, nil
 }
 
-func (server *PoolServer) RemoveDir(context context.Context, request *api.RemoveDirRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "RemoveDir",
-	})
+func (server *PoolServer) RemoveDir(ctx context.Context, request *api.RemoveDirRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("RemoveDir request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("RemoveDir response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
+
+	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
 
 	err = fsClient.RemoveDir(request.Path, request.Recurse, request.Force)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
 }
 
-func (server *PoolServer) MakeDir(context context.Context, request *api.MakeDirRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "MakeDir",
-	})
+func (server *PoolServer) MakeDir(ctx context.Context, request *api.MakeDirRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("MakeDir request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("MakeDir response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
+
+	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
 
 	err = fsClient.MakeDir(request.Path, request.Recurse)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
 }
 
-func (server *PoolServer) RenameDirToDir(context context.Context, request *api.RenameDirToDirRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "RenameDirToDir",
-	})
+func (server *PoolServer) RenameDirToDir(ctx context.Context, request *api.RenameDirToDirRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("RenameDirToDir request from pool session id %q, source path %q -> destination path %q", request.SessionId, request.SourcePath, request.DestinationPath)
-	defer logger.Infof("RenameDirToDir response to pool session id %q, source path %q -> destination path %q", request.SessionId, request.SourcePath, request.DestinationPath)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
+
+	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
 
 	err = fsClient.RenameDirToDir(request.SourcePath, request.DestinationPath)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
 }
 
-func (server *PoolServer) RenameFileToFile(context context.Context, request *api.RenameFileToFileRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "RenameFileToFile",
-	})
+func (server *PoolServer) RenameFileToFile(ctx context.Context, request *api.RenameFileToFileRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("RenameFileToFile request from pool session id %q, source path %q -> destination path %q", request.SessionId, request.SourcePath, request.DestinationPath)
-	defer logger.Infof("RenameFileToFile response to pool session id %q, source path %q -> destination path %q", request.SessionId, request.SourcePath, request.DestinationPath)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
+
+	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
 
 	err = fsClient.RenameFileToFile(request.SourcePath, request.DestinationPath)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
-
-	// clear cache for the path if exists
-	server.cacheStore.DeleteAllEntriesForGroup(request.SourcePath)
 
 	return &api.Empty{}, nil
 }
 
-func (server *PoolServer) CreateFile(context context.Context, request *api.CreateFileRequest) (*api.CreateFileResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "CreateFile",
-	})
+func (server *PoolServer) CreateFile(ctx context.Context, request *api.CreateFileRequest) (*api.CreateFileResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("CreateFile request from pool session id %q, path %q, mode %q", request.SessionId, request.Path, request.Mode)
-	defer logger.Infof("CreateFile response to pool session id %q, path %q, mode %q", request.SessionId, request.Path, request.Mode)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
+
+	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
 
-	// clear cache for the path if exists
-	server.cacheStore.DeleteAllEntriesForGroup(request.Path)
-
-	irodsFsFileHandle, err := fsClient.CreateFile(request.Path, request.Resource, request.Mode)
+	irodsFsFileHandle, err := fsClient.CreateFile(request.Path, request.Mode)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	fileOpenMode := irodsclient_types.FileOpenMode(request.Mode)
-	if fileOpenMode.IsWrite() {
-		// clear cache for the path if exists
-		server.cacheStore.DeleteAllEntriesForGroup(request.Path)
-	}
-
-	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsFileHandle, nil)
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -897,83 +438,45 @@ func (server *PoolServer) CreateFile(context context.Context, request *api.Creat
 		Owner:             fsEntry.Owner,
 		Size:              fsEntry.Size,
 		DataType:          fsEntry.DataType,
-		CreateTime:        irodsfs_common_utils.MakeTimeToString(fsEntry.CreateTime),
-		ModifyTime:        irodsfs_common_utils.MakeTimeToString(fsEntry.ModifyTime),
+		CreateTime:        irodsfs_common_util.TimeString(fsEntry.CreateTime),
+		ModifyTime:        irodsfs_common_util.TimeString(fsEntry.ModifyTime),
+		AccessTime:        irodsfs_common_util.TimeString(fsEntry.AccessTime),
 		ChecksumAlgorithm: string(fsEntry.CheckSumAlgorithm),
 		Checksum:          fsEntry.CheckSum,
 	}
 
-	response := &api.CreateFileResponse{
+	return &api.CreateFileResponse{
 		FileHandleId: irodsFsFileHandle.GetID(),
 		Entry:        responseEntry,
-	}
-
-	logger.Infof("CreateFile> pool session id %q, path %q, mode %q, handle id %q", request.SessionId, request.Path, request.Mode, irodsFsFileHandle.GetID())
-
-	return response, nil
+	}, nil
 }
 
-func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFileRequest) (*api.OpenFileResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "OpenFile",
-	})
+func (server *PoolServer) OpenFile(ctx context.Context, request *api.OpenFileRequest) (*api.OpenFileResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("OpenFile request from pool session id %q, path %q, mode %q", request.SessionId, request.Path, request.Mode)
-	defer logger.Infof("OpenFile response to pool session id %q, path %q, mode %q", request.SessionId, request.Path, request.Mode)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
+
+	fsClient := session.GetIRODSFSClient()
 
 	session.UpdateLastAccessTime()
 
-	fileOpenMode := irodsclient_types.FileOpenMode(request.Mode)
-
-	irodsFsFileHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
+	irodsFsFileHandle, err := fsClient.OpenFile(request.Path, request.Mode)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	if fileOpenMode.IsWrite() {
-		// clear cache for the path if exists
-		server.cacheStore.DeleteAllEntriesForGroup(request.Path)
-	}
-
-	poolFileHandle, err := NewPoolFileHandle(server, request.SessionId, irodsFsFileHandle, nil)
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.AddPoolFileHandle(poolFileHandle)
-
-	// read-only mode requires multiple file handles for prefetching
-	if fileOpenMode.IsReadOnly() {
-		// the file must be large enough
-		if irodsFsFileHandle.GetEntry().Size > int64(iRODSIOBlockSize*3) {
-			prefetchNum := 2
-			poolFileHandle.AddExpectedFileHandlesForPrefetching(prefetchNum)
-			go func() {
-				for i := 0; i < prefetchNum; i++ {
-					prefetchingIrodsFsFileHandle, err := fsClient.OpenFile(request.Path, request.Resource, request.Mode)
-					if err != nil {
-						logger.Errorf("%+v", err)
-						poolFileHandle.AddExpectedFileHandlesForPrefetching(-1)
-					} else {
-						irodsFsFileHandlesForPrefetching := []irodsfs_common.IRODSFSFileHandle{prefetchingIrodsFsFileHandle}
-						poolFileHandle.AddFileHandlesForPrefetching(irodsFsFileHandlesForPrefetching)
-					}
-				}
-			}()
-		}
-	}
 
 	fsEntry := irodsFsFileHandle.GetEntry()
 
@@ -985,69 +488,47 @@ func (server *PoolServer) OpenFile(context context.Context, request *api.OpenFil
 		Owner:             fsEntry.Owner,
 		Size:              fsEntry.Size,
 		DataType:          fsEntry.DataType,
-		CreateTime:        irodsfs_common_utils.MakeTimeToString(fsEntry.CreateTime),
-		ModifyTime:        irodsfs_common_utils.MakeTimeToString(fsEntry.ModifyTime),
+		CreateTime:        irodsfs_common_util.TimeString(fsEntry.CreateTime),
+		ModifyTime:        irodsfs_common_util.TimeString(fsEntry.ModifyTime),
+		AccessTime:        irodsfs_common_util.TimeString(fsEntry.AccessTime),
 		ChecksumAlgorithm: string(fsEntry.CheckSumAlgorithm),
 		Checksum:          fsEntry.CheckSum,
 	}
 
-	response := &api.OpenFileResponse{
+	return &api.OpenFileResponse{
 		FileHandleId: irodsFsFileHandle.GetID(),
 		Entry:        responseEntry,
-	}
-
-	logger.Infof("OpenFile> pool session id %q, path %q, mode %q, handle id %q", request.SessionId, request.Path, request.Mode, irodsFsFileHandle.GetID())
-
-	return response, nil
+	}, nil
 }
 
-func (server *PoolServer) TruncateFile(context context.Context, request *api.TruncateFileRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "TruncateFile",
-	})
+func (server *PoolServer) TruncateFile(ctx context.Context, request *api.TruncateFileRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("TruncateFile request from pool session id %q, path %q", request.SessionId, request.Path)
-	defer logger.Infof("TruncateFile response to pool session id %q, path %q", request.SessionId, request.Path)
-
-	session, fsClient, err := server.sessionManager.GetSessionAndIRODSFSClient(request.SessionId)
+	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	session.UpdateLastAccessTime()
+	fsClient := session.GetIRODSFSClient()
 
-	// clear cache for the path if exists
-	server.cacheStore.DeleteAllEntriesForGroup(request.Path)
+	session.UpdateLastAccessTime()
 
 	err = fsClient.TruncateFile(request.Path, request.Size)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
 }
 
-func (server *PoolServer) GetOffset(context context.Context, request *api.GetOffsetRequest) (*api.GetOffsetResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "GetOffset",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Debugf("GetOffset request from pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
-	defer logger.Debugf("GetOffset response to pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
+func (server *PoolServer) ReadAt(ctx context.Context, request *api.ReadAtRequest) (*api.ReadAtResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -1055,40 +536,7 @@ func (server *PoolServer) GetOffset(context context.Context, request *api.GetOff
 
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	response := &api.GetOffsetResponse{
-		Offset: handle.GetOffset(),
-	}
-
-	return response, nil
-}
-
-func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtRequest) (*api.ReadAtResponse, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "ReadAt",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Debugf("ReadAt request from pool session id %q, pool file handle id %q, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
-	defer logger.Debugf("ReadAt response to pool session id %q, pool file handle id %q, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, request.Length)
-
-	session, err := server.sessionManager.GetSession(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	session.UpdateLastAccessTime()
-
-	handle, err := session.GetPoolFileHandle(request.FileHandleId)
-	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -1096,35 +544,73 @@ func (server *PoolServer) ReadAt(context context.Context, request *api.ReadAtReq
 
 	readLen, err := handle.ReadAt(buffer, request.Offset)
 	if err != nil && err != io.EOF {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	available := handle.GetAvailable(request.Offset + int64(readLen))
+	return &api.ReadAtResponse{
+		Data: buffer[:readLen],
+	}, nil
+}
 
-	response := &api.ReadAtResponse{
-		Data:      buffer[:readLen],
+func (server *PoolServer) WriteAt(ctx context.Context, request *api.WriteAtRequest) (*api.WriteAtResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	session.UpdateLastAccessTime()
+
+	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	written, err := handle.WriteAt(request.Data, request.Offset)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	return &api.WriteAtResponse{
+		Length: int32(written),
+	}, nil
+}
+
+func (server *PoolServer) GetAvailable(ctx context.Context, request *api.GetAvailableRequest) (*api.GetAvailableResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	session.UpdateLastAccessTime()
+
+	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	available := handle.GetAvailable(request.Offset)
+
+	return &api.GetAvailableResponse{
 		Available: available,
-	}
-
-	return response, nil
+	}, nil
 }
 
-func (server *PoolServer) WriteAt(context context.Context, request *api.WriteAtRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "WriteAt",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Debugf("WriteAt request from pool session id %q, pool file handle id %q, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
-	defer logger.Debugf("WriteAt response to pool session id %q, pool file handle id %q, offset %d, length %d", request.SessionId, request.FileHandleId, request.Offset, len(request.Data))
+func (server *PoolServer) Truncate(ctx context.Context, request *api.TruncateRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -1132,69 +618,25 @@ func (server *PoolServer) WriteAt(context context.Context, request *api.WriteAtR
 
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	_, err = handle.WriteAt(request.Data, request.Offset)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	return &api.Empty{}, nil
-}
-
-func (server *PoolServer) Truncate(context context.Context, request *api.TruncateRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "Truncate",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("Truncate request from pool session id %q, pool file handle id %q, size %d", request.SessionId, request.FileHandleId, request.Size)
-	defer logger.Infof("Truncate response to pool session id %q, pool file handle id %q, size %d", request.SessionId, request.FileHandleId, request.Size)
-
-	session, err := server.sessionManager.GetSession(request.SessionId)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.ErrorToStatus(err)
-	}
-
-	session.UpdateLastAccessTime()
-
-	handle, err := session.GetPoolFileHandle(request.FileHandleId)
-	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	err = handle.Truncate(request.Size)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
 }
 
-func (server *PoolServer) Flush(context context.Context, request *api.FlushRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "Flush",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("Flush request from pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
-	defer logger.Infof("Flush response to pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
+func (server *PoolServer) Flush(ctx context.Context, request *api.FlushRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -1202,34 +644,25 @@ func (server *PoolServer) Flush(context context.Context, request *api.FlushReque
 
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	err = handle.Flush()
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	return &api.Empty{}, nil
 }
 
-func (server *PoolServer) Close(context context.Context, request *api.CloseRequest) (*api.Empty, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolServer",
-		"function": "Close",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("Close request from pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
-	defer logger.Infof("Close response to pool session id %q, pool file handle id %q", request.SessionId, request.FileHandleId)
+func (server *PoolServer) Close(ctx context.Context, request *api.CloseRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -1237,21 +670,186 @@ func (server *PoolServer) Close(context context.Context, request *api.CloseReque
 
 	handle, err := session.GetPoolFileHandle(request.FileHandleId)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	session.RemovePoolFileHandle(request.FileHandleId)
 
-	if handle.GetOpenMode() != irodsclient_types.FileOpenModeReadOnly {
-		// not read-only
-		// clear cache for the path if exists
-		server.cacheStore.DeleteAllEntriesForGroup(handle.GetEntryPath())
-	}
-
 	err = handle.Release()
 	if err != nil {
-		logger.Errorf("%+v", err)
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	return &api.Empty{}, nil
+}
+
+func (server *PoolServer) ReadStream(request *api.ReadStreamRequest, stream api.PoolAPI_ReadStreamServer) error {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return commons.ErrorToStatus(err)
+	}
+
+	session.UpdateLastAccessTime()
+
+	client := session.GetIRODSFSClient()
+
+	blockSize := int(request.BlockSize)
+	if blockSize <= 0 {
+		blockSize = int(server.config.dataBlockSize)
+	}
+
+	numBlocks := int(request.NumBlocks)
+	if numBlocks <= 0 {
+		numBlocks = 3
+	}
+
+	blockReadyCallback := func(data []byte, offset int64) error {
+		return stream.Send(&api.ReadStreamResponse{
+			Data:   data,
+			Offset: offset,
+		})
+	}
+
+	err = client.DownloadFileWithCallback(request.IrodsPath, blockSize, numBlocks, blockReadyCallback, nil)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return commons.ErrorToStatus(err)
+	}
+
+	return nil
+}
+
+func (server *PoolServer) ReadStreamParallel(request *api.ReadStreamParallelRequest, stream api.PoolAPI_ReadStreamParallelServer) error {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return commons.ErrorToStatus(err)
+	}
+
+	session.UpdateLastAccessTime()
+
+	client := session.GetIRODSFSClient()
+
+	blockSize := int(request.BlockSize)
+	if blockSize <= 0 {
+		blockSize = int(server.config.dataBlockSize)
+	}
+
+	taskNum := int(request.TaskNum)
+	if taskNum <= 0 {
+		taskNum = 4
+	}
+
+	numBlocks := int(request.NumBlocks)
+	if numBlocks <= 0 {
+		numBlocks = taskNum * 3
+	}
+
+	blockReadyCallback := func(data []byte, offset int64) error {
+		return stream.Send(&api.ReadStreamParallelResponse{
+			Data:   data,
+			Offset: offset,
+		})
+	}
+
+	err = client.DownloadFileParallelWithCallback(request.IrodsPath, blockSize, numBlocks, blockReadyCallback, taskNum, nil)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return commons.ErrorToStatus(err)
+	}
+
+	return nil
+}
+
+func (server *PoolServer) WriteStream(stream api.PoolAPI_WriteStreamServer) error {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	var totalWritten int64
+	var handle *PoolFileHandle
+	var session *PoolSession
+
+	for {
+		request, err := stream.Recv()
+		if err == io.EOF {
+			return stream.SendAndClose(&api.WriteStreamResponse{
+				Written: totalWritten,
+			})
+		}
+		if err != nil {
+			return err
+		}
+
+		if handle == nil {
+			session, err = server.sessionManager.GetSession(request.SessionId)
+			if err != nil {
+				server.logger.Errorf("%+v", err)
+				return commons.ErrorToStatus(err)
+			}
+
+			session.UpdateLastAccessTime()
+
+			handle, err = session.GetPoolFileHandle(request.FileHandleId)
+			if err != nil {
+				server.logger.Errorf("%+v", err)
+				return commons.ErrorToStatus(err)
+			}
+		}
+
+		written, err := handle.WriteAt(request.Data, request.Offset)
+		if err != nil {
+			server.logger.Errorf("%+v", err)
+			return commons.ErrorToStatus(err)
+		}
+
+		totalWritten += int64(written)
+	}
+}
+
+func (server *PoolServer) CacheFile(ctx context.Context, request *api.CacheFileRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	fsClient := session.GetIRODSFSClient()
+
+	session.UpdateLastAccessTime()
+
+	err = fsClient.CacheFile(request.IrodsPath, nil)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	return &api.Empty{}, nil
+}
+
+func (server *PoolServer) Sync(ctx context.Context, request *api.SyncRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	fsClient := session.GetIRODSFSClient()
+
+	session.UpdateLastAccessTime()
+
+	err = fsClient.Sync()
+	if err != nil {
+		server.logger.Errorf("%+v", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 

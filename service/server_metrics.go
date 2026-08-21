@@ -254,19 +254,19 @@ func (server *PoolServer) CollectPrometheusMetrics() {
 }
 
 func (server *PoolServer) CollectMetrics() *irodsclient_metrics.IRODSMetrics {
-	instances := server.sessionManager.GetIRODSFSClientInstances()
-	metrics := make([]*irodsclient_metrics.IRODSMetrics, len(instances))
+	sessions := server.sessionManager.GetAllSessions()
 
-	idx := 0
-	for _, instance := range instances {
-		metrics[idx] = instance.GetFSClient().GetMetrics()
-		idx++
-	}
-
-	// sum up
 	metricsTotal := irodsclient_metrics.IRODSMetrics{}
-	for _, metric := range metrics {
-		// sum
+	for _, session := range sessions {
+		if session.fsClient == nil {
+			continue
+		}
+
+		metric := session.fsClient.GetMetrics()
+		if metric == nil {
+			continue
+		}
+
 		metricsTotal.IncreaseCounterForStat(metric.GetAndClearCounterForStat())
 		metricsTotal.IncreaseCounterForList(metric.GetAndClearCounterForList())
 		metricsTotal.IncreaseCounterForSearch(metric.GetAndClearCounterForSearch())

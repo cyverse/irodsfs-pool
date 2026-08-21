@@ -1,5 +1,5 @@
 PKG=github.com/cyverse/irodsfs-pool
-VERSION=v0.11.7
+VERSION=v0.12.0
 GIT_COMMIT?=$(shell git rev-parse HEAD)
 BUILD_DATE?=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS?="-X '${PKG}/commons.serviceVersion=${VERSION}' -X '${PKG}/commons.gitCommit=${GIT_COMMIT}' -X '${PKG}/commons.buildDate=${BUILD_DATE}'"
@@ -30,14 +30,15 @@ build:
 protobuf:
 # This requires installation of two modules to compile protobuf and grpc
 # sudo apt install protobuf-compiler
+# go get google.golang.org/grpc/cmd/protoc-gen-go-grpc
 # go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
-# go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
 	export PATH=${PATH}:${GOPATH}/bin; protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative service/api/api.proto
 
 
 .PHONY: examples
 examples:
 	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/list_dir/list_dir.out ./client_examples/list_dir/list_dir.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/download_file/download_file.out ./client_examples/download_file/download_file.go
 
 
 .PHONY: release

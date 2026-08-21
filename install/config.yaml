@@ -1,10 +1,32 @@
 service_endpoint: tcp://0.0.0.0:12020
-debug: true
-data_cache_size_max: 10737418240 # 10 GB
-data_root_path: /irodsfs_pool_data
-instanceid: irodsfs_pool_svc
-cache_timeout_settings:
-  - path: "/"
-    timeout: "100s"
-    inherit: true
+debug: false
+data_root_path: /irodsfs_pool
 
+session_timeout: 10m
+session_timeout_check_interval: 10s
+
+data_block_size: 4194304           # 4MB
+max_data_mem_cache_size: 107374182400  # 100GB
+max_data_mem_cache_buffer_items: 512
+data_mem_cache_ttl: 6h
+
+max_io_connection_per_session: 10
+
+start_new_transaction: false
+
+max_metadata_cache_entries_per_session: 1000000
+max_metadata_cache_size_per_session: 10485760  # 10MB
+max_metadata_cache_buffer_items_per_session: 256
+metadata_cache_ttl: 1m
+
+staging_root_path: /irodsfs_pool/staging
+staging_data_grace_period: 10s
+
+operation_timeout: 5m
+
+prometheus_exporter_port: 12022
+monitoring_service_port: 12021
+
+foreground: false
+
+log_path: /irodsfs-pool/log/irodsfs-pool.log

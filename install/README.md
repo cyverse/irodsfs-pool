@@ -1,22 +1,72 @@
-# Setup irodsfs-pool systemd service
+# irodsfs-pool Installation
 
-Use `Makefile` in install package. 
+## Prerequisites
+
+- Go 1.21+
+- systemd-based Linux system
+
+## Build
+
+```bash
+make build
+```
+
+The binary is output to `bin/irodsfs-pool`.
+
+## Install
 
 ```bash
 sudo make install
 ```
 
-Enable the service.
+This installs:
+- `/usr/bin/irodsfs-pool` — service binary
+- `/etc/irodsfs-pool/config.yaml` — configuration file
+- `/etc/systemd/system/irodsfs-pool.service` — systemd unit
+
+## Configuration
+
+Edit `/etc/irodsfs-pool/config.yaml` to adjust settings:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `service_endpoint` | `unix:///var/lib/irodsfs_pool/comm.sock` | gRPC listen endpoint (unix or tcp) |
+| `data_root_path` | `/var/lib/irodsfs_pool` | Root directory for runtime data |
+| `session_timeout` | `10m` | Idle session timeout |
+| `data_block_size` | `4194304` (4MB) | Block size for caching and streaming |
+| `max_data_mem_cache_size` | `107374182400` (100GB) | Total memory cache capacity |
+| `data_mem_cache_ttl` | `12h` | Cache entry time-to-live |
+| `max_io_connection_per_session` | `30` | Max iRODS connections per session |
+| `staging_root_path` | `/var/lib/irodsfs_pool/staging` | Local staging directory for writes |
+| `staging_data_grace_period` | `10s` | Delay before syncing staged writes |
+| `operation_timeout` | `5m` | gRPC operation timeout |
+| `prometheus_exporter_port` | `12022` | Prometheus metrics port (0 to disable) |
+| `foreground` | `false` | Run in foreground (no daemonize) |
+| `debug` | `false` | Enable debug logging |
+| `log_path` | (auto) | Log file path |
+
+## Service Management
+
+Enable and start:
 ```bash
 sudo systemctl enable irodsfs-pool.service
+sudo systemctl start irodsfs-pool.service
 ```
 
-Start the service.
+Check status:
 ```bash
-sudo service irodsfs-pool start
+sudo systemctl status irodsfs-pool.service
 ```
 
-Check the service status.
+View logs:
 ```bash
-sudo service irodsfs-pool status
+journalctl -u irodsfs-pool.service -f
+```
+
+## Uninstall
+
+```bash
+sudo systemctl stop irodsfs-pool.service
+sudo systemctl disable irodsfs-pool.service
+sudo make uninstall
 ```

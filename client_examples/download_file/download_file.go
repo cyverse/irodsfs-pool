@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/cyverse/go-irodsclient/config"
-	"github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/irodsfs-pool/client"
 
 	log "github.com/sirupsen/logrus"
@@ -20,12 +19,13 @@ func main() {
 	flag.Parse()
 	args := flag.Args()
 
-	if len(args) != 1 {
-		fmt.Fprintf(os.Stderr, "Give an iRODS path!\n")
+	if len(args) != 2 {
+		fmt.Fprintf(os.Stderr, "Give an iRODS path and local path!\n")
 		os.Exit(1)
 	}
 
 	inputPath := args[0]
+	outputPath := args[1]
 
 	// Read account configuration from YAML file
 	cfg, err := config.NewConfigFromYAMLFile(config.GetDefaultConfig(), "account.yml")
@@ -46,7 +46,7 @@ func main() {
 
 	defer poolClient.Disconnect()
 
-	appName := "list_dir"
+	appName := "download_file"
 	poolSession, err := poolClient.NewSession(account, appName)
 	if err != nil {
 		logger.Errorf("%+v", err)
@@ -54,23 +54,15 @@ func main() {
 	}
 	defer poolSession.Release()
 
-	entries, err := poolSession.List(inputPath)
+	trackerCB := func(task string, processed int64, total int64) {
+		logger.Infof("%s] %d / %d", task, processed, total)
+	}
+
+	err = poolSession.DownloadFile(inputPath, outputPath, trackerCB)
 	if err != nil {
 		logger.Errorf("%+v", err)
 		panic(err)
 	}
 
-	if len(entries) == 0 {
-		fmt.Printf("Found no entries in the directory - %q\n", inputPath)
-	} else {
-		fmt.Printf("DIR: %s\n", inputPath)
-		for _, entry := range entries {
-			if entry.Type == fs.FileEntry {
-				fmt.Printf("> FILE:\t%s\t%d\n", entry.Path, entry.Size)
-			} else {
-				// dir
-				fmt.Printf("> DIRECTORY:\t%s\n", entry.Path)
-			}
-		}
-	}
+	fmt.Printf("Downloaded %q to %q\n", inputPath, outputPath)
 }

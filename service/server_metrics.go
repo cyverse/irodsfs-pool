@@ -1,7 +1,6 @@
 package service
 
 import (
-	irodsclient_metrics "github.com/cyverse/go-irodsclient/irods/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -159,146 +158,143 @@ var (
 	})
 )
 
-func (server *PoolServer) CollectPrometheusMetrics() {
-	metrics := server.CollectMetrics()
+// GetTotalMetrics returns the current total: accumulated (terminated sessions) + active sessions
+func (server *PoolServer) GetTotalMetrics() AccumulatedMetrics {
+	total := server.accumulatedMetrics
 
-	stat := metrics.GetCounterForStat()
-	promCounterForStat.Add(float64(stat))
-
-	list := metrics.GetCounterForList()
-	promCounterForList.Add(float64(list))
-
-	search := metrics.GetCounterForSearch()
-	promCounterForSearch.Add(float64(search))
-
-	collectionCreate := metrics.GetCounterForCollectionCreate()
-	promCounterForCollectionCreate.Add(float64(collectionCreate))
-
-	collectionDelete := metrics.GetCounterForCollectionDelete()
-	promCounterForCollectionDelete.Add(float64(collectionDelete))
-
-	collectionRename := metrics.GetCounterForCollectionRename()
-	promCounterForCollectionRename.Add(float64(collectionRename))
-
-	dataObjectCreate := metrics.GetCounterForDataObjectCreate()
-	promCounterForDataObjectCreate.Add(float64(dataObjectCreate))
-
-	dataObjectOpen := metrics.GetCounterForDataObjectOpen()
-	promCounterForDataObjectOpen.Add(float64(dataObjectOpen))
-
-	dataObjectClose := metrics.GetCounterForDataObjectClose()
-	promCounterForDataObjectClose.Add(float64(dataObjectClose))
-
-	dataObjectDelete := metrics.GetCounterForDataObjectDelete()
-	promCounterForDataObjectDelete.Add(float64(dataObjectDelete))
-
-	dataObjectRename := metrics.GetCounterForDataObjectRename()
-	promCounterForDataObjectRename.Add(float64(dataObjectRename))
-
-	dataObjectUpdate := metrics.GetCounterForDataObjectUpdate()
-	promCounterForDataObjectUpdate.Add(float64(dataObjectUpdate))
-
-	dataObjectCopy := metrics.GetCounterForDataObjectCopy()
-	promCounterForDataObjectCopy.Add(float64(dataObjectCopy))
-
-	dataObjectRead := metrics.GetCounterForDataObjectRead()
-	promCounterForDataObjectRead.Add(float64(dataObjectRead))
-
-	dataObjectWrite := metrics.GetCounterForDataObjectWrite()
-	promCounterForDataObjectWrite.Add(float64(dataObjectWrite))
-
-	metadataList := metrics.GetCounterForMetadataList()
-	promCounterForMetadataList.Add(float64(metadataList))
-
-	metadataDelete := metrics.GetCounterForMetadataDelete()
-	promCounterForMetadataDelete.Add(float64(metadataDelete))
-
-	metadataUpdate := metrics.GetCounterForMetadataUpdate()
-	promCounterForMetadataUpdate.Add(float64(metadataUpdate))
-
-	accessList := metrics.GetCounterForAccessList()
-	promCounterForAccessList.Add(float64(accessList))
-
-	accessUpdate := metrics.GetCounterForAccessUpdate()
-	promCounterForAccessUpdate.Add(float64(accessUpdate))
-
-	bytesSent := metrics.GetBytesSent()
-	promCounterForBytesSent.Add(float64(bytesSent))
-
-	bytesReceived := metrics.GetBytesReceived()
-	promCounterForBytesReceived.Add(float64(bytesReceived))
-
-	cacheHit := metrics.GetCounterForCacheHit()
-	promCounterForCacheHit.Add(float64(cacheHit))
-
-	cacheMiss := metrics.GetCounterForCacheMiss()
-	promCounterForCacheMiss.Add(float64(cacheMiss))
-
-	newOpenFileHandles := metrics.GetCounterForOpenFileHandles()
-	promGaugeForOpenFileHandles.Set(float64(newOpenFileHandles))
-
-	newConnectionsOpened := metrics.GetConnectionsOpened()
-	promGaugeForConnectionsOpened.Set(float64(newConnectionsOpened))
-
-	newConnectionsOccupied := metrics.GetConnectionsOccupied()
-	promGaugeForConnectionsOccupied.Set(float64(newConnectionsOccupied))
-
-	requestResponseFailures := metrics.GetCounterForRequestResponseFailures()
-	promCounterForRequestResponseFailures.Add(float64(requestResponseFailures))
-
-	connectionFailures := metrics.GetCounterForConnectionFailures()
-	promCounterForConnectionFailures.Add(float64(connectionFailures))
-
-	connectionPoolFailures := metrics.GetCounterForConnectionPoolFailures()
-	promCounterForConnectionPoolFailures.Add(float64(connectionPoolFailures))
-}
-
-func (server *PoolServer) CollectMetrics() *irodsclient_metrics.IRODSMetrics {
 	sessions := server.sessionManager.GetAllSessions()
-
-	metricsTotal := irodsclient_metrics.IRODSMetrics{}
 	for _, session := range sessions {
 		if session.fsClient == nil {
 			continue
 		}
-
 		metric := session.fsClient.GetMetrics()
 		if metric == nil {
 			continue
 		}
 
-		metricsTotal.IncreaseCounterForStat(metric.GetAndClearCounterForStat())
-		metricsTotal.IncreaseCounterForList(metric.GetAndClearCounterForList())
-		metricsTotal.IncreaseCounterForSearch(metric.GetAndClearCounterForSearch())
-		metricsTotal.IncreaseCounterForCollectionCreate(metric.GetAndClearCounterForCollectionCreate())
-		metricsTotal.IncreaseCounterForCollectionDelete(metric.GetAndClearCounterForCollectionDelete())
-		metricsTotal.IncreaseCounterForCollectionRename(metric.GetAndClearCounterForCollectionRename())
-		metricsTotal.IncreaseCounterForDataObjectCreate(metric.GetAndClearCounterForDataObjectCreate())
-		metricsTotal.IncreaseCounterForDataObjectOpen(metric.GetAndClearCounterForDataObjectOpen())
-		metricsTotal.IncreaseCounterForDataObjectClose(metric.GetAndClearCounterForDataObjectClose())
-		metricsTotal.IncreaseCounterForDataObjectDelete(metric.GetAndClearCounterForDataObjectDelete())
-		metricsTotal.IncreaseCounterForDataObjectRename(metric.GetAndClearCounterForDataObjectRename())
-		metricsTotal.IncreaseCounterForDataObjectUpdate(metric.GetAndClearCounterForDataObjectUpdate())
-		metricsTotal.IncreaseCounterForDataObjectCopy(metric.GetAndClearCounterForDataObjectCopy())
-		metricsTotal.IncreaseCounterForDataObjectRead(metric.GetAndClearCounterForDataObjectRead())
-		metricsTotal.IncreaseCounterForDataObjectWrite(metric.GetAndClearCounterForDataObjectWrite())
-		metricsTotal.IncreaseCounterForMetadataList(metric.GetAndClearCounterForMetadataList())
-		metricsTotal.IncreaseCounterForMetadataCreate(metric.GetAndClearCounterForMetadataCreate())
-		metricsTotal.IncreaseCounterForMetadataDelete(metric.GetAndClearCounterForMetadataDelete())
-		metricsTotal.IncreaseCounterForMetadataUpdate(metric.GetAndClearCounterForMetadataUpdate())
-		metricsTotal.IncreaseCounterForAccessList(metric.GetAndClearCounterForAccessList())
-		metricsTotal.IncreaseCounterForAccessUpdate(metric.GetAndClearCounterForAccessUpdate())
-		metricsTotal.IncreaseBytesSent(metric.GetAndClearBytesSent())
-		metricsTotal.IncreaseBytesReceived(metric.GetAndClearBytesReceived())
-		metricsTotal.IncreaseCounterForCacheHit(metric.GetAndClearCounterForCacheHit())
-		metricsTotal.IncreaseCounterForCacheMiss(metric.GetAndClearCounterForCacheMiss())
-		metricsTotal.IncreaseCounterForOpenFileHandles(metric.GetCounterForOpenFileHandles())
-		metricsTotal.IncreaseConnectionsOpened(metric.GetConnectionsOpened())
-		metricsTotal.IncreaseConnectionsOccupied(metric.GetConnectionsOccupied())
-		metricsTotal.IncreaseCounterForRequestResponseFailures(metric.GetAndClearCounterForRequestResponseFailures())
-		metricsTotal.IncreaseCounterForConnectionFailures(metric.GetAndClearCounterForConnectionFailures())
-		metricsTotal.IncreaseCounterForConnectionPoolFailures(metric.GetAndClearCounterForConnectionPoolFailures())
+		total.Stat += metric.GetCounterForStat()
+		total.List += metric.GetCounterForList()
+		total.Search += metric.GetCounterForSearch()
+		total.CollectionCreate += metric.GetCounterForCollectionCreate()
+		total.CollectionDelete += metric.GetCounterForCollectionDelete()
+		total.CollectionRename += metric.GetCounterForCollectionRename()
+		total.DataObjectCreate += metric.GetCounterForDataObjectCreate()
+		total.DataObjectOpen += metric.GetCounterForDataObjectOpen()
+		total.DataObjectClose += metric.GetCounterForDataObjectClose()
+		total.DataObjectDelete += metric.GetCounterForDataObjectDelete()
+		total.DataObjectRename += metric.GetCounterForDataObjectRename()
+		total.DataObjectUpdate += metric.GetCounterForDataObjectUpdate()
+		total.DataObjectCopy += metric.GetCounterForDataObjectCopy()
+		total.DataObjectRead += metric.GetCounterForDataObjectRead()
+		total.DataObjectWrite += metric.GetCounterForDataObjectWrite()
+		total.MetadataList += metric.GetCounterForMetadataList()
+		total.MetadataCreate += metric.GetCounterForMetadataCreate()
+		total.MetadataDelete += metric.GetCounterForMetadataDelete()
+		total.MetadataUpdate += metric.GetCounterForMetadataUpdate()
+		total.AccessList += metric.GetCounterForAccessList()
+		total.AccessUpdate += metric.GetCounterForAccessUpdate()
+		total.BytesSent += metric.GetBytesSent()
+		total.BytesReceived += metric.GetBytesReceived()
+		total.CacheHit += metric.GetCounterForCacheHit()
+		total.CacheMiss += metric.GetCounterForCacheMiss()
+		total.RequestFailures += metric.GetCounterForRequestResponseFailures()
+		total.ConnectionFailures += metric.GetCounterForConnectionFailures()
+		total.ConnectionPoolFailures += metric.GetCounterForConnectionPoolFailures()
 	}
 
-	return &metricsTotal
+	return total
+}
+
+func (server *PoolServer) CollectPrometheusMetrics() {
+	current := server.GetTotalMetrics()
+	last := &server.lastReportedMetrics
+
+	promCounterForStat.Add(float64(current.Stat - last.Stat))
+	promCounterForList.Add(float64(current.List - last.List))
+	promCounterForSearch.Add(float64(current.Search - last.Search))
+	promCounterForCollectionCreate.Add(float64(current.CollectionCreate - last.CollectionCreate))
+	promCounterForCollectionDelete.Add(float64(current.CollectionDelete - last.CollectionDelete))
+	promCounterForCollectionRename.Add(float64(current.CollectionRename - last.CollectionRename))
+	promCounterForDataObjectCreate.Add(float64(current.DataObjectCreate - last.DataObjectCreate))
+	promCounterForDataObjectOpen.Add(float64(current.DataObjectOpen - last.DataObjectOpen))
+	promCounterForDataObjectClose.Add(float64(current.DataObjectClose - last.DataObjectClose))
+	promCounterForDataObjectDelete.Add(float64(current.DataObjectDelete - last.DataObjectDelete))
+	promCounterForDataObjectRename.Add(float64(current.DataObjectRename - last.DataObjectRename))
+	promCounterForDataObjectUpdate.Add(float64(current.DataObjectUpdate - last.DataObjectUpdate))
+	promCounterForDataObjectCopy.Add(float64(current.DataObjectCopy - last.DataObjectCopy))
+	promCounterForDataObjectRead.Add(float64(current.DataObjectRead - last.DataObjectRead))
+	promCounterForDataObjectWrite.Add(float64(current.DataObjectWrite - last.DataObjectWrite))
+	promCounterForMetadataList.Add(float64(current.MetadataList - last.MetadataList))
+	promCounterForMetadataDelete.Add(float64(current.MetadataDelete - last.MetadataDelete))
+	promCounterForMetadataUpdate.Add(float64(current.MetadataUpdate - last.MetadataUpdate))
+	promCounterForAccessList.Add(float64(current.AccessList - last.AccessList))
+	promCounterForAccessUpdate.Add(float64(current.AccessUpdate - last.AccessUpdate))
+	promCounterForBytesSent.Add(float64(current.BytesSent - last.BytesSent))
+	promCounterForBytesReceived.Add(float64(current.BytesReceived - last.BytesReceived))
+	promCounterForCacheHit.Add(float64(current.CacheHit - last.CacheHit))
+	promCounterForCacheMiss.Add(float64(current.CacheMiss - last.CacheMiss))
+	promCounterForRequestResponseFailures.Add(float64(current.RequestFailures - last.RequestFailures))
+	promCounterForConnectionFailures.Add(float64(current.ConnectionFailures - last.ConnectionFailures))
+	promCounterForConnectionPoolFailures.Add(float64(current.ConnectionPoolFailures - last.ConnectionPoolFailures))
+
+	// gauges: set directly from active sessions
+	sessions := server.sessionManager.GetAllSessions()
+	var openFileHandles, connectionsOpened, connectionsOccupied uint64
+	for _, session := range sessions {
+		if session.fsClient == nil {
+			continue
+		}
+		metric := session.fsClient.GetMetrics()
+		if metric == nil {
+			continue
+		}
+		openFileHandles += metric.GetCounterForOpenFileHandles()
+		connectionsOpened += metric.GetConnectionsOpened()
+		connectionsOccupied += metric.GetConnectionsOccupied()
+	}
+	promGaugeForOpenFileHandles.Set(float64(openFileHandles))
+	promGaugeForConnectionsOpened.Set(float64(connectionsOpened))
+	promGaugeForConnectionsOccupied.Set(float64(connectionsOccupied))
+
+	server.lastReportedMetrics = current
+}
+
+// CollectSessionMetrics captures a session's final metrics before it is released.
+func (server *PoolServer) CollectSessionMetrics(session *PoolSession) {
+	if session.fsClient == nil {
+		return
+	}
+	metric := session.fsClient.GetMetrics()
+	if metric == nil {
+		return
+	}
+
+	server.accumulatedMetrics.Stat += metric.GetCounterForStat()
+	server.accumulatedMetrics.List += metric.GetCounterForList()
+	server.accumulatedMetrics.Search += metric.GetCounterForSearch()
+	server.accumulatedMetrics.CollectionCreate += metric.GetCounterForCollectionCreate()
+	server.accumulatedMetrics.CollectionDelete += metric.GetCounterForCollectionDelete()
+	server.accumulatedMetrics.CollectionRename += metric.GetCounterForCollectionRename()
+	server.accumulatedMetrics.DataObjectCreate += metric.GetCounterForDataObjectCreate()
+	server.accumulatedMetrics.DataObjectOpen += metric.GetCounterForDataObjectOpen()
+	server.accumulatedMetrics.DataObjectClose += metric.GetCounterForDataObjectClose()
+	server.accumulatedMetrics.DataObjectDelete += metric.GetCounterForDataObjectDelete()
+	server.accumulatedMetrics.DataObjectRename += metric.GetCounterForDataObjectRename()
+	server.accumulatedMetrics.DataObjectUpdate += metric.GetCounterForDataObjectUpdate()
+	server.accumulatedMetrics.DataObjectCopy += metric.GetCounterForDataObjectCopy()
+	server.accumulatedMetrics.DataObjectRead += metric.GetCounterForDataObjectRead()
+	server.accumulatedMetrics.DataObjectWrite += metric.GetCounterForDataObjectWrite()
+	server.accumulatedMetrics.MetadataList += metric.GetCounterForMetadataList()
+	server.accumulatedMetrics.MetadataCreate += metric.GetCounterForMetadataCreate()
+	server.accumulatedMetrics.MetadataDelete += metric.GetCounterForMetadataDelete()
+	server.accumulatedMetrics.MetadataUpdate += metric.GetCounterForMetadataUpdate()
+	server.accumulatedMetrics.AccessList += metric.GetCounterForAccessList()
+	server.accumulatedMetrics.AccessUpdate += metric.GetCounterForAccessUpdate()
+	server.accumulatedMetrics.BytesSent += metric.GetBytesSent()
+	server.accumulatedMetrics.BytesReceived += metric.GetBytesReceived()
+	server.accumulatedMetrics.CacheHit += metric.GetCounterForCacheHit()
+	server.accumulatedMetrics.CacheMiss += metric.GetCounterForCacheMiss()
+	server.accumulatedMetrics.RequestFailures += metric.GetCounterForRequestResponseFailures()
+	server.accumulatedMetrics.ConnectionFailures += metric.GetCounterForConnectionFailures()
+	server.accumulatedMetrics.ConnectionPoolFailures += metric.GetCounterForConnectionPoolFailures()
 }

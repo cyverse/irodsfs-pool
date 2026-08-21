@@ -1,7 +1,10 @@
 package service
 
 import (
+	"context"
+	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"time"
 
@@ -17,10 +20,11 @@ import (
 type PoolService struct {
 	config *commons.Config
 
-	poolServer  *PoolServer
-	grpcServer  *grpc.Server
-	statHandler *PoolServiceStatHandler
-	logger      *log.Entry
+	poolServer       *PoolServer
+	grpcServer       *grpc.Server
+	statHandler      *PoolServiceStatHandler
+	monitoringServer *http.Server
+	logger           *log.Entry
 
 	terminateChan chan bool
 }
@@ -108,6 +112,8 @@ func (svc *PoolService) Start() error {
 
 	svc.logger.Info("Starting the iRODS FUSE Lite Pool service")
 
+	svc.checkResourceAvailability()
+
 	var listener net.Listener
 	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.GetServiceEndpoint())
 	if err != nil {
@@ -167,7 +173,48 @@ func (svc *PoolService) Start() error {
 		}
 	}()
 
+	if svc.config.MonitoringServicePort > 0 {
+		monitoringHandler := NewMonitoringHandler(svc.poolServer, svc.config)
+		mux := http.NewServeMux()
+		mux.Handle("/", monitoringHandler)
+
+		addr := fmt.Sprintf(":%d", svc.config.MonitoringServicePort)
+		svc.monitoringServer = &http.Server{Addr: addr, Handler: mux}
+
+		go func() {
+			svc.logger.Infof("Starting monitoring service at %s", addr)
+			if err := svc.monitoringServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				svc.logger.Errorf("monitoring service error: %+v", err)
+			}
+		}()
+	}
+
 	return nil
+}
+
+func (svc *PoolService) checkResourceAvailability() {
+	// Check system memory vs configured cache size
+	sysTotal, sysAvail := getSystemMemoryInfo()
+	requiredMem := uint64(svc.config.MaxDataMemCacheSize)
+	if sysAvail > 0 && sysAvail < requiredMem {
+		svc.logger.Warnf("Insufficient system memory: available %s, but cache requires %s (total system RAM: %s)",
+			formatBytes(int64(sysAvail)), formatBytes(int64(requiredMem)), formatBytes(int64(sysTotal)))
+	}
+
+	// Check staging disk space
+	var stagingPath string
+	if len(svc.config.StagingRootPath) > 0 {
+		stagingPath = svc.config.StagingRootPath
+	} else {
+		stagingPath = svc.config.GetDataStagingRootPath()
+	}
+
+	_, diskFree := getDiskInfo(stagingPath)
+	minDiskRequired := uint64(1 << 30) // 1 GB minimum
+	if diskFree > 0 && diskFree < minDiskRequired {
+		svc.logger.Warnf("Low disk space for staging at %q: available %s (minimum recommended: %s)",
+			stagingPath, formatBytes(int64(diskFree)), formatBytes(int64(minDiskRequired)))
+	}
 }
 
 // Stop stops the service
@@ -177,6 +224,12 @@ func (svc *PoolService) Stop() {
 	defer irodsfs_common_util.StackTraceFromPanic(svc.logger)
 
 	svc.terminateChan <- true
+
+	if svc.monitoringServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		svc.monitoringServer.Shutdown(ctx)
+	}
 
 	if svc.grpcServer != nil {
 		svc.grpcServer.Stop()

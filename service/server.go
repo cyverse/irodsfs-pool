@@ -34,12 +34,46 @@ type PoolServerConfig struct {
 }
 
 // PoolServer is a struct for PoolServer
+type AccumulatedMetrics struct {
+	Stat             uint64
+	List             uint64
+	Search           uint64
+	CollectionCreate uint64
+	CollectionDelete uint64
+	CollectionRename uint64
+	DataObjectCreate uint64
+	DataObjectOpen   uint64
+	DataObjectClose  uint64
+	DataObjectDelete uint64
+	DataObjectRename uint64
+	DataObjectUpdate uint64
+	DataObjectCopy   uint64
+	DataObjectRead   uint64
+	DataObjectWrite  uint64
+	MetadataList     uint64
+	MetadataCreate   uint64
+	MetadataDelete   uint64
+	MetadataUpdate   uint64
+	AccessList       uint64
+	AccessUpdate     uint64
+
+	BytesSent          uint64
+	BytesReceived      uint64
+	CacheHit           uint64
+	CacheMiss          uint64
+	RequestFailures    uint64
+	ConnectionFailures uint64
+	ConnectionPoolFailures uint64
+}
+
 type PoolServer struct {
 	api.UnimplementedPoolAPIServer
 
-	config         *PoolServerConfig
-	sessionManager *PoolSessionManager
-	logger         *log.Entry
+	config              *PoolServerConfig
+	sessionManager      *PoolSessionManager
+	accumulatedMetrics  AccumulatedMetrics // sum of terminated sessions' final metrics
+	lastReportedMetrics AccumulatedMetrics // last total reported to Prometheus (for delta)
+	logger              *log.Entry
 }
 
 func NewPoolServer(config *PoolServerConfig) (*PoolServer, error) {
@@ -64,6 +98,10 @@ func NewPoolServer(config *PoolServerConfig) (*PoolServer, error) {
 		config:         config,
 		logger:         myLogger,
 		sessionManager: sessionManager,
+	}
+
+	sessionManager.onBeforeSessionRelease = func(session *PoolSession) {
+		server.CollectSessionMetrics(session)
 	}
 
 	return server, nil

@@ -29,6 +29,8 @@ type PoolSessionManager struct {
 	connMap      map[string]string       // key: connection id -> session id
 	logger       *log.Entry
 
+	onBeforeSessionRelease func(session *PoolSession)
+
 	mutex         sync.RWMutex
 	terminateChan chan bool
 }
@@ -227,6 +229,9 @@ func (manager *PoolSessionManager) ReleaseSession(sessionID string) {
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Releasing pool session %q (no more connections)", sessionID)
+	if manager.onBeforeSessionRelease != nil {
+		manager.onBeforeSessionRelease(session)
+	}
 	session.release()
 }
 
@@ -245,6 +250,9 @@ func (manager *PoolSessionManager) ReleaseAllSessions() {
 
 	for _, session := range sessions {
 		manager.logger.Infof("Force releasing pool session %q", session.id)
+		if manager.onBeforeSessionRelease != nil {
+			manager.onBeforeSessionRelease(session)
+		}
 		session.release()
 	}
 }
@@ -307,6 +315,9 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Releasing pool session %q (no more connections)", sessionID)
+	if manager.onBeforeSessionRelease != nil {
+		manager.onBeforeSessionRelease(session)
+	}
 	session.release()
 }
 
@@ -344,6 +355,9 @@ func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Force releasing stale pool session %q", sessionID)
+	if manager.onBeforeSessionRelease != nil {
+		manager.onBeforeSessionRelease(session)
+	}
 	session.release()
 }
 
@@ -356,6 +370,10 @@ func (manager *PoolSessionManager) GetSession(sessionID string) (*PoolSession, e
 	}
 
 	return nil, errors.Errorf("pool session not found: %s: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
+}
+
+func (manager *PoolSessionManager) GetCacheManager() *irodsfs_common_cache.MemoryCacheManager {
+	return manager.cacheManager
 }
 
 func (manager *PoolSessionManager) GetAllSessions() []*PoolSession {

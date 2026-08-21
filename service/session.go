@@ -100,14 +100,27 @@ func (manager *PoolSessionManager) Release() {
 	manager.terminateChan <- true
 
 	manager.mutex.Lock()
-	defer manager.mutex.Unlock()
 
 	wg := sync.WaitGroup{}
 	for _, session := range manager.sessions {
 		wg.Add(1)
 		go func(sess *PoolSession) {
 			defer wg.Done()
-			sess.release()
+
+			sess.mutex.Lock()
+			alreadyReleasing := sess.releasing
+			if !alreadyReleasing {
+				sess.releasing = true
+				sess.releaseDone = make(chan struct{})
+			}
+			sess.mutex.Unlock()
+
+			if !alreadyReleasing {
+				sess.release()
+				close(sess.releaseDone)
+			} else {
+				<-sess.releaseDone
+			}
 		}(session)
 	}
 
@@ -119,6 +132,7 @@ func (manager *PoolSessionManager) Release() {
 	manager.sessions = map[string]*PoolSession{}
 	manager.keyMap = map[string]string{}
 	manager.connMap = map[string]string{}
+	manager.mutex.Unlock()
 	wg.Wait()
 }
 
@@ -128,20 +142,42 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	irodsAccount := convertAccountFromAPIToIRODS(account)
 	accountKey := makeAccountKey(irodsAccount)
 
-	manager.mutex.Lock()
+	var sessionID string
 
-	// Check if session already exists for this account
-	if sessionID, ok := manager.keyMap[accountKey]; ok {
-		if session, ok := manager.sessions[sessionID]; ok {
-			session.UpdateLastAccessTime()
-			manager.mutex.Unlock()
+	for {
+		manager.mutex.Lock()
 
-			manager.logger.Infof("Reusing existing session %q for username %q", sessionID, irodsAccount.ClientUser)
-			return session, nil
+		// Check if session already exists for this account
+		if existingID, ok := manager.keyMap[accountKey]; ok {
+			if session, ok := manager.sessions[existingID]; ok {
+				session.mutex.RLock()
+				isReleasing := session.releasing
+				releaseDone := session.releaseDone
+				session.mutex.RUnlock()
+
+				if isReleasing {
+					// Session is being released, wait for it to complete
+					manager.mutex.Unlock()
+					manager.logger.Infof("Waiting for session %q release to complete before creating new session for username %q", existingID, irodsAccount.ClientUser)
+					<-releaseDone
+					continue
+				}
+
+				session.UpdateLastAccessTime()
+				manager.mutex.Unlock()
+
+				manager.logger.Infof("Reusing existing session %q for username %q", existingID, irodsAccount.ClientUser)
+				return session, nil
+			}
 		}
-	}
 
-	manager.mutex.Unlock()
+		// Reserve session ID and register in keyMap while holding lock to prevent duplicates
+		sessionID = xid.New().String()
+		manager.keyMap[accountKey] = sessionID
+		manager.mutex.Unlock()
+
+		break
+	}
 
 	// Create new session
 	manager.logger.Infof("Creating a new pool session for username %q", account.ClientUser)
@@ -159,12 +195,20 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 
 	fs, err := irodsclient_fs.NewFileSystem(irodsAccount, fsConfig)
 	if err != nil {
+		manager.mutex.Lock()
+		delete(manager.keyMap, accountKey)
+		manager.mutex.Unlock()
 		return nil, errors.Wrap(err, "failed to create iRODS filesystem")
+	}
+
+	sessionStagingPath := manager.config.stagingRootPath
+	if sessionStagingPath != "" {
+		sessionStagingPath = fmt.Sprintf("%s/%s", sessionStagingPath, sessionID)
 	}
 
 	buffConfig := &irodsfs_common_irods.IRODSFSClientBufferedConfig{
 		BlockSize:          int(manager.config.dataBlockSize),
-		StagingRootPath:    manager.config.stagingRootPath,
+		StagingRootPath:    sessionStagingPath,
 		MaxStagingDataSize: manager.config.maxStagingDataSize,
 		SyncInterval:       manager.config.stagingDataGracePeriod / 2,
 		GracePeriod:        manager.config.stagingDataGracePeriod,
@@ -174,10 +218,11 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	fsClient, err := irodsfs_common_irods.NewIRODSFSClientBuffered(fs, manager.cacheManager, buffConfig)
 	if err != nil {
 		fs.Release()
+		manager.mutex.Lock()
+		delete(manager.keyMap, accountKey)
+		manager.mutex.Unlock()
 		return nil, errors.Wrap(err, "failed to create buffered client")
 	}
-
-	sessionID := xid.New().String()
 
 	session := &PoolSession{
 		id:           sessionID,
@@ -198,7 +243,6 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 
 	manager.mutex.Lock()
 	manager.sessions[session.id] = session
-	manager.keyMap[accountKey] = session.id
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Created a new pool session %q for username %q", session.id, irodsAccount.ClientUser)
@@ -224,9 +268,11 @@ func (manager *PoolSessionManager) ReleaseSession(sessionID string) {
 		return
 	}
 
-	// No connections, remove session
-	delete(manager.sessions, sessionID)
-	delete(manager.keyMap, session.accountKey)
+	// No connections, mark as releasing
+	session.mutex.Lock()
+	session.releasing = true
+	session.releaseDone = make(chan struct{})
+	session.mutex.Unlock()
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Releasing pool session %q (no more connections)", sessionID)
@@ -234,6 +280,14 @@ func (manager *PoolSessionManager) ReleaseSession(sessionID string) {
 		manager.onBeforeSessionRelease(session)
 	}
 	session.release()
+
+	// After release completes, remove from maps and signal waiters
+	manager.mutex.Lock()
+	delete(manager.sessions, sessionID)
+	delete(manager.keyMap, session.accountKey)
+	manager.mutex.Unlock()
+
+	close(session.releaseDone)
 }
 
 func (manager *PoolSessionManager) ReleaseAllSessions() {
@@ -254,7 +308,21 @@ func (manager *PoolSessionManager) ReleaseAllSessions() {
 		if manager.onBeforeSessionRelease != nil {
 			manager.onBeforeSessionRelease(session)
 		}
-		session.release()
+
+		session.mutex.Lock()
+		alreadyReleasing := session.releasing
+		if !alreadyReleasing {
+			session.releasing = true
+			session.releaseDone = make(chan struct{})
+		}
+		session.mutex.Unlock()
+
+		if !alreadyReleasing {
+			session.release()
+			close(session.releaseDone)
+		} else {
+			<-session.releaseDone
+		}
 	}
 }
 
@@ -310,9 +378,11 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 		return
 	}
 
-	// No connections remaining, release session
-	delete(manager.sessions, sessionID)
-	delete(manager.keyMap, session.accountKey)
+	// No connections remaining, mark as releasing and release in background
+	session.mutex.Lock()
+	session.releasing = true
+	session.releaseDone = make(chan struct{})
+	session.mutex.Unlock()
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Releasing pool session %q (no more connections)", sessionID)
@@ -320,6 +390,14 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 		manager.onBeforeSessionRelease(session)
 	}
 	session.release()
+
+	// After release completes, remove from maps and signal waiters
+	manager.mutex.Lock()
+	delete(manager.sessions, sessionID)
+	delete(manager.keyMap, session.accountKey)
+	manager.mutex.Unlock()
+
+	close(session.releaseDone)
 }
 
 func (manager *PoolSessionManager) releaseStaleSessions() {
@@ -351,8 +429,20 @@ func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
 		return
 	}
 
-	delete(manager.sessions, sessionID)
-	delete(manager.keyMap, session.accountKey)
+	// Skip if already being released
+	session.mutex.RLock()
+	if session.releasing {
+		session.mutex.RUnlock()
+		manager.mutex.Unlock()
+		return
+	}
+	session.mutex.RUnlock()
+
+	// Mark as releasing
+	session.mutex.Lock()
+	session.releasing = true
+	session.releaseDone = make(chan struct{})
+	session.mutex.Unlock()
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Force releasing stale pool session %q", sessionID)
@@ -360,6 +450,14 @@ func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
 		manager.onBeforeSessionRelease(session)
 	}
 	session.release()
+
+	// After release completes, remove from maps and signal waiters
+	manager.mutex.Lock()
+	delete(manager.sessions, sessionID)
+	delete(manager.keyMap, session.accountKey)
+	manager.mutex.Unlock()
+
+	close(session.releaseDone)
 }
 
 func (manager *PoolSessionManager) GetSession(sessionID string) (*PoolSession, error) {
@@ -429,6 +527,9 @@ type PoolSession struct {
 	poolFileHandles map[string]*PoolFileHandle
 
 	backgroundWg sync.WaitGroup
+
+	releasing   bool
+	releaseDone chan struct{}
 
 	logger *log.Entry
 

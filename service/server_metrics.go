@@ -167,6 +167,15 @@ func (server *PoolServer) GetTotalMetrics() AccumulatedMetrics {
 		if session.fsClient == nil {
 			continue
 		}
+
+		// Skip sessions that are being released — their metrics are already in accumulatedMetrics
+		session.mutex.RLock()
+		isReleasing := session.releasing
+		session.mutex.RUnlock()
+		if isReleasing {
+			continue
+		}
+
 		metric := session.fsClient.GetMetrics()
 		if metric == nil {
 			continue
@@ -244,6 +253,14 @@ func (server *PoolServer) CollectPrometheusMetrics() {
 		if session.fsClient == nil {
 			continue
 		}
+
+		session.mutex.RLock()
+		isReleasing := session.releasing
+		session.mutex.RUnlock()
+		if isReleasing {
+			continue
+		}
+
 		metric := session.fsClient.GetMetrics()
 		if metric == nil {
 			continue

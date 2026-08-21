@@ -68,6 +68,10 @@ func (h *MonitoringHandler) renderServerInfo(w http.ResponseWriter) {
 	fmt.Fprintf(w, `<tr><th>Uptime</th><td>%s</td></tr>`, uptime)
 	fmt.Fprintf(w, `<tr><th>Endpoint</th><td>%s</td></tr>`, h.config.GetServiceEndpoint())
 	fmt.Fprintf(w, `<tr><th>Data Root</th><td>%s</td></tr>`, h.config.DataRootPath)
+	if h.config.MonitoringServicePort > 0 {
+		fmt.Fprintf(w, `<tr><th>Monitoring</th><td>:%d/monitor</td></tr>`, h.config.MonitoringServicePort)
+		fmt.Fprintf(w, `<tr><th>Prometheus</th><td>:%d/metrics</td></tr>`, h.config.MonitoringServicePort)
+	}
 	fmt.Fprint(w, `</table>`)
 }
 

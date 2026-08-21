@@ -50,8 +50,7 @@ type Config struct {
 	StagingDataGracePeriod                irodsclient_types.Duration                   `yaml:"staging_data_grace_period,omitempty" json:"staging_data_grace_period,omitempty"`
 	OperationTimeout                      irodsclient_types.Duration                   `yaml:"operation_timeout,omitempty" json:"operation_timeout,omitempty"`
 
-	PrometheusExporterPort int `yaml:"prometheus_exporter_port,omitempty" json:"prometheus_exporter_port,omitempty"`
-	MonitoringServicePort  int `yaml:"monitoring_service_port,omitempty" json:"monitoring_service_port,omitempty"`
+	MonitoringServicePort int `yaml:"monitoring_service_port,omitempty" json:"monitoring_service_port,omitempty"`
 
 	Foreground bool `yaml:"foreground,omitempty" json:"foreground,omitempty"`
 	Debug      bool `yaml:"debug,omitempty" json:"debug,omitempty"`
@@ -82,8 +81,7 @@ func NewDefaultConfig() *Config {
 		StagingDataGracePeriod:                irodsclient_types.Duration(StagingDataGracePeriodDefault),
 		OperationTimeout:                      irodsclient_types.Duration(OperationTimeoutDefault),
 
-		PrometheusExporterPort: PrometheusExporterPortDefault,
-		MonitoringServicePort:  MonitoringServicePortDefault,
+		MonitoringServicePort: MonitoringServicePortDefault,
 
 		Foreground: false,
 		Debug:      false,
@@ -316,32 +314,58 @@ func (config *Config) Validate() error {
 	return nil
 }
 
+// MultiWriteCloser writes to multiple writers and closes the ones that implement io.Closer.
+type MultiWriteCloser struct {
+	writers []io.Writer
+}
+
+func NewMultiWriteCloser(writers ...io.Writer) *MultiWriteCloser {
+	return &MultiWriteCloser{writers: writers}
+}
+
+func (mw *MultiWriteCloser) Write(p []byte) (n int, err error) {
+	for _, w := range mw.writers {
+		n, err = w.Write(p)
+		if err != nil {
+			return n, err
+		}
+	}
+	return len(p), nil
+}
+
+func (mw *MultiWriteCloser) Close() error {
+	var firstErr error
+	for _, w := range mw.writers {
+		if closer, ok := w.(io.Closer); ok {
+			if err := closer.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
 func (config *Config) GetLogWriter(foregroundProcess bool) (io.WriteCloser, error) {
 	logFilePath := config.GetLogFilePath()
 	if logFilePath == "-" || len(logFilePath) == 0 {
-		log.SetOutput(os.Stderr)
-		return nil, nil
-	} else {
-		err := config.MakeLogDir()
-		if err != nil {
-			return nil, err
-		}
-
-		if foregroundProcess {
-			parentLogWriter, _ := getLogWriterForForegroundProcess(logFilePath)
-
-			// use multi output - to output to file and stdout
-			mw := io.MultiWriter(os.Stderr, parentLogWriter)
-			log.SetOutput(mw)
-			return parentLogWriter, nil
-		} else {
-			daemonLogWriter, _ := getLogWriterForDaemonProcess(logFilePath)
-			return daemonLogWriter, nil
-		}
+		return os.Stderr, nil
 	}
+
+	err := config.MakeLogDir()
+	if err != nil {
+		return nil, err
+	}
+
+	if foregroundProcess {
+		fileWriter := getLogWriterForForegroundProcess(logFilePath)
+		return NewMultiWriteCloser(os.Stderr, fileWriter), nil
+	}
+
+	daemonWriter := getLogWriterForDaemonProcess(logFilePath)
+	return daemonWriter, nil
 }
 
-func getLogWriterForForegroundProcess(logPath string) (io.WriteCloser, string) {
+func getLogWriterForForegroundProcess(logPath string) io.WriteCloser {
 	logFilePath := fmt.Sprintf("%s.fg", logPath)
 	return &lumberjack.Logger{
 		Filename:   logFilePath,
@@ -349,10 +373,10 @@ func getLogWriterForForegroundProcess(logPath string) (io.WriteCloser, string) {
 		MaxBackups: 5,
 		MaxAge:     30, // 30 days
 		Compress:   false,
-	}, logFilePath
+	}
 }
 
-func getLogWriterForDaemonProcess(logPath string) (io.WriteCloser, string) {
+func getLogWriterForDaemonProcess(logPath string) io.WriteCloser {
 	logFilePath := fmt.Sprintf("%s.daemon", logPath)
 	return &lumberjack.Logger{
 		Filename:   logFilePath,
@@ -360,7 +384,7 @@ func getLogWriterForDaemonProcess(logPath string) (io.WriteCloser, string) {
 		MaxBackups: 1000,
 		MaxAge:     365, // 365 days
 		Compress:   false,
-	}, logFilePath
+	}
 }
 
 func parseRawURL(rawurl string) (string, string, string, error) {

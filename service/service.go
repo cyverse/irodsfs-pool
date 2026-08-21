@@ -12,6 +12,7 @@ import (
 	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
@@ -176,13 +177,14 @@ func (svc *PoolService) Start() error {
 	if svc.config.MonitoringServicePort > 0 {
 		monitoringHandler := NewMonitoringHandler(svc.poolServer, svc.config)
 		mux := http.NewServeMux()
-		mux.Handle("/", monitoringHandler)
+		mux.Handle("/monitor", monitoringHandler)
+		mux.Handle("/metrics", promhttp.Handler())
 
 		addr := fmt.Sprintf(":%d", svc.config.MonitoringServicePort)
 		svc.monitoringServer = &http.Server{Addr: addr, Handler: mux}
 
 		go func() {
-			svc.logger.Infof("Starting monitoring service at %s", addr)
+			svc.logger.Infof("Starting monitoring service at %s (endpoints: /monitor, /metrics)", addr)
 			if err := svc.monitoringServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				svc.logger.Errorf("monitoring service error: %+v", err)
 			}

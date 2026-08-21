@@ -58,18 +58,41 @@ The pool client (`client/client.go`) implements `IRODSFSClient` interface and co
 - 4MB blocks cached in shared memory (Ristretto-based) with configurable TTL and LRU eviction.
 - Default capacity: 100GB. Default TTL: 12 hours.
 - Shared across all sessions — multiple FUSE clients reading the same file hit the same cache.
+- Cache is populated only via `ReadAt` (FUSE random-access) and `CacheFile` (pre-warm) paths.
+- Streaming downloads (`DownloadFile`, `DownloadFileWithCallback`) do NOT populate cache — they are one-shot operations where caching would waste memory without benefit.
 
 ### Staging Filesystem (WriteOnly)
 
 - Write data is stored on local disk immediately; success is returned to the client without waiting for iRODS sync.
 - Background worker syncs dirty files to iRODS with configurable grace period.
 - Provides crash recovery: un-synced files are re-uploaded on server restart.
+- All download paths check staging first: if a file is staged (pending upload), it is served from the local staging copy rather than fetching from iRODS.
 
 ### Working Copy (ReadWrite)
 
 - File is downloaded to local disk on open.
 - All subsequent reads/writes are served from the local copy.
 - On close, the modified file is synced back to iRODS.
+
+### Resource Availability Checks
+
+- On startup, the server checks system memory and staging disk availability.
+- If available memory is less than the configured cache size, a warning is logged.
+- If staging disk free space is below 1GB, a warning is logged.
+- The monitoring web page displays real-time red warnings when resources are insufficient.
+
+### Metrics Collection
+
+- `AccumulatedMetrics` stores only terminated sessions' final metric values.
+- Live total = accumulated + active sessions' current `GetMetrics()` values (read-only, no clear).
+- Prometheus counters use delta-based reporting: each collection cycle computes `current_total - last_reported` and calls `Add(delta)`.
+- This avoids the inflation bug where `GetAndClear*` on a copy of `IRODSMetrics` fails to clear the original session metrics.
+
+### Logging
+
+- `GetLogWriter(foreground=true)` returns a `MultiWriteCloser` that writes to both stderr and a rotating log file (`.fg`).
+- `GetLogWriter(foreground=false)` returns a rotating log file writer (`.daemon`) only.
+- `log.SetOutput` is called by the main function, not internally by `GetLogWriter`.
 
 ## gRPC API
 
@@ -96,6 +119,17 @@ To prevent excessive memory usage when many files are open:
 - Handles exceeding the threshold operate in direct pass-through mode; a background `CacheFile` RPC is issued so the server pre-warms its block cache for that file.
 - Counts are tracked per session and decremented on `Close`.
 
+## HTTP Monitoring Service
+
+A single HTTP server (default port 12021) exposes both monitoring and metrics:
+
+| Path | Purpose |
+|------|---------|
+| `/monitor` | HTML dashboard with sessions, cache, staging, metrics, and resource warnings |
+| `/metrics` | Prometheus exporter (scrape target) |
+
+The dashboard auto-refreshes every 10 seconds and shows red warnings when system memory or staging disk space is insufficient.
+
 ## Configuration
 
 Key server-side parameters (see `commons/config.go`):
@@ -108,3 +142,4 @@ Key server-side parameters (see `commons/config.go`):
 | `max_io_connection_per_session` | 30 | Max iRODS connections per session |
 | `session_timeout` | 10min | Idle session timeout |
 | `staging_data_grace_period` | 10s | Delay before syncing staged writes to iRODS |
+| `monitoring_service_port` | 12021 | HTTP port for /monitor and /metrics |

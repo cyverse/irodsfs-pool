@@ -20,8 +20,7 @@ const (
 	StagingDataGracePeriodDefault                time.Duration = 10 * time.Second
 	OperationTimeoutDefault                      time.Duration = 5 * time.Minute
 
-	MonitoringServicePortDefault  int = 12021
-	PrometheusExporterPortDefault int = 12022
+	MonitoringServicePortDefault int = 12021
 )
 
 const ()

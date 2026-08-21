@@ -3,13 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 
 	"github.com/cockroachdb/errors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
 	godaemonizer "github.com/cyverse/go-daemonizer"
@@ -125,9 +123,8 @@ func processCommand(command *cobra.Command, args []string) error {
 
 		if logWriter != nil {
 			defer logWriter.Close()
+			log.SetOutput(logWriter)
 		}
-
-		log.SetOutput(logWriter)
 
 		err, shutdownFn := run(config)
 		if err != nil {
@@ -195,18 +192,6 @@ func run(config *commons.Config) (error, func()) {
 		return err, nil
 	}
 
-	var prometheusExporterServer *http.Server
-	if config.PrometheusExporterPort > 0 {
-		go func() {
-			prometheusExporterAddr := fmt.Sprintf(":%d", config.PrometheusExporterPort)
-			http.Handle("/metrics", promhttp.Handler())
-
-			logger.Infof("Starting prometheus exporter at %q", prometheusExporterAddr)
-			prometheusExporterServer = &http.Server{Addr: prometheusExporterAddr, Handler: nil}
-			prometheusExporterServer.ListenAndServe()
-		}()
-	}
-
 	// run a service
 	svc, err := service.NewPoolService(config)
 	if err != nil {
@@ -223,10 +208,6 @@ func run(config *commons.Config) (error, func()) {
 	}
 
 	shutdown := func() {
-		if prometheusExporterServer != nil {
-			prometheusExporterServer.Shutdown(context.TODO())
-		}
-
 		svc.Stop()
 		svc.Release()
 

@@ -14,7 +14,6 @@ import (
 	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
-	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/cockroachdb/errors"
@@ -24,8 +23,7 @@ import (
 type PoolSessionManager struct {
 	config       *PoolServerConfig
 	cacheManager *irodsfs_common_cache.MemoryCacheManager
-	sessions     map[string]*PoolSession // key: session id
-	keyMap       map[string]string       // key: account hash -> session id
+	sessions     map[string]*PoolSession // key: account key (hash)
 	connMap      map[string]string       // key: connection id -> session id
 	logger       *log.Entry
 
@@ -64,7 +62,6 @@ func NewPoolSessionManager(config *PoolServerConfig) (*PoolSessionManager, error
 		config:       config,
 		cacheManager: cacheManager,
 		sessions:     map[string]*PoolSession{},
-		keyMap:       map[string]string{},
 		connMap:      map[string]string{},
 		logger:       myLogger,
 
@@ -130,7 +127,6 @@ func (manager *PoolSessionManager) Release() {
 	}
 
 	manager.sessions = map[string]*PoolSession{}
-	manager.keyMap = map[string]string{}
 	manager.connMap = map[string]string{}
 	manager.mutex.Unlock()
 	wg.Wait()
@@ -142,42 +138,36 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	irodsAccount := convertAccountFromAPIToIRODS(account)
 	accountKey := makeAccountKey(irodsAccount)
 
-	var sessionID string
-
 	for {
 		manager.mutex.Lock()
 
 		// Check if session already exists for this account
-		if existingID, ok := manager.keyMap[accountKey]; ok {
-			if session, ok := manager.sessions[existingID]; ok {
-				session.mutex.RLock()
-				isReleasing := session.releasing
-				releaseDone := session.releaseDone
-				session.mutex.RUnlock()
+		if session, ok := manager.sessions[accountKey]; ok {
+			session.mutex.RLock()
+			isReleasing := session.releasing
+			releaseDone := session.releaseDone
+			session.mutex.RUnlock()
 
-				if isReleasing {
-					// Session is being released, wait for it to complete
-					manager.mutex.Unlock()
-					manager.logger.Infof("Waiting for session %q release to complete before creating new session for username %q", existingID, irodsAccount.ClientUser)
-					<-releaseDone
-					continue
-				}
-
-				session.UpdateLastAccessTime()
+			if isReleasing {
+				// Session is being released, wait for it to complete
 				manager.mutex.Unlock()
-
-				manager.logger.Infof("Reusing existing session %q for username %q", existingID, irodsAccount.ClientUser)
-				return session, nil
+				manager.logger.Infof("Waiting for session %q release to complete before creating new session for username %q", accountKey, irodsAccount.ClientUser)
+				<-releaseDone
+				continue
 			}
+
+			session.UpdateLastAccessTime()
+			manager.mutex.Unlock()
+
+			manager.logger.Infof("Reusing existing session %q for username %q", accountKey, irodsAccount.ClientUser)
+			return session, nil
 		}
 
-		// Reserve session ID and register in keyMap while holding lock to prevent duplicates
-		sessionID = xid.New().String()
-		manager.keyMap[accountKey] = sessionID
 		manager.mutex.Unlock()
-
 		break
 	}
+
+	sessionID := accountKey
 
 	// Create new session
 	manager.logger.Infof("Creating a new pool session for username %q", account.ClientUser)
@@ -195,9 +185,6 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 
 	fs, err := irodsclient_fs.NewFileSystem(irodsAccount, fsConfig)
 	if err != nil {
-		manager.mutex.Lock()
-		delete(manager.keyMap, accountKey)
-		manager.mutex.Unlock()
 		return nil, errors.Wrap(err, "failed to create iRODS filesystem")
 	}
 
@@ -218,9 +205,6 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	fsClient, err := irodsfs_common_irods.NewIRODSFSClientBuffered(fs, manager.cacheManager, buffConfig)
 	if err != nil {
 		fs.Release()
-		manager.mutex.Lock()
-		delete(manager.keyMap, accountKey)
-		manager.mutex.Unlock()
 		return nil, errors.Wrap(err, "failed to create buffered client")
 	}
 
@@ -284,7 +268,6 @@ func (manager *PoolSessionManager) ReleaseSession(sessionID string) {
 	// After release completes, remove from maps and signal waiters
 	manager.mutex.Lock()
 	delete(manager.sessions, sessionID)
-	delete(manager.keyMap, session.accountKey)
 	manager.mutex.Unlock()
 
 	close(session.releaseDone)
@@ -299,7 +282,6 @@ func (manager *PoolSessionManager) ReleaseAllSessions() {
 		sessions = append(sessions, session)
 	}
 	manager.sessions = map[string]*PoolSession{}
-	manager.keyMap = map[string]string{}
 	manager.connMap = map[string]string{}
 	manager.mutex.Unlock()
 
@@ -394,7 +376,6 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 	// After release completes, remove from maps and signal waiters
 	manager.mutex.Lock()
 	delete(manager.sessions, sessionID)
-	delete(manager.keyMap, session.accountKey)
 	manager.mutex.Unlock()
 
 	close(session.releaseDone)
@@ -454,7 +435,6 @@ func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
 	// After release completes, remove from maps and signal waiters
 	manager.mutex.Lock()
 	delete(manager.sessions, sessionID)
-	delete(manager.keyMap, session.accountKey)
 	manager.mutex.Unlock()
 
 	close(session.releaseDone)

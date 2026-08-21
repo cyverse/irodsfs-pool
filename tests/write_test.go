@@ -108,11 +108,17 @@ func TestWrite(t *testing.T) {
 	t.Log("pass 1: immediate read-back verification")
 	verifyFileHash(t, session, testPath, totalSize, expectedHash)
 
-	// Wait 20 seconds and read back again
-	t.Log("waiting 20 seconds before second read...")
-	time.Sleep(20 * time.Second)
+	// Sync staged files
+	err = session.Sync()
+	if err != nil {
+		t.Fatalf("failed to sync: %v", err)
+	}
 
-	t.Log("pass 2: read-back after 20s delay")
+	// Wait 3 seconds and read back again
+	t.Log("waiting 3 seconds before second read...")
+	time.Sleep(3 * time.Second)
+
+	t.Log("pass 2: read-back after sync")
 	verifyFileHash(t, session, testPath, totalSize, expectedHash)
 
 	t.Logf("write test passed: %d bytes, %d segments, hash verified twice", totalSize, len(segments))
@@ -191,11 +197,17 @@ func TestWriteOverwrite(t *testing.T) {
 	t.Log("pass 1: immediate read-back after overwrite")
 	verifyFileHash(t, session, testPath, fileSize, expectedHash)
 
-	// Verify after delay
-	t.Log("waiting 20 seconds before second read...")
-	time.Sleep(20 * time.Second)
+	// Sync staged files
+	err = session.Sync()
+	if err != nil {
+		t.Fatalf("failed to sync: %v", err)
+	}
 
-	t.Log("pass 2: read-back after 20s delay")
+	// Wait 3 seconds and read back again
+	t.Log("waiting 3 seconds before second read...")
+	time.Sleep(3 * time.Second)
+
+	t.Log("pass 2: read-back after sync")
 	verifyFileHash(t, session, testPath, fileSize, expectedHash)
 
 	t.Logf("overwrite test passed: %d bytes, %d overwrites", fileSize, len(overwrites))

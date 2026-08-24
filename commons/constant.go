@@ -18,7 +18,9 @@ const (
 	MetadataCacheTTLDefault                      time.Duration = 1 * time.Minute
 	StagingRootPathDefault                       string        = "staging"
 	MaxStagingDataSizeDefault                    int64         = 500 * 1024 * 1024 * 1024 // 500GB
+	MaxCacheFileSizeDefault                      int64         = 1 * 1024 * 1024 * 1024   // 1GB
 	StagingDataGracePeriodDefault                time.Duration = 10 * time.Second
+	SessionCloseGracePeriodDefault               time.Duration = 30 * time.Second
 	OperationTimeoutDefault                      time.Duration = 5 * time.Minute
 
 	MonitoringServicePortDefault int = 12021

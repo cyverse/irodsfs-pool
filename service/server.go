@@ -30,7 +30,9 @@ type PoolServerConfig struct {
 	metadataCacheTTL                      time.Duration
 	stagingRootPath                       string
 	maxStagingDataSize                    int64
+	maxCacheFileSize                      int64
 	stagingDataGracePeriod                time.Duration
+	sessionCloseGracePeriod               time.Duration
 	logger                                *log.Entry
 }
 
@@ -141,7 +143,7 @@ func (server *PoolServer) Login(ctx context.Context, request *api.LoginRequest) 
 
 	connID := ConnIDFromContext(ctx)
 	if connID != "" {
-		server.sessionManager.AddConnection(connID, session.GetID())
+		server.sessionManager.AddConnection(connID, session.GetID(), request.ApplicationName, request.Description)
 	}
 
 	response := &api.LoginResponse{
@@ -535,6 +537,106 @@ func (server *PoolServer) OpenFile(ctx context.Context, request *api.OpenFileReq
 	}
 
 	return &api.OpenFileResponse{
+		FileHandleId: irodsFsFileHandle.GetID(),
+		Entry:        responseEntry,
+	}, nil
+}
+
+func (server *PoolServer) CreateFileBulk(ctx context.Context, request *api.CreateFileBulkRequest) (*api.CreateFileBulkResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	fsClient := session.GetIRODSFSClient()
+
+	session.UpdateLastAccessTime()
+
+	irodsFsFileHandle, err := fsClient.CreateFileBulk(request.Path, request.Mode)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	session.AddPoolFileHandle(poolFileHandle)
+
+	fsEntry := irodsFsFileHandle.GetEntry()
+
+	responseEntry := &api.Entry{
+		Id:                fsEntry.ID,
+		Type:              string(fsEntry.Type),
+		Name:              fsEntry.Name,
+		Path:              fsEntry.Path,
+		Owner:             fsEntry.Owner,
+		Size:              fsEntry.Size,
+		DataType:          fsEntry.DataType,
+		CreateTime:        irodsfs_common_util.TimeString(fsEntry.CreateTime),
+		ModifyTime:        irodsfs_common_util.TimeString(fsEntry.ModifyTime),
+		AccessTime:        irodsfs_common_util.TimeString(fsEntry.AccessTime),
+		ChecksumAlgorithm: string(fsEntry.CheckSumAlgorithm),
+		Checksum:          fsEntry.CheckSum,
+	}
+
+	return &api.CreateFileBulkResponse{
+		FileHandleId: irodsFsFileHandle.GetID(),
+		Entry:        responseEntry,
+	}, nil
+}
+
+func (server *PoolServer) OpenFileBulk(ctx context.Context, request *api.OpenFileBulkRequest) (*api.OpenFileBulkResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	session, err := server.sessionManager.GetSession(request.SessionId)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	fsClient := session.GetIRODSFSClient()
+
+	session.UpdateLastAccessTime()
+
+	irodsFsFileHandle, err := fsClient.OpenFileBulk(request.Path, request.Mode)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle)
+	if err != nil {
+		server.logger.Errorf("%+v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	session.AddPoolFileHandle(poolFileHandle)
+
+	fsEntry := irodsFsFileHandle.GetEntry()
+
+	responseEntry := &api.Entry{
+		Id:                fsEntry.ID,
+		Type:              string(fsEntry.Type),
+		Name:              fsEntry.Name,
+		Path:              fsEntry.Path,
+		Owner:             fsEntry.Owner,
+		Size:              fsEntry.Size,
+		DataType:          fsEntry.DataType,
+		CreateTime:        irodsfs_common_util.TimeString(fsEntry.CreateTime),
+		ModifyTime:        irodsfs_common_util.TimeString(fsEntry.ModifyTime),
+		AccessTime:        irodsfs_common_util.TimeString(fsEntry.AccessTime),
+		ChecksumAlgorithm: string(fsEntry.CheckSumAlgorithm),
+		Checksum:          fsEntry.CheckSum,
+	}
+
+	return &api.OpenFileBulkResponse{
 		FileHandleId: irodsFsFileHandle.GetID(),
 		Entry:        responseEntry,
 	}, nil

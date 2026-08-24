@@ -39,6 +39,7 @@ protobuf:
 examples:
 	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/list_dir/list_dir.out ./client_examples/list_dir/list_dir.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/download_file/download_file.out ./client_examples/download_file/download_file.go
+	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/upload_file/upload_file.out ./client_examples/upload_file/upload_file.go
 
 
 .PHONY: release

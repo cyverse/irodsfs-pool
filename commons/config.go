@@ -48,7 +48,9 @@ type Config struct {
 	MetadataCacheTTL                      irodsclient_types.Duration                   `yaml:"metadata_cache_ttl,omitempty" json:"metadata_cache_ttl,omitempty"`
 	StagingRootPath                       string                                       `yaml:"staging_root_path,omitempty" json:"staging_root_path,omitempty"`
 	MaxStagingDataSize                    int64                                        `yaml:"max_staging_data_size,omitempty" json:"max_staging_data_size,omitempty"`
+	MaxCacheFileSize                      int64                                        `yaml:"max_cache_file_size,omitempty" json:"max_cache_file_size,omitempty"`
 	StagingDataGracePeriod                irodsclient_types.Duration                   `yaml:"staging_data_grace_period,omitempty" json:"staging_data_grace_period,omitempty"`
+	SessionCloseGracePeriod               irodsclient_types.Duration                   `yaml:"session_close_grace_period,omitempty" json:"session_close_grace_period,omitempty"`
 	OperationTimeout                      irodsclient_types.Duration                   `yaml:"operation_timeout,omitempty" json:"operation_timeout,omitempty"`
 
 	MonitoringServicePort int `yaml:"monitoring_service_port,omitempty" json:"monitoring_service_port,omitempty"`
@@ -80,7 +82,9 @@ func NewDefaultConfig() *Config {
 		MetadataCacheTTL:                      irodsclient_types.Duration(MetadataCacheTTLDefault),
 		StagingRootPath:                       path.Join(GetDefaultDataRootDirPath(), StagingRootPathDefault),
 		MaxStagingDataSize:                    MaxStagingDataSizeDefault,
+		MaxCacheFileSize:                      MaxCacheFileSizeDefault,
 		StagingDataGracePeriod:                irodsclient_types.Duration(StagingDataGracePeriodDefault),
+		SessionCloseGracePeriod:               irodsclient_types.Duration(SessionCloseGracePeriodDefault),
 		OperationTimeout:                      irodsclient_types.Duration(OperationTimeoutDefault),
 
 		MonitoringServicePort: MonitoringServicePortDefault,

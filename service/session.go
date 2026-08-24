@@ -29,7 +29,13 @@ type PoolSessionManager struct {
 
 	onBeforeSessionRelease func(session *PoolSession)
 
+	// pendingReleases holds a grace-period timer for sessions whose last
+	// connection was removed but have not yet been released.  Access is
+	// protected by mutex.
+	pendingReleases map[string]*time.Timer
+
 	mutex         sync.RWMutex
+	releaseWg     sync.WaitGroup // tracks in-progress async session releases
 	terminateChan chan bool
 }
 
@@ -65,6 +71,8 @@ func NewPoolSessionManager(config *PoolServerConfig) (*PoolSessionManager, error
 		connMap:      map[string]string{},
 		logger:       myLogger,
 
+		pendingReleases: map[string]*time.Timer{},
+
 		mutex:         sync.RWMutex{},
 		terminateChan: make(chan bool),
 	}
@@ -98,6 +106,13 @@ func (manager *PoolSessionManager) Release() {
 
 	manager.mutex.Lock()
 
+	// Stop all pending grace-period timers before releasing sessions.
+	for sessionID, t := range manager.pendingReleases {
+		t.Stop()
+		manager.logger.Infof("Cancelled pending grace-period release for session %q (manager releasing)", sessionID)
+	}
+	manager.pendingReleases = map[string]*time.Timer{}
+
 	wg := sync.WaitGroup{}
 	for _, session := range manager.sessions {
 		wg.Add(1)
@@ -130,6 +145,9 @@ func (manager *PoolSessionManager) Release() {
 	manager.connMap = map[string]string{}
 	manager.mutex.Unlock()
 	wg.Wait()
+
+	// Also wait for any sessions that were released asynchronously (e.g. via RemoveConnection).
+	manager.releaseWg.Wait()
 }
 
 func (manager *PoolSessionManager) NewSession(account *api.Account, appName string) (*PoolSession, error) {
@@ -154,6 +172,15 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 				manager.logger.Infof("Waiting for session %q release to complete before creating new session for username %q", accountKey, irodsAccount.ClientUser)
 				<-releaseDone
 				continue
+			}
+
+			// Cancel any pending grace-period release so a new connection
+			// arriving shortly after the last one left doesn't force a
+			// teardown-and-recreate cycle.
+			if t, ok := manager.pendingReleases[accountKey]; ok {
+				t.Stop()
+				delete(manager.pendingReleases, accountKey)
+				manager.logger.Infof("Cancelled pending grace-period release for session %q (new login)", accountKey)
 			}
 
 			session.UpdateLastAccessTime()
@@ -197,6 +224,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 		BlockSize:          int(manager.config.dataBlockSize),
 		StagingRootPath:    sessionStagingPath,
 		MaxStagingDataSize: manager.config.maxStagingDataSize,
+		MaxCacheFileSize:   manager.config.maxCacheFileSize,
 		SyncInterval:       manager.config.stagingDataGracePeriod / 2,
 		GracePeriod:        manager.config.stagingDataGracePeriod,
 		UsePersistence:     true,
@@ -216,7 +244,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 		fs:       fs,
 		fsClient: fsClient,
 
-		connections:     map[string]struct{}{},
+		connections:     map[string]connInfo{},
 		lastAccessTime:  time.Now(),
 		poolFileHandles: map[string]*PoolFileHandle{},
 
@@ -308,7 +336,7 @@ func (manager *PoolSessionManager) ReleaseAllSessions() {
 	}
 }
 
-func (manager *PoolSessionManager) AddConnection(connID string, sessionID string) {
+func (manager *PoolSessionManager) AddConnection(connID string, sessionID string, appName string, description string) {
 	defer irodsfs_common_util.StackTraceFromPanic(manager.logger)
 
 	manager.mutex.Lock()
@@ -327,8 +355,15 @@ func (manager *PoolSessionManager) AddConnection(connID string, sessionID string
 	manager.connMap[connID] = sessionID
 
 	if session, ok := manager.sessions[sessionID]; ok {
-		session.addConnection(connID)
-		manager.logger.Infof("Added connection %q to session %q (connections=%d)", connID, sessionID, session.getConnectionCount())
+		// Cancel any pending grace-period release now that a new connection
+		// is being established for this session.
+		if t, ok := manager.pendingReleases[sessionID]; ok {
+			t.Stop()
+			delete(manager.pendingReleases, sessionID)
+			manager.logger.Infof("Cancelled pending grace-period release for session %q (connection %q added)", sessionID, connID)
+		}
+		session.addConnection(connID, appName, description)
+		manager.logger.Infof("Added connection %q (app=%q) to session %q (connections=%d)", connID, appName, sessionID, session.getConnectionCount())
 	}
 }
 
@@ -360,25 +395,94 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 		return
 	}
 
-	// No connections remaining, mark as releasing and release in background
+	// No connections remaining.  If a grace period is configured, defer the
+	// actual release so a quickly-reconnecting client reuses the session
+	// without paying the teardown/setup cost.  Otherwise release immediately.
+	if manager.config.sessionCloseGracePeriod > 0 {
+		// Discard any stale timer that somehow survived (shouldn't normally happen).
+		if t, ok := manager.pendingReleases[sessionID]; ok {
+			t.Stop()
+			delete(manager.pendingReleases, sessionID)
+		}
+		t := time.AfterFunc(manager.config.sessionCloseGracePeriod, func() {
+			manager.startSessionRelease(sessionID)
+		})
+		manager.pendingReleases[sessionID] = t
+		session.UpdateLastAccessTime()
+		manager.mutex.Unlock()
+		manager.logger.Infof("Session %q has no connections; will release after grace period %v", sessionID, manager.config.sessionCloseGracePeriod)
+		return
+	}
+
+	// No grace period — release right away (still asynchronous so the Logout
+	// RPC returns before the iRODS upload completes).
 	session.mutex.Lock()
 	session.releasing = true
 	session.releaseDone = make(chan struct{})
 	session.mutex.Unlock()
-	manager.mutex.Unlock()
 
-	manager.logger.Infof("Releasing pool session %q (no more connections)", sessionID)
-	if manager.onBeforeSessionRelease != nil {
-		manager.onBeforeSessionRelease(session)
-	}
-	session.release()
-
-	// After release completes, remove from maps and signal waiters
-	manager.mutex.Lock()
 	delete(manager.sessions, sessionID)
 	manager.mutex.Unlock()
 
-	close(session.releaseDone)
+	manager.logger.Infof("Releasing pool session %q asynchronously (no more connections)", sessionID)
+
+	manager.releaseWg.Add(1)
+	go func() {
+		defer manager.releaseWg.Done()
+		// Flush staging before capturing metrics so BytesSent reflects the
+		// actual iRODS upload, not just the local-disk write.
+		flushSessionStaging(session, manager.logger)
+		if manager.onBeforeSessionRelease != nil {
+			manager.onBeforeSessionRelease(session)
+		}
+		session.release()
+		close(session.releaseDone)
+	}()
+}
+
+// startSessionRelease is called by the grace-period timer.  It re-checks that
+// no new connection arrived during the grace period before proceeding.
+// All access to sessions and pendingReleases is protected by manager.mutex.
+func (manager *PoolSessionManager) startSessionRelease(sessionID string) {
+	manager.mutex.Lock()
+
+	session, ok := manager.sessions[sessionID]
+	if !ok {
+		// Already released by another path (e.g. forceReleaseSession).
+		delete(manager.pendingReleases, sessionID)
+		manager.mutex.Unlock()
+		return
+	}
+
+	if session.getConnectionCount() > 0 {
+		// A new connection arrived during the grace period; keep the session.
+		delete(manager.pendingReleases, sessionID)
+		manager.mutex.Unlock()
+		return
+	}
+
+	delete(manager.pendingReleases, sessionID)
+
+	session.mutex.Lock()
+	session.releasing = true
+	session.releaseDone = make(chan struct{})
+	session.mutex.Unlock()
+
+	delete(manager.sessions, sessionID)
+	manager.mutex.Unlock()
+
+	manager.logger.Infof("Releasing pool session %q asynchronously after grace period (no more connections)", sessionID)
+
+	manager.releaseWg.Add(1)
+	go func() {
+		defer manager.releaseWg.Done()
+		flushSessionStaging(session, manager.logger)
+		if manager.onBeforeSessionRelease != nil {
+			manager.onBeforeSessionRelease(session)
+		}
+		session.release()
+		close(session.releaseDone)
+	}()
 }
 
 func (manager *PoolSessionManager) releaseStaleSessions() {
@@ -419,25 +523,27 @@ func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
 	}
 	session.mutex.RUnlock()
 
-	// Mark as releasing
+	// Mark as releasing and remove from map so Release() won't double-release.
 	session.mutex.Lock()
 	session.releasing = true
 	session.releaseDone = make(chan struct{})
 	session.mutex.Unlock()
-	manager.mutex.Unlock()
 
-	manager.logger.Infof("Force releasing stale pool session %q", sessionID)
-	if manager.onBeforeSessionRelease != nil {
-		manager.onBeforeSessionRelease(session)
-	}
-	session.release()
-
-	// After release completes, remove from maps and signal waiters
-	manager.mutex.Lock()
 	delete(manager.sessions, sessionID)
 	manager.mutex.Unlock()
 
-	close(session.releaseDone)
+	manager.logger.Infof("Force releasing stale pool session %q asynchronously", sessionID)
+
+	manager.releaseWg.Add(1)
+	go func() {
+		defer manager.releaseWg.Done()
+		flushSessionStaging(session, manager.logger)
+		if manager.onBeforeSessionRelease != nil {
+			manager.onBeforeSessionRelease(session)
+		}
+		session.release()
+		close(session.releaseDone)
+	}()
 }
 
 func (manager *PoolSessionManager) GetSession(sessionID string) (*PoolSession, error) {
@@ -493,6 +599,12 @@ func (manager *PoolSessionManager) GetTotalIRODSFSClientConnections() int {
 	return total
 }
 
+// connInfo holds per-connection metadata supplied at Login time.
+type connInfo struct {
+	appName     string
+	description string
+}
+
 // PoolSession represents a shared session for the same account
 type PoolSession struct {
 	id           string
@@ -502,7 +614,7 @@ type PoolSession struct {
 	fs       *irodsclient_fs.FileSystem
 	fsClient irodsfs_common_irods.IRODSFSClient
 
-	connections     map[string]struct{} // set of connection IDs
+	connections     map[string]connInfo // connID -> client info
 	lastAccessTime  time.Time
 	poolFileHandles map[string]*PoolFileHandle
 
@@ -540,11 +652,11 @@ func (session *PoolSession) release() {
 	}
 }
 
-func (session *PoolSession) addConnection(connID string) {
+func (session *PoolSession) addConnection(connID string, appName string, description string) {
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
-	session.connections[connID] = struct{}{}
+	session.connections[connID] = connInfo{appName: appName, description: description}
 }
 
 func (session *PoolSession) removeConnection(connID string) int {

@@ -89,13 +89,17 @@ type PoolServiceSession struct {
 }
 
 // NewPoolServiceClient creates a new pool service client
-func NewPoolServiceClient(address string, operationTimeout time.Duration, clientID string, logger *log.Entry) *PoolServiceClient {
-	if len(clientID) == 0 {
-		clientID = xid.New().String()
-	}
+func NewPoolServiceClient(address string, operationTimeout time.Duration, logger *log.Entry) *PoolServiceClient {
+	clientID := xid.New().String()
 
 	if logger == nil {
-		logger = log.WithFields(log.Fields{})
+		logger = log.WithFields(log.Fields{
+			"clientID": clientID,
+		})
+	} else {
+		logger = logger.WithFields(log.Fields{
+			"clientID": clientID,
+		})
 	}
 
 	return &PoolServiceClient{
@@ -176,7 +180,7 @@ func getLargeWriteOption() grpc.CallOption {
 }
 
 // NewSession creates a new session for iRODS service using account info
-func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAccount, applicationName string) (irodsfs_common_irods.IRODSFSClient, error) {
+func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAccount, applicationName string, description string) (irodsfs_common_irods.IRODSFSClient, error) {
 	defer irodsfs_common_util.StackTraceFromPanic(client.logger)
 
 	ctx, cancel := client.getContextWithDeadline()
@@ -217,6 +221,7 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 			SslConfiguration:        sslConf,
 		},
 		ApplicationName: applicationName,
+		Description:     description,
 	}
 
 	response, err := client.apiClient.Login(ctx, request)
@@ -966,6 +971,167 @@ func (session *PoolServiceSession) OpenFile(path string, mode string) (irodsfs_c
 	return handle, nil
 }
 
+// CreateFileBulk creates an iRODS data object for bulk upload (file is synced and deleted after close)
+func (session *PoolServiceSession) CreateFileBulk(path string, mode string) (irodsfs_common_irods.IRODSFSFileHandle, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	createFileBulkFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		request := &api.CreateFileBulkRequest{
+			SessionId: session.id,
+			Path:      path,
+			Mode:      mode,
+		}
+
+		return session.poolServiceClient.apiClient.CreateFileBulk(ctx, request)
+	}
+
+	res, err := session.doWithRelogin(createFileBulkFunc)
+	if err != nil {
+		session.logger.Errorf("%+v", err)
+		return nil, commons.StatusToError(err)
+	}
+
+	response, ok := res.(*api.CreateFileBulkResponse)
+	if !ok {
+		session.logger.Error("failed to convert interface to CreateFileBulkResponse")
+		return nil, errors.Errorf("failed to convert interface to CreateFileBulkResponse")
+	}
+
+	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
+	if err != nil {
+		session.logger.Errorf("%+v", err)
+		return nil, err
+	}
+
+	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
+	if err != nil {
+		session.logger.Errorf("%+v", err)
+		return nil, err
+	}
+
+	irodsEntry := &irodsclient_fs.Entry{
+		ID:                response.Entry.Id,
+		Type:              irodsclient_fs.EntryType(response.Entry.Type),
+		Name:              response.Entry.Name,
+		Path:              response.Entry.Path,
+		Owner:             response.Entry.Owner,
+		Size:              response.Entry.Size,
+		DataType:          response.Entry.DataType,
+		CreateTime:        createTime,
+		ModifyTime:        modifyTime,
+		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
+		CheckSum:          response.Entry.Checksum,
+	}
+
+	// remove cache
+	session.InvalidateCacheForCreateFile(path)
+
+	handle := &PoolServiceFileHandle{
+		id:                 response.FileHandleId,
+		poolServiceClient:  session.poolServiceClient,
+		poolServiceSession: session,
+		entry:              irodsEntry,
+		openMode:           irodsclient_types.FileOpenMode(mode),
+		logger:             session.logger.WithFields(log.Fields{"handle_id": response.FileHandleId}),
+	}
+
+	if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
+		count := atomic.AddInt32(&session.openWriteOnlyHandles, 1)
+		if int(count) <= maxWriteBufferedHandles {
+			handle.writeBuffered = true
+		}
+	}
+
+	return handle, nil
+}
+
+// OpenFileBulk opens an iRODS data object for bulk upload (file is synced and deleted after close)
+func (session *PoolServiceSession) OpenFileBulk(path string, mode string) (irodsfs_common_irods.IRODSFSFileHandle, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	openFileBulkFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		request := &api.OpenFileBulkRequest{
+			SessionId: session.id,
+			Path:      path,
+			Mode:      mode,
+		}
+
+		return session.poolServiceClient.apiClient.OpenFileBulk(ctx, request)
+	}
+
+	res, err := session.doWithRelogin(openFileBulkFunc)
+	if err != nil {
+		session.logger.Errorf("%+v", err)
+		return nil, commons.StatusToError(err)
+	}
+
+	response, ok := res.(*api.OpenFileBulkResponse)
+	if !ok {
+		session.logger.Error("failed to convert interface to OpenFileBulkResponse")
+		return nil, errors.Errorf("failed to convert interface to OpenFileBulkResponse")
+	}
+
+	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
+	if err != nil {
+		session.logger.Errorf("%+v", err)
+		return nil, err
+	}
+
+	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
+	if err != nil {
+		session.logger.Errorf("%+v", err)
+		return nil, err
+	}
+
+	irodsEntry := &irodsclient_fs.Entry{
+		ID:                response.Entry.Id,
+		Type:              irodsclient_fs.EntryType(response.Entry.Type),
+		Name:              response.Entry.Name,
+		Path:              response.Entry.Path,
+		Owner:             response.Entry.Owner,
+		Size:              response.Entry.Size,
+		DataType:          response.Entry.DataType,
+		CreateTime:        createTime,
+		ModifyTime:        modifyTime,
+		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
+		CheckSum:          response.Entry.Checksum,
+	}
+
+	handle := &PoolServiceFileHandle{
+		id:                 response.FileHandleId,
+		poolServiceClient:  session.poolServiceClient,
+		poolServiceSession: session,
+		entry:              irodsEntry,
+		openMode:           irodsclient_types.FileOpenMode(mode),
+		logger:             session.logger.WithFields(log.Fields{"handle_id": response.FileHandleId}),
+	}
+
+	if irodsclient_types.FileOpenMode(mode).IsReadOnly() {
+		count := atomic.AddInt32(&session.openReadOnlyHandles, 1)
+		if int(count) <= maxPrefetchHandles {
+			handle.prefetch = &prefetchState{
+				buf:     make([]byte, prefetchBlockSize),
+				nextBuf: make([]byte, prefetchBlockSize),
+			}
+		} else {
+			session.CacheFileAsync(irodsEntry.Path)
+		}
+	} else if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
+		count := atomic.AddInt32(&session.openWriteOnlyHandles, 1)
+		if int(count) <= maxWriteBufferedHandles {
+			handle.writeBuffered = true
+		}
+	}
+
+	return handle, nil
+}
+
 // TruncateFile truncates iRODS data object
 func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
@@ -1194,7 +1360,7 @@ func (session *PoolServiceSession) UploadFile(localPath string, irodsPath string
 	defer localFile.Close()
 
 	// create file on server
-	handle, err := session.CreateFile(irodsPath, string(irodsclient_types.FileOpenModeWriteOnly))
+	handle, err := session.CreateFileBulk(irodsPath, string(irodsclient_types.FileOpenModeWriteOnly))
 	if err != nil {
 		return err
 	}

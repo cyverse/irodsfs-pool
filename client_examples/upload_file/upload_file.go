@@ -37,7 +37,7 @@ func main() {
 	account := cfg.ToIRODSAccount()
 	logger.Debugf("Account : %v", account.GetRedacted())
 
-	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, "test_client_1", logger)
+	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, logger)
 	err = poolClient.Connect()
 	if err != nil {
 		logger.Errorf("%+v", err)
@@ -47,7 +47,7 @@ func main() {
 	defer poolClient.Disconnect()
 
 	appName := "upload_file"
-	poolSession, err := poolClient.NewSession(account, appName)
+	poolSession, err := poolClient.NewSession(account, appName, "upload_file test")
 	if err != nil {
 		logger.Errorf("%+v", err)
 		panic(err)

@@ -56,6 +56,7 @@ message Entry {
 message LoginRequest{
 	Account account = 1;
 	string application_name = 2;
+	string description = 3;
 }
 
 message LoginResponse{
@@ -155,6 +156,28 @@ message OpenFileRequest {
 }
 
 message OpenFileResponse {
+	string file_handle_id = 1;
+	Entry entry = 2;
+}
+
+message CreateFileBulkRequest {
+	string session_id = 1;
+	string path = 2;
+	string mode = 3;
+}
+
+message CreateFileBulkResponse {
+	string file_handle_id = 1;
+	Entry entry = 2;
+}
+
+message OpenFileBulkRequest {
+	string session_id = 1;
+	string path = 2;
+	string mode = 3;
+}
+
+message OpenFileBulkResponse {
 	string file_handle_id = 1;
 	Entry entry = 2;
 }
@@ -277,6 +300,8 @@ service PoolAPI {
 	rpc RenameFileToFile(RenameFileToFileRequest) returns (Empty) {}
 	rpc CreateFile(CreateFileRequest) returns (CreateFileResponse) {}
 	rpc OpenFile(OpenFileRequest) returns (OpenFileResponse) {}
+	rpc CreateFileBulk(CreateFileBulkRequest) returns (CreateFileBulkResponse) {}
+	rpc OpenFileBulk(OpenFileBulkRequest) returns (OpenFileBulkResponse) {}
 	rpc TruncateFile(TruncateFileRequest) returns (Empty) {}
 
 	// File handle (RDWR pass-through)

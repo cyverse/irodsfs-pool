@@ -3,6 +3,8 @@ package service
 import (
 	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,21 +31,32 @@ func (h *MonitoringHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	fmt.Fprint(w, `<!DOCTYPE html><html><head><meta charset="utf-8">`)
-	fmt.Fprint(w, `<meta http-equiv="refresh" content="10">`)
 	fmt.Fprint(w, `<title>irodsfs-pool Monitor</title>`)
 	fmt.Fprint(w, `<style>
 body { font-family: monospace; margin: 20px; background: #1a1a2e; color: #eee; }
 h1 { color: #0af; }
 h2 { color: #0af; margin-top: 30px; border-bottom: 1px solid #333; padding-bottom: 5px; }
+h3 { color: #0cf; margin-top: 16px; }
 table { border-collapse: collapse; width: 100%; margin-top: 10px; }
 th, td { border: 1px solid #333; padding: 6px 10px; text-align: left; }
 th { background: #16213e; }
 tr:nth-child(even) { background: #1a1a2e; }
 tr:nth-child(odd) { background: #0f3460; }
+tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 .bar { background: #222; border-radius: 4px; height: 20px; position: relative; }
 .bar-fill { background: #0af; height: 100%; border-radius: 4px; }
 .bar-text { position: absolute; top: 0; left: 8px; line-height: 20px; font-size: 12px; }
 .info { color: #888; }
+.badge { display: inline-block; background: #1e3a5f; color: #8cf; padding: 1px 6px; border-radius: 3px; font-size: 11px; margin: 1px; font-family: monospace; }
+.grace { background: #3d2600; color: #ffc875; }
+.dirty { color: #f84; font-weight: bold; }
+.cached { color: #4c4; }
+#modal-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); z-index:100; overflow:auto; }
+#modal-box { background:#16213e; margin:40px auto; max-width:960px; padding:24px; border-radius:8px; position:relative; border:1px solid #333; }
+#modal-close { position:absolute; top:12px; right:14px; background:none; border:1px solid #555; color:#ccc; font-size:18px; cursor:pointer; padding:2px 10px; border-radius:4px; }
+#modal-close:hover { background:#333; }
+#modal-box table tr:nth-child(even) { background:#1a2a4e; }
+#modal-box table tr:nth-child(odd) { background:#0f2040; }
 </style>`)
 	fmt.Fprint(w, `</head><body>`)
 
@@ -53,7 +66,33 @@ tr:nth-child(odd) { background: #0f3460; }
 	h.renderSessions(w)
 	h.renderMetrics(w)
 
+	h.renderSessionDetails(w)
+
 	fmt.Fprintf(w, `<p class="info">Last refreshed: %s</p>`, time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Fprint(w, `<script>
+setTimeout(function(){ location.reload(); }, 10000);
+function showDetail(id) {
+  var src = document.getElementById('detail-' + id);
+  if (!src) {
+    try { sessionStorage.removeItem('_openDetail'); } catch(e) {}
+    return;
+  }
+  document.getElementById('modal-content').innerHTML = src.innerHTML;
+  document.getElementById('modal-overlay').style.display = 'block';
+  try { sessionStorage.setItem('_openDetail', id); } catch(e) {}
+}
+function closeDetail() {
+  document.getElementById('modal-overlay').style.display = 'none';
+  try { sessionStorage.removeItem('_openDetail'); } catch(e) {}
+}
+document.getElementById('modal-overlay').addEventListener('click', function(e){ if (e.target === this) closeDetail(); });
+(function(){
+  try {
+    var id = sessionStorage.getItem('_openDetail');
+    if (id) showDetail(id);
+  } catch(e) {}
+})();
+</script>`)
 	fmt.Fprint(w, `</body></html>`)
 }
 
@@ -119,15 +158,8 @@ func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 	sessions := h.poolServer.GetSessionManager().GetAllSessions()
 
 	var totalStagedSize int64
+	var totalStagedFiles int
 	stagingMax := h.config.MaxStagingDataSize
-	type stagingItem struct {
-		sessionUser string
-		path        string
-		action      string
-		modified    time.Time
-		failCount   int
-	}
-	var items []stagingItem
 
 	for _, session := range sessions {
 		if session.fsClient == nil {
@@ -142,38 +174,18 @@ func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 			continue
 		}
 		totalStagedSize += stagingFS.GetCurrentDataSize()
-
-		user := session.irodsAccount.ClientUser
-		allMeta := stagingFS.GetAll()
-		for _, meta := range allMeta {
-			items = append(items, stagingItem{
-				sessionUser: user,
-				path:        meta.Path,
-				action:      meta.Action.String(),
-				modified:    meta.LastModifiedAt,
-				failCount:   meta.SyncFailCount,
-			})
-		}
+		totalStagedFiles += len(stagingFS.GetAll())
 	}
 
 	fmt.Fprint(w, `<table>`)
 	fmt.Fprintf(w, `<tr><th>Staged Data</th><td>%s / %s (configured max)</td></tr>`, formatBytes(totalStagedSize), formatBytes(stagingMax))
 	fmt.Fprintf(w, `<tr><th>Disk</th><td>%s total, %s free</td></tr>`, formatBytes(int64(diskTotal)), formatBytes(int64(diskFree)))
 	fmt.Fprintf(w, `<tr><th>Staging Path</th><td>%s</td></tr>`, stagingPath)
-	fmt.Fprintf(w, `<tr><th>Staged Files</th><td>%d</td></tr>`, len(items))
+	fmt.Fprintf(w, `<tr><th>Staged Files</th><td>%d (click a session row for details)</td></tr>`, totalStagedFiles)
 	if diskFree > 0 && diskFree < uint64(stagingMax) {
-		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient disk space: available %s < configured staging max %s</td></tr>`, formatBytes(int64(diskFree)), formatBytes(stagingMax))
+		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient disk space: available %s &lt; configured staging max %s</td></tr>`, formatBytes(int64(diskFree)), formatBytes(stagingMax))
 	}
 	fmt.Fprint(w, `</table>`)
-
-	if len(items) > 0 {
-		fmt.Fprint(w, `<table><tr><th>User</th><th>Path</th><th>Action</th><th>Modified</th><th>Failures</th></tr>`)
-		for _, item := range items {
-			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td></tr>`,
-				item.sessionUser, item.path, item.action, item.modified.Format("15:04:05"), item.failCount)
-		}
-		fmt.Fprint(w, `</table>`)
-	}
 }
 
 func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
@@ -186,47 +198,167 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 		return
 	}
 
-	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Access</th><th>Connections</th><th>File Handles</th></tr>`)
+	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Access</th><th>Clients</th><th>File Handles</th></tr>`)
 	for _, session := range sessions {
 		session.mutex.RLock()
 		handleCount := len(session.poolFileHandles)
-		connCount := len(session.connections)
+		type connEntry struct{ id, app, desc string }
+		connEntries := make([]connEntry, 0, len(session.connections))
+		for id, ci := range session.connections {
+			connEntries = append(connEntries, connEntry{id, ci.appName, ci.description})
+		}
 		lastAccess := session.lastAccessTime
 		session.mutex.RUnlock()
+
+		sort.Slice(connEntries, func(i, j int) bool { return connEntries[i].id < connEntries[j].id })
 
 		account := session.irodsAccount
 		userInfo := fmt.Sprintf("%s@%s", account.ClientUser, account.ClientZone)
 		hostInfo := fmt.Sprintf("%s:%d", account.Host, account.Port)
 
-		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td></tr>`,
-			session.id, userInfo, hostInfo, lastAccess.Format("15:04:05"), connCount, handleCount)
+		var clientsCell string
+		if len(connEntries) == 0 {
+			clientsCell = `<span class="badge grace">⏳ grace period</span>`
+		} else {
+			var sb strings.Builder
+			fmt.Fprintf(&sb, `<span style="margin-right:4px">%d</span>`, len(connEntries))
+			for _, e := range connEntries {
+				tooltip := e.app
+				if e.desc != "" {
+					tooltip = e.app + ": " + e.desc
+				}
+				fmt.Fprintf(&sb, `<span class="badge" title="%s">%s(%s)</span>`, tooltip, e.id, e.app)
+			}
+			clientsCell = sb.String()
+		}
+
+		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('%s')"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td></tr>`,
+			session.id, session.id[:12]+"…", userInfo, hostInfo, lastAccess.Format("15:04:05"), clientsCell, handleCount)
 	}
 	fmt.Fprint(w, `</table>`)
+	fmt.Fprint(w, `<p class="info">Click a row to see staged files, sync status, and open file handles.</p>`)
+}
 
-	fmt.Fprint(w, `<h2>Open File Handles</h2>`)
-	hasHandles := false
+func (h *MonitoringHandler) renderSessionDetails(w http.ResponseWriter) {
+	// Modal overlay (hidden; JS populates #modal-content on row click)
+	fmt.Fprint(w, `<div id="modal-overlay"><div id="modal-box"><button id="modal-close" onclick="closeDetail()">✕</button><div id="modal-content"></div></div></div>`)
+
+	sessions := h.poolServer.GetSessionManager().GetAllSessions()
 	for _, session := range sessions {
-		session.mutex.RLock()
-		if len(session.poolFileHandles) == 0 {
-			session.mutex.RUnlock()
-			continue
-		}
-		if !hasHandles {
-			fmt.Fprint(w, `<table><tr><th>User</th><th>Path</th><th>Mode</th></tr>`)
-			hasHandles = true
-		}
-		user := session.irodsAccount.ClientUser
-		for _, handle := range session.poolFileHandles {
-			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td></tr>`,
-				user, handle.GetEntryPath(), handle.GetOpenMode())
-		}
-		session.mutex.RUnlock()
+		h.renderOneSessionDetail(w, session)
 	}
-	if hasHandles {
-		fmt.Fprint(w, `</table>`)
+}
+
+func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, session *PoolSession) {
+	// Collect data under lock
+	session.mutex.RLock()
+	type connEntry struct{ id, app, desc string }
+	connEntries := make([]connEntry, 0, len(session.connections))
+	for id, ci := range session.connections {
+		connEntries = append(connEntries, connEntry{id, ci.appName, ci.description})
+	}
+	type handleEntry struct{ path, mode string }
+	handleEntries := make([]handleEntry, 0, len(session.poolFileHandles))
+	for _, h2 := range session.poolFileHandles {
+		handleEntries = append(handleEntries, handleEntry{h2.GetEntryPath(), string(h2.GetOpenMode())})
+	}
+	lastAccess := session.lastAccessTime
+	session.mutex.RUnlock()
+
+	sort.Slice(connEntries, func(i, j int) bool { return connEntries[i].id < connEntries[j].id })
+	sort.Slice(handleEntries, func(i, j int) bool { return handleEntries[i].path < handleEntries[j].path })
+
+	// Collect staging data
+	type stagingEntry struct {
+		path      string
+		oldPath   string
+		action    string
+		fileState string
+		modified  time.Time
+		failCount int
+	}
+	var stagingEntries []stagingEntry
+	if session.fsClient != nil {
+		if bufferedClient, ok := session.fsClient.(*irodsfs_common_irods.IRODSFSClientBuffered); ok {
+			if stagingFS := bufferedClient.GetStagingFS(); stagingFS != nil {
+				for _, meta := range stagingFS.GetAll() {
+					stagingEntries = append(stagingEntries, stagingEntry{
+						path:      meta.Path,
+						oldPath:   meta.OldPath,
+						action:    meta.Action.String(),
+						fileState: meta.FileState.String(),
+						modified:  meta.LastModifiedAt,
+						failCount: meta.SyncFailCount,
+					})
+				}
+			}
+		}
+	}
+	sort.Slice(stagingEntries, func(i, j int) bool { return stagingEntries[i].path < stagingEntries[j].path })
+
+	account := session.irodsAccount
+	userInfo := fmt.Sprintf("%s@%s", account.ClientUser, account.ClientZone)
+	hostInfo := fmt.Sprintf("%s:%d", account.Host, account.Port)
+
+	fmt.Fprintf(w, `<div id="detail-%s" style="display:none">`, session.id)
+	fmt.Fprintf(w, `<h3>Session Detail</h3>`)
+	fmt.Fprint(w, `<table>`)
+	fmt.Fprintf(w, `<tr><th>ID</th><td>%s</td></tr>`, session.id)
+	fmt.Fprintf(w, `<tr><th>User</th><td>%s</td></tr>`, userInfo)
+	fmt.Fprintf(w, `<tr><th>Host</th><td>%s</td></tr>`, hostInfo)
+	fmt.Fprintf(w, `<tr><th>Last Access</th><td>%s</td></tr>`, lastAccess.Format("2006-01-02 15:04:05"))
+	fmt.Fprint(w, `</table>`)
+
+	// Clients
+	fmt.Fprintf(w, `<h3>Clients (%d)</h3>`, len(connEntries))
+	if len(connEntries) == 0 {
+		fmt.Fprint(w, `<p><span class="badge grace">⏳ grace period — no connected clients</span></p>`)
 	} else {
-		fmt.Fprint(w, `<p>No open file handles</p>`)
+		fmt.Fprint(w, `<table><tr><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
+		for _, e := range connEntries {
+			tooltip := e.app
+			if e.desc != "" {
+				tooltip = e.app + ": " + e.desc
+			}
+			fmt.Fprintf(w, `<tr><td>%s</td><td title="%s">%s</td><td>%s</td></tr>`, e.id, tooltip, e.app, e.desc)
+		}
+		fmt.Fprint(w, `</table>`)
 	}
+
+	// Staged files
+	fmt.Fprintf(w, `<h3>Staged Files (%d)</h3>`, len(stagingEntries))
+	if len(stagingEntries) == 0 {
+		fmt.Fprint(w, `<p>No staged files.</p>`)
+	} else {
+		fmt.Fprint(w, `<table><tr><th>Path</th><th>Action</th><th>Sync Status</th><th>Modified</th><th>Failures</th></tr>`)
+		for _, e := range stagingEntries {
+			stateClass := "cached"
+			if e.fileState == "DIRTY" {
+				stateClass = "dirty"
+			}
+			pathCell := e.path
+			if e.oldPath != "" {
+				pathCell = fmt.Sprintf("%s<br><span style='color:#888;font-size:11px'>← %s</span>", e.path, e.oldPath)
+			}
+			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td class="%s">%s</td><td>%s</td><td>%d</td></tr>`,
+				pathCell, e.action, stateClass, e.fileState, e.modified.Format("15:04:05"), e.failCount)
+		}
+		fmt.Fprint(w, `</table>`)
+	}
+
+	// Open file handles
+	fmt.Fprintf(w, `<h3>Open File Handles (%d)</h3>`, len(handleEntries))
+	if len(handleEntries) == 0 {
+		fmt.Fprint(w, `<p>No open file handles.</p>`)
+	} else {
+		fmt.Fprint(w, `<table><tr><th>Path</th><th>Mode</th></tr>`)
+		for _, e := range handleEntries {
+			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td></tr>`, e.path, e.mode)
+		}
+		fmt.Fprint(w, `</table>`)
+	}
+
+	fmt.Fprint(w, `</div>`) // end detail div
 }
 
 func (h *MonitoringHandler) renderMetrics(w http.ResponseWriter) {

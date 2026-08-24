@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.2
 // - protoc             v3.21.12
-// source: api.proto
+// source: service/api/api.proto
 
 package api
 
@@ -33,6 +33,8 @@ const (
 	PoolAPI_RenameFileToFile_FullMethodName   = "/api.PoolAPI/RenameFileToFile"
 	PoolAPI_CreateFile_FullMethodName         = "/api.PoolAPI/CreateFile"
 	PoolAPI_OpenFile_FullMethodName           = "/api.PoolAPI/OpenFile"
+	PoolAPI_CreateFileBulk_FullMethodName     = "/api.PoolAPI/CreateFileBulk"
+	PoolAPI_OpenFileBulk_FullMethodName       = "/api.PoolAPI/OpenFileBulk"
 	PoolAPI_TruncateFile_FullMethodName       = "/api.PoolAPI/TruncateFile"
 	PoolAPI_ReadAt_FullMethodName             = "/api.PoolAPI/ReadAt"
 	PoolAPI_WriteAt_FullMethodName            = "/api.PoolAPI/WriteAt"
@@ -67,6 +69,8 @@ type PoolAPIClient interface {
 	RenameFileToFile(ctx context.Context, in *RenameFileToFileRequest, opts ...grpc.CallOption) (*Empty, error)
 	CreateFile(ctx context.Context, in *CreateFileRequest, opts ...grpc.CallOption) (*CreateFileResponse, error)
 	OpenFile(ctx context.Context, in *OpenFileRequest, opts ...grpc.CallOption) (*OpenFileResponse, error)
+	CreateFileBulk(ctx context.Context, in *CreateFileBulkRequest, opts ...grpc.CallOption) (*CreateFileBulkResponse, error)
+	OpenFileBulk(ctx context.Context, in *OpenFileBulkRequest, opts ...grpc.CallOption) (*OpenFileBulkResponse, error)
 	TruncateFile(ctx context.Context, in *TruncateFileRequest, opts ...grpc.CallOption) (*Empty, error)
 	// File handle (RDWR pass-through)
 	ReadAt(ctx context.Context, in *ReadAtRequest, opts ...grpc.CallOption) (*ReadAtResponse, error)
@@ -235,6 +239,26 @@ func (c *poolAPIClient) OpenFile(ctx context.Context, in *OpenFileRequest, opts 
 	return out, nil
 }
 
+func (c *poolAPIClient) CreateFileBulk(ctx context.Context, in *CreateFileBulkRequest, opts ...grpc.CallOption) (*CreateFileBulkResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateFileBulkResponse)
+	err := c.cc.Invoke(ctx, PoolAPI_CreateFileBulk_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *poolAPIClient) OpenFileBulk(ctx context.Context, in *OpenFileBulkRequest, opts ...grpc.CallOption) (*OpenFileBulkResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OpenFileBulkResponse)
+	err := c.cc.Invoke(ctx, PoolAPI_OpenFileBulk_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *poolAPIClient) TruncateFile(ctx context.Context, in *TruncateFileRequest, opts ...grpc.CallOption) (*Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
@@ -396,6 +420,8 @@ type PoolAPIServer interface {
 	RenameFileToFile(context.Context, *RenameFileToFileRequest) (*Empty, error)
 	CreateFile(context.Context, *CreateFileRequest) (*CreateFileResponse, error)
 	OpenFile(context.Context, *OpenFileRequest) (*OpenFileResponse, error)
+	CreateFileBulk(context.Context, *CreateFileBulkRequest) (*CreateFileBulkResponse, error)
+	OpenFileBulk(context.Context, *OpenFileBulkRequest) (*OpenFileBulkResponse, error)
 	TruncateFile(context.Context, *TruncateFileRequest) (*Empty, error)
 	// File handle (RDWR pass-through)
 	ReadAt(context.Context, *ReadAtRequest) (*ReadAtResponse, error)
@@ -465,6 +491,12 @@ func (UnimplementedPoolAPIServer) CreateFile(context.Context, *CreateFileRequest
 }
 func (UnimplementedPoolAPIServer) OpenFile(context.Context, *OpenFileRequest) (*OpenFileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OpenFile not implemented")
+}
+func (UnimplementedPoolAPIServer) CreateFileBulk(context.Context, *CreateFileBulkRequest) (*CreateFileBulkResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateFileBulk not implemented")
+}
+func (UnimplementedPoolAPIServer) OpenFileBulk(context.Context, *OpenFileBulkRequest) (*OpenFileBulkResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method OpenFileBulk not implemented")
 }
 func (UnimplementedPoolAPIServer) TruncateFile(context.Context, *TruncateFileRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method TruncateFile not implemented")
@@ -775,6 +807,42 @@ func _PoolAPI_OpenFile_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PoolAPI_CreateFileBulk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateFileBulkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).CreateFileBulk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PoolAPI_CreateFileBulk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).CreateFileBulk(ctx, req.(*CreateFileBulkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PoolAPI_OpenFileBulk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OpenFileBulkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).OpenFileBulk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PoolAPI_OpenFileBulk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).OpenFileBulk(ctx, req.(*OpenFileBulkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _PoolAPI_TruncateFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TruncateFileRequest)
 	if err := dec(in); err != nil {
@@ -1030,6 +1098,14 @@ var PoolAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _PoolAPI_OpenFile_Handler,
 		},
 		{
+			MethodName: "CreateFileBulk",
+			Handler:    _PoolAPI_CreateFileBulk_Handler,
+		},
+		{
+			MethodName: "OpenFileBulk",
+			Handler:    _PoolAPI_OpenFileBulk_Handler,
+		},
+		{
 			MethodName: "TruncateFile",
 			Handler:    _PoolAPI_TruncateFile_Handler,
 		},
@@ -1083,5 +1159,5 @@ var PoolAPI_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "api.proto",
+	Metadata: "service/api/api.proto",
 }

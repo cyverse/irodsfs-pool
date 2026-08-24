@@ -52,7 +52,9 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		metadataCacheTTL:                      time.Duration(config.MetadataCacheTTL),
 		stagingRootPath:                       config.StagingRootPath,
 		maxStagingDataSize:                    config.MaxStagingDataSize,
+		maxCacheFileSize:                      config.MaxCacheFileSize,
 		stagingDataGracePeriod:                time.Duration(config.StagingDataGracePeriod),
+		sessionCloseGracePeriod:               time.Duration(config.SessionCloseGracePeriod),
 	}
 
 	poolServer, err := NewPoolServer(poolServerConfig)

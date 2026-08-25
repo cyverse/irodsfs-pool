@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	godaemonizer "github.com/cyverse/go-daemonizer"
+	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	cmd_commons "github.com/cyverse/irodsfs-pool/cmd/commons"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service"
@@ -105,7 +106,7 @@ func processCommand(command *cobra.Command, args []string) error {
 		err, shutdownFn := run(&config)
 		if err != nil {
 			runErr := errors.Wrapf(err, "failed to run iRODS FUSE Pool Service")
-			logger.Errorf("%+v", runErr)
+			logger.Error(runErr)
 
 			ready(runErr)
 			os.Exit(1)
@@ -137,7 +138,7 @@ func processCommand(command *cobra.Command, args []string) error {
 		err, shutdownFn := run(config)
 		if err != nil {
 			runErr := errors.Wrapf(err, "failed to run iRODS FUSE Pool Service")
-			logger.Errorf("%+v", runErr)
+			logger.Error(runErr)
 		}
 
 		// wait
@@ -152,12 +153,17 @@ func processCommand(command *cobra.Command, args []string) error {
 }
 
 func main() {
-	log.SetFormatter(&log.TextFormatter{
-		TimestampFormat: "2006-01-02 15:04:05.000000",
-		FullTimestamp:   true,
-	})
+	myFormatter := &irodsfs_common_util.StacktraceTextFormatter{
+		TextFormatter: log.TextFormatter{
+			TimestampFormat: "2006-01-02 15:04:05.000000",
+			FullTimestamp:   true,
+		},
+	}
+
+	log.SetFormatter(myFormatter)
 
 	log.SetLevel(log.InfoLevel)
+	log.SetReportCaller(true)
 
 	logger := log.WithFields(log.Fields{})
 
@@ -169,7 +175,7 @@ func main() {
 
 	err := Execute()
 	if err != nil {
-		logger.Fatalf("%+v", err)
+		logger.Fatal(err)
 		os.Exit(1)
 	}
 }
@@ -189,14 +195,14 @@ func run(config *commons.Config) (error, func()) {
 	err := config.MakeWorkDirs()
 	if err != nil {
 		mkdirErr := errors.Wrapf(err, "make work dir error")
-		logger.Errorf("%+v", mkdirErr)
+		logger.Error(mkdirErr)
 		return err, nil
 	}
 
 	err = config.Validate()
 	if err != nil {
 		configErr := errors.Wrapf(err, "invalid configuration")
-		logger.Errorf("%+v", configErr)
+		logger.Error(configErr)
 		return err, nil
 	}
 
@@ -204,14 +210,14 @@ func run(config *commons.Config) (error, func()) {
 	svc, err := service.NewPoolService(config)
 	if err != nil {
 		serviceErr := errors.Wrapf(err, "failed to create the service")
-		logger.Errorf("%+v", serviceErr)
+		logger.Error(serviceErr)
 		return err, nil
 	}
 
 	err = svc.Start()
 	if err != nil {
 		serviceErr := errors.Wrapf(err, "failed to start the service")
-		logger.Errorf("%+v", serviceErr)
+		logger.Error(serviceErr)
 		return err, nil
 	}
 

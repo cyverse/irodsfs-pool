@@ -40,7 +40,7 @@ func main() {
 	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, logger)
 	err = poolClient.Connect()
 	if err != nil {
-		logger.Errorf("%+v", err)
+		logger.Error(err)
 		panic(err)
 	}
 
@@ -49,7 +49,7 @@ func main() {
 	appName := "upload_file"
 	poolSession, err := poolClient.NewSession(account, appName, "upload_file test")
 	if err != nil {
-		logger.Errorf("%+v", err)
+		logger.Error(err)
 		panic(err)
 	}
 	defer poolSession.Release()
@@ -60,7 +60,7 @@ func main() {
 
 	err = poolSession.UploadFile(inputPath, outputPath, trackerCB)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		logger.Error(err)
 		panic(err)
 	}
 

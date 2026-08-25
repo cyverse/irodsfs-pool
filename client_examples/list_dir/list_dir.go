@@ -40,7 +40,7 @@ func main() {
 	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, logger)
 	err = poolClient.Connect()
 	if err != nil {
-		logger.Errorf("%+v", err)
+		logger.Error(err)
 		panic(err)
 	}
 
@@ -49,14 +49,14 @@ func main() {
 	appName := "list_dir"
 	poolSession, err := poolClient.NewSession(account, appName, "list_dir test")
 	if err != nil {
-		logger.Errorf("%+v", err)
+		logger.Error(err)
 		panic(err)
 	}
 	defer poolSession.Release()
 
 	entries, err := poolSession.List(inputPath)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		logger.Error(err)
 		panic(err)
 	}
 

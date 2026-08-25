@@ -64,7 +64,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, bool, error) {
 		if len(configPath) > 0 {
 			serverConfig, err := commons.NewConfigFromFile(commons.NewDefaultConfig(), configPath)
 			if err != nil {
-				logger.Errorf("%+v", err)
+				logger.Error(err)
 				return nil, false, err // stop here
 			}
 
@@ -95,7 +95,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, bool, error) {
 
 	err := config.Validate()
 	if err != nil {
-		logger.Errorf("%+v", err)
+		logger.Error(err)
 		return nil, false, err // stop here
 	}
 

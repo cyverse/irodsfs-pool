@@ -130,8 +130,9 @@ func (client *PoolServiceClient) Connect() error {
 	client.logger.Infof("scheme: %s, endpoint: %s", scheme, endpoint)
 
 	if scheme != "unix" && scheme != "tcp" {
-		client.logger.Errorf("unknown protocol %q", scheme)
-		return errors.Errorf("unknown protocol %q", scheme)
+		schemeErr := errors.Newf("unknown protocol %q", scheme)
+		client.logger.Error(schemeErr)
+		return schemeErr
 	}
 
 	client.logger.Infof("Connecting to %s endpoint: %q", scheme, endpoint)
@@ -143,7 +144,7 @@ func (client *PoolServiceClient) Connect() error {
 	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(dialer))
 	if err != nil {
 		grpcErr := errors.Wrapf(err, "failed to dial to %q", client.address)
-		client.logger.Errorf("%+v", grpcErr)
+		client.logger.Error(grpcErr)
 		return grpcErr
 	}
 
@@ -226,7 +227,7 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 
 	response, err := client.apiClient.Login(ctx, request)
 	if err != nil {
-		client.logger.Errorf("%+v", err)
+		client.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
@@ -269,7 +270,7 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 						session.loggedIn = false
 						session.mutex.Unlock()
 
-						client.logger.Errorf("%+v", err)
+						client.logger.Error(err)
 					}
 				}
 			}
@@ -298,7 +299,7 @@ func (session *PoolServiceSession) Release() {
 
 	_, err := session.poolServiceClient.apiClient.Logout(ctx, request)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return
 	}
 }
@@ -352,7 +353,7 @@ func (session *PoolServiceSession) Relogin() error {
 
 	response, err := session.poolServiceClient.apiClient.Login(ctx, request)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -470,7 +471,7 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 
 	res, err := session.doWithRelogin(listFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
@@ -483,13 +484,13 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 	for _, entry := range response.Entries {
 		createTime, err := irodsfs_common_util.ParseTime(entry.CreateTime)
 		if err != nil {
-			session.logger.Errorf("%+v", err)
+			session.logger.Error(err)
 			return nil, err
 		}
 
 		modifyTime, err := irodsfs_common_util.ParseTime(entry.ModifyTime)
 		if err != nil {
-			session.logger.Errorf("%+v", err)
+			session.logger.Error(err)
 			return nil, err
 		}
 
@@ -545,7 +546,7 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 
 	res, err := session.doWithRelogin(statFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
@@ -557,13 +558,13 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 
 	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
 	}
 
 	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
 	}
 
@@ -612,7 +613,7 @@ func (session *PoolServiceSession) ExistsDir(path string) bool {
 
 	res, err := session.doWithRelogin(existsDirFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return false
 	}
 
@@ -650,7 +651,7 @@ func (session *PoolServiceSession) ExistsFile(path string) bool {
 
 	res, err := session.doWithRelogin(existsFileFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return false
 	}
 
@@ -682,7 +683,7 @@ func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
 
 	_, err := session.doWithRelogin(removeFileFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -712,7 +713,7 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 
 	_, err := session.doWithRelogin(removeDirFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -741,7 +742,7 @@ func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
 
 	_, err := session.doWithRelogin(makeDirFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -770,7 +771,7 @@ func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath strin
 
 	_, err := session.doWithRelogin(renameDirToDirFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -799,7 +800,7 @@ func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath str
 
 	_, err := session.doWithRelogin(renameFileToFileFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -828,7 +829,7 @@ func (session *PoolServiceSession) CreateFile(path string, mode string) (irodsfs
 
 	res, err := session.doWithRelogin(createFileFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
@@ -840,13 +841,13 @@ func (session *PoolServiceSession) CreateFile(path string, mode string) (irodsfs
 
 	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
 	}
 
 	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
 	}
 
@@ -905,7 +906,7 @@ func (session *PoolServiceSession) OpenFile(path string, mode string) (irodsfs_c
 
 	res, err := session.doWithRelogin(openFileFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
@@ -917,13 +918,13 @@ func (session *PoolServiceSession) OpenFile(path string, mode string) (irodsfs_c
 
 	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
 	}
 
 	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
 	}
 
@@ -990,7 +991,7 @@ func (session *PoolServiceSession) CreateFileBulk(path string, mode string) (iro
 
 	res, err := session.doWithRelogin(createFileBulkFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
@@ -1002,13 +1003,13 @@ func (session *PoolServiceSession) CreateFileBulk(path string, mode string) (iro
 
 	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
 	}
 
 	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
 	}
 
@@ -1067,7 +1068,7 @@ func (session *PoolServiceSession) OpenFileBulk(path string, mode string) (irods
 
 	res, err := session.doWithRelogin(openFileBulkFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
@@ -1079,13 +1080,13 @@ func (session *PoolServiceSession) OpenFileBulk(path string, mode string) (irods
 
 	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
 	}
 
 	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
 	}
 
@@ -1151,7 +1152,7 @@ func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 
 	_, err := session.doWithRelogin(truncateFileFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -1178,7 +1179,7 @@ func (session *PoolServiceSession) Sync() error {
 
 	_, err := session.doWithRelogin(syncFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -1441,7 +1442,7 @@ func (session *PoolServiceSession) CacheFile(irodsPath string, transferCallback 
 
 	_, err := session.doWithRelogin(cacheFileFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -1469,7 +1470,7 @@ func (session *PoolServiceSession) CacheFileAsync(irodsPath string) {
 
 	_, err := session.doWithRelogin(cacheFileFunc)
 	if err != nil {
-		session.logger.Errorf("%+v", err)
+		session.logger.Error(err)
 	}
 }
 
@@ -1787,7 +1788,7 @@ func (handle *PoolServiceFileHandle) readFromServer(buffer []byte, offset int64)
 
 		res, err := handle.poolServiceSession.doWithRelogin(readAtFunc)
 		if err != nil {
-			handle.logger.Errorf("%+v", err)
+			handle.logger.Error(err)
 			return 0, commons.StatusToError(err)
 		}
 
@@ -1925,7 +1926,7 @@ func (handle *PoolServiceFileHandle) sendToServer(data []byte, offset int64) (in
 
 		_, err := handle.poolServiceSession.doWithRelogin(writeAtFunc)
 		if err != nil {
-			handle.logger.Errorf("%+v", err)
+			handle.logger.Error(err)
 			return 0, commons.StatusToError(err)
 		}
 
@@ -1964,7 +1965,7 @@ func (handle *PoolServiceFileHandle) Truncate(size int64) error {
 
 	_, err := handle.poolServiceSession.doWithRelogin(truncateFunc)
 	if err != nil {
-		handle.logger.Errorf("%+v", err)
+		handle.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -1995,7 +1996,7 @@ func (handle *PoolServiceFileHandle) Flush() error {
 
 	_, err := handle.poolServiceSession.doWithRelogin(flushFunc)
 	if err != nil {
-		handle.logger.Errorf("%+v", err)
+		handle.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -2042,7 +2043,7 @@ func (handle *PoolServiceFileHandle) Close() error {
 
 	_, err := handle.poolServiceSession.doWithRelogin(closeFunc)
 	if err != nil {
-		handle.logger.Errorf("%+v", err)
+		handle.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 

@@ -60,7 +60,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 	poolServer, err := NewPoolServer(poolServerConfig)
 	if err != nil {
 		poolErr := errors.Wrapf(err, "failed to create a new pool server")
-		logger.Errorf("%+v", poolErr)
+		logger.Error(poolErr)
 		return nil, err
 	}
 
@@ -121,7 +121,7 @@ func (svc *PoolService) Start() error {
 	var listener net.Listener
 	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.GetServiceEndpoint())
 	if err != nil {
-		svc.logger.Errorf("%+v", err)
+		svc.logger.Error(err)
 		return err
 	}
 
@@ -132,7 +132,7 @@ func (svc *PoolService) Start() error {
 		unixListener, err := net.Listen("unix", endpoint)
 		if err != nil {
 			listenErr := errors.Wrapf(err, "failed to listen to unix socket %q", endpoint)
-			svc.logger.Errorf("%+v", listenErr)
+			svc.logger.Error(listenErr)
 			return listenErr
 		}
 
@@ -142,7 +142,7 @@ func (svc *PoolService) Start() error {
 		tcpListener, err := net.Listen("tcp", endpoint)
 		if err != nil {
 			listenErr := errors.Wrapf(err, "failed to listen to tcp socket %q", endpoint)
-			svc.logger.Errorf("%+v", listenErr)
+			svc.logger.Error(listenErr)
 			return listenErr
 		}
 
@@ -173,7 +173,7 @@ func (svc *PoolService) Start() error {
 		err = svc.grpcServer.Serve(listener)
 		if err != nil {
 			grpcServerErr := errors.Wrapf(err, "failed to serve")
-			svc.logger.Errorf("%+v", grpcServerErr)
+			svc.logger.Error(grpcServerErr)
 		}
 	}()
 
@@ -189,7 +189,7 @@ func (svc *PoolService) Start() error {
 		go func() {
 			svc.logger.Infof("Starting monitoring service at %s (endpoints: /monitor, /metrics)", addr)
 			if err := svc.monitoringServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				svc.logger.Errorf("monitoring service error: %+v", err)
+				svc.logger.WithError(err).Error("monitoring service error")
 			}
 		}()
 	}

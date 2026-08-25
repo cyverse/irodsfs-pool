@@ -59,7 +59,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 
 	poolServer, err := NewPoolServer(poolServerConfig)
 	if err != nil {
-		poolErr := errors.Errorf("failed to create a new pool server: %w", err)
+		poolErr := errors.Wrapf(err, "failed to create a new pool server")
 		logger.Errorf("%+v", poolErr)
 		return nil, err
 	}
@@ -90,8 +90,8 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 func (svc *PoolService) Release() {
 	defer irodsfs_common_util.StackTraceFromPanic(svc.logger)
 
-	svc.logger.Info("Releasing the iRODS FUSE Lite Pool service")
-	defer svc.logger.Info("Released the iRODS FUSE Lite Pool service")
+	svc.logger.Info("Releasing the iRODS FUSE Pool service")
+	defer svc.logger.Info("Released the iRODS FUSE Pool service")
 
 	if svc.grpcServer != nil {
 		svc.grpcServer = nil
@@ -114,7 +114,7 @@ func (svc *PoolService) Release() {
 func (svc *PoolService) Start() error {
 	defer irodsfs_common_util.StackTraceFromPanic(svc.logger)
 
-	svc.logger.Info("Starting the iRODS FUSE Lite Pool service")
+	svc.logger.Info("Starting the iRODS FUSE Pool service")
 
 	svc.checkResourceAvailability()
 
@@ -131,7 +131,7 @@ func (svc *PoolService) Start() error {
 	case "unix":
 		unixListener, err := net.Listen("unix", endpoint)
 		if err != nil {
-			listenErr := errors.Errorf("failed to listen to unix socket %q: %w", endpoint, err)
+			listenErr := errors.Wrapf(err, "failed to listen to unix socket %q", endpoint)
 			svc.logger.Errorf("%+v", listenErr)
 			return listenErr
 		}
@@ -141,7 +141,7 @@ func (svc *PoolService) Start() error {
 	case "tcp":
 		tcpListener, err := net.Listen("tcp", endpoint)
 		if err != nil {
-			listenErr := errors.Errorf("failed to listen to tcp socket %q: %w", endpoint, err)
+			listenErr := errors.Wrapf(err, "failed to listen to tcp socket %q", endpoint)
 			svc.logger.Errorf("%+v", listenErr)
 			return listenErr
 		}
@@ -172,7 +172,7 @@ func (svc *PoolService) Start() error {
 	go func() {
 		err = svc.grpcServer.Serve(listener)
 		if err != nil {
-			grpcServerErr := errors.Errorf("failed to serve: %w", err)
+			grpcServerErr := errors.Wrapf(err, "failed to serve")
 			svc.logger.Errorf("%+v", grpcServerErr)
 		}
 	}()
@@ -224,7 +224,7 @@ func (svc *PoolService) checkResourceAvailability() {
 
 // Stop stops the service
 func (svc *PoolService) Stop() {
-	svc.logger.Info("Stopping the iRODS FUSE Lite Pool service")
+	svc.logger.Info("Stopping the iRODS FUSE Pool service")
 
 	defer irodsfs_common_util.StackTraceFromPanic(svc.logger)
 

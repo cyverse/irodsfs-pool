@@ -1,4 +1,4 @@
-name: Release iRODS FUSE Lite Pool Server
+name: Release iRODS FUSE Pool Server
 on:
   release:
     types: [created]

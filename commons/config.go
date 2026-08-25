@@ -4,11 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 
 	"gopkg.in/natefinch/lumberjack.v2"
 	yaml "gopkg.in/yaml.v2"
@@ -16,7 +14,6 @@ import (
 	"github.com/cockroachdb/errors"
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
-	log "github.com/sirupsen/logrus"
 )
 
 // GetDefaultDataRootDirPath returns default data root path
@@ -96,25 +93,102 @@ func NewDefaultConfig() *Config {
 	}
 }
 
-// NewConfigFromYAML creates Config from YAML
-func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
-	config := NewDefaultConfig()
-
-	err := yaml.Unmarshal(yamlBytes, config)
+// NewConfigFromFile creates Config from file
+func NewConfigFromFile(config *Config, filePath string) (*Config, error) {
+	st, err := os.Stat(filePath)
 	if err != nil {
-		return nil, errors.Errorf("failed to unmarshal yaml into config: %w", err)
+		if os.IsNotExist(err) {
+			return nil, err
+		}
+
+		return nil, errors.Wrapf(err, "failed to stat file %q", filePath)
+	}
+
+	if st.IsDir() {
+		return nil, errors.Newf("configuration must be a file %q", filePath)
+	}
+
+	dataBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read file %q", filePath)
+	}
+
+	format := DetectFormat(dataBytes)
+	switch format {
+	case FormatJSON:
+		return NewConfigFromJSONFile(config, filePath)
+	case FormatYAML:
+		return NewConfigFromYAMLFile(config, filePath)
+	default:
+		return nil, errors.Newf("unknown file format")
+	}
+}
+
+// NewConfigFromYAMLFile creates Config from YAML
+func NewConfigFromYAMLFile(config *Config, yamlPath string) (*Config, error) {
+	cfg := Config{}
+	if config != nil {
+		cfg = *config
+	}
+
+	yamlBytes, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read YAML file %q", yamlPath)
+	}
+
+	err = yaml.Unmarshal(yamlBytes, &cfg)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal YAML file %q to config", yamlPath)
+	}
+
+	return &cfg, nil
+}
+
+// NewConfigFromJSONFile creates Config from JSON
+func NewConfigFromJSONFile(config *Config, jsonPath string) (*Config, error) {
+	cfg := Config{}
+	if config != nil {
+		cfg = *config
+	}
+
+	jsonBytes, err := os.ReadFile(jsonPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read JSON file %q", jsonPath)
+	}
+
+	err = json.Unmarshal(jsonBytes, &cfg)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal JSON file %q to config", jsonPath)
+	}
+
+	return &cfg, nil
+}
+
+// NewConfigFromYAML creates Config from YAML
+func NewConfigFromYAML(config *Config, yamlBytes []byte) (*Config, error) {
+	cfg := Config{}
+	if config != nil {
+		cfg = *config
+	}
+
+	err := yaml.Unmarshal(yamlBytes, &cfg)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal yaml into config")
 	}
 
 	return config, nil
 }
 
 // NewConfigFromJSON creates Config from JSON
-func NewConfigFromJSON(jsonBytes []byte) (*Config, error) {
-	config := NewDefaultConfig()
+func NewConfigFromJSON(config *Config, jsonBytes []byte) (*Config, error) {
+	cfg := Config{}
+	if config != nil {
+		cfg = *config
+	}
 
-	err := json.Unmarshal(jsonBytes, config)
+	err := json.Unmarshal(jsonBytes, &cfg)
 	if err != nil {
-		return nil, errors.Errorf("failed to unmarshal json into config: %w", err)
+		return nil, errors.Wrapf(err, "failed to unmarshal json into config")
 	}
 
 	return config, nil
@@ -148,41 +222,19 @@ func (config *Config) GetDataRootPath() string {
 
 // MakeLogDir makes a log dir required
 func (config *Config) MakeLogDir() error {
-	logger := log.WithFields(log.Fields{
-		"package":  "commons",
-		"object":   "Config",
-		"function": "MakeLogDir",
-	})
-
 	logFilePath := config.GetLogFilePath()
-	logDirPath := filepath.Dir(logFilePath)
-
-	logger.Debugf("making log dir %q", logDirPath)
-	err := config.makeDir(logDirPath)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return config.makeDir(filepath.Dir(logFilePath))
 }
 
 // MakeWorkDirs makes dirs required
 func (config *Config) MakeWorkDirs() error {
-	logger := log.WithFields(log.Fields{
-		"package":  "commons",
-		"object":   "Config",
-		"function": "MakeWorkDirs",
-	})
-
 	dataRootPath := config.GetDataRootPath()
-	logger.Debugf("making data root %q", dataRootPath)
 	err := config.makeDir(dataRootPath)
 	if err != nil {
 		return err
 	}
 
 	dataStagingRootPath := config.GetDataStagingRootPath()
-	logger.Debugf("making data staging root %q", dataStagingRootPath)
 	err = config.makeDir(dataStagingRootPath)
 	if err != nil {
 		return err
@@ -232,13 +284,13 @@ func (config *Config) makeDir(path string) error {
 			// make
 			mkdirErr := os.MkdirAll(path, 0775)
 			if mkdirErr != nil {
-				return errors.Errorf("making a dir %q error: %w", path, mkdirErr)
+				return errors.Wrapf(mkdirErr, "making a dir %q error", path)
 			}
 
 			return nil
 		}
 
-		return errors.Errorf("stating a dir %q error: %w", path, err)
+		return errors.Wrapf(err, "stating a dir %q error", path)
 	}
 
 	if !dirInfo.IsDir() {
@@ -259,14 +311,14 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 	_, err := os.Stat(endpoint)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return errors.Errorf("service unix socket file %q error: %w", endpoint, err)
+			return errors.Wrapf(err, "service unix socket file %q error", endpoint)
 		}
 	} else {
 		// file exists
 		// remove
 		err2 := os.Remove(endpoint)
 		if err2 != nil {
-			return errors.Errorf("failed to remove the existing unix socket file %q: %w", endpoint, err2)
+			return errors.Wrapf(err2, "failed to remove the existing unix socket file %q", endpoint)
 		}
 	}
 
@@ -276,11 +328,11 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 		if os.IsNotExist(err) {
 			err2 := os.MkdirAll(parentDir, os.FileMode(0777))
 			if err2 != nil {
-				return errors.Errorf("failed to make a directory for unix socket %q: %w", parentDir, err2)
+				return errors.Wrapf(err2, "failed to make a directory for unix socket %q", parentDir)
 			}
 			// ok - fall
 		} else {
-			return errors.Errorf("unix socket directory %q error: %w", parentDir, err)
+			return errors.Wrapf(err, "unix socket directory %q error", parentDir)
 		}
 	} else {
 		unixSocketDirPerm := unixSocketDirInfo.Mode().Perm()
@@ -301,7 +353,7 @@ func (config *Config) removeUnixSocketFile(endpoint string) error {
 
 	err := os.Remove(endpoint)
 	if err != nil {
-		return errors.Errorf("failed to remove unix socket file %q: %w", endpoint, err)
+		return errors.Wrapf(err, "failed to remove unix socket file %q", endpoint)
 	}
 	return nil
 }
@@ -383,66 +435,12 @@ func getLogWriterForForegroundProcess(logPath string) io.WriteCloser {
 }
 
 func getLogWriterForDaemonProcess(logPath string) io.WriteCloser {
-	logFilePath := fmt.Sprintf("%s.daemon", logPath)
+	logFilePath := fmt.Sprintf("%s", logPath)
 	return &lumberjack.Logger{
 		Filename:   logFilePath,
 		MaxSize:    50, // 50MB
 		MaxBackups: 1000,
 		MaxAge:     365, // 365 days
 		Compress:   false,
-	}
-}
-
-func parseRawURL(rawurl string) (string, string, string, error) {
-	if len(strings.TrimSpace(rawurl)) == 0 {
-		return "", "", "", errors.Errorf("empty raw url")
-	}
-
-	u, err := url.ParseRequestURI(rawurl)
-	if err != nil || (u.Host == "" && u.Path == "") {
-		// try adding //
-		u, repErr := url.ParseRequestURI("tcp://" + rawurl)
-		if repErr != nil {
-			return "", "", "", errors.Errorf("could not parse raw url: %s, error: %w", rawurl, err)
-		}
-
-		return "tcp", u.Host, "", nil
-	}
-
-	if u != nil {
-		scheme := strings.ToLower(u.Scheme)
-		if scheme == "unix" {
-			return "unix", "", u.Path, nil
-		} else if scheme == "tcp" {
-			return "tcp", u.Host, "", nil
-		}
-
-		return u.Scheme, u.Host, u.Path, nil
-	}
-
-	return "", "", "", errors.Errorf("could not parse raw url: %s", rawurl)
-}
-
-// ParsePoolServiceEndpoint parses endpoint string
-func ParsePoolServiceEndpoint(endpoint string) (string, string, error) {
-	scheme, host, p, err := parseRawURL(endpoint)
-	if err != nil {
-		return "", "", err
-	}
-
-	scheme = strings.ToLower(scheme)
-	switch scheme {
-	case "tcp":
-		return "tcp", host, nil
-	case "unix":
-		p = path.Join("/", strings.TrimPrefix(p, "/"))
-		return "unix", p, nil
-	case "":
-		if len(host) > 0 {
-			return "tcp", host, nil
-		}
-		return "", "", errors.Errorf("unknown host: %q", host)
-	default:
-		return "", "", errors.Errorf("unsupported protocol: %q", scheme)
 	}
 }

@@ -60,12 +60,12 @@ type AccumulatedMetrics struct {
 	AccessList       uint64
 	AccessUpdate     uint64
 
-	BytesSent          uint64
-	BytesReceived      uint64
-	CacheHit           uint64
-	CacheMiss          uint64
-	RequestFailures    uint64
-	ConnectionFailures uint64
+	BytesSent              uint64
+	BytesReceived          uint64
+	CacheHit               uint64
+	CacheMiss              uint64
+	RequestFailures        uint64
+	ConnectionFailures     uint64
 	ConnectionPoolFailures uint64
 }
 
@@ -113,8 +113,8 @@ func NewPoolServer(config *PoolServerConfig) (*PoolServer, error) {
 func (server *PoolServer) Release() {
 	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	server.logger.Info("Releasing the iRODS FUSE Lite Pool server")
-	defer server.logger.Info("Released the iRODS FUSE Lite Pool server")
+	server.logger.Info("Releasing the iRODS FUSE Pool server")
+	defer server.logger.Info("Released the iRODS FUSE Pool server")
 
 	server.sessionManager.Release()
 
@@ -163,7 +163,7 @@ func (server *PoolServer) Logout(ctx context.Context, request *api.LogoutRequest
 
 	_, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		sessionErr := errors.Errorf("failed to logout because the session for id %q is not found, ignoring...: %w", request.SessionId, err)
+		sessionErr := errors.Wrapf(err, "failed to logout because the session for id %q is not found, ignoring...", request.SessionId)
 		server.logger.Errorf("%+v", sessionErr)
 		return &api.Empty{}, nil
 	}
@@ -190,7 +190,7 @@ func (server *PoolServer) KeepAlive(ctx context.Context, request *api.KeepAliveR
 
 	session, err := server.sessionManager.GetSession(request.SessionId)
 	if err != nil {
-		sessionErr := errors.Errorf("failed to find the session for id %q: %w", request.SessionId, err)
+		sessionErr := errors.Wrapf(err, "failed to find the session for id %q", request.SessionId)
 		server.logger.Debugf("%+v", sessionErr)
 		return nil, commons.ErrorToStatus(err)
 	}

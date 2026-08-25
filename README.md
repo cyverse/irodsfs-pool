@@ -1,4 +1,4 @@
-# iRODS FUSE Lite Pool
+# iRODS FUSE Pool
 
 A shared middleware server that pools iRODS connections, caches data blocks in memory, and stages writes to local disk for multiple FUSE client instances.
 

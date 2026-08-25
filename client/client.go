@@ -140,9 +140,9 @@ func (client *PoolServiceClient) Connect() error {
 		return net.Dial(scheme, address)
 	}
 
-	conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(dialer))
+	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(dialer))
 	if err != nil {
-		grpcErr := errors.Errorf("failed to dial to %q: %w", client.address, err)
+		grpcErr := errors.Wrapf(err, "failed to dial to %q", client.address)
 		client.logger.Errorf("%+v", grpcErr)
 		return grpcErr
 	}

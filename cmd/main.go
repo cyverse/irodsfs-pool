@@ -19,10 +19,18 @@ import (
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "irodsfs-pool [args..]",
-	Short: "Run iRODS FUSE Lite Pool Service",
-	Long:  "Run iRODS FUSE Lite Pool Service that handles requests from iRODS FUSE Lite.",
-	RunE:  processCommand,
+	Use:          "irodsfs-pool [args..]",
+	Short:        "Run iRODS FUSE Pool Service",
+	Long:         "Run iRODS FUSE Pool Service that handles requests from iRODS FUSE.",
+	RunE:         processCommand,
+	SilenceUsage: true,
+	CompletionOptions: cobra.CompletionOptions{
+		DisableDefaultCmd:   true,
+		DisableNoDescFlag:   true,
+		DisableDescriptions: true,
+		HiddenDefaultCmd:    true,
+	},
+	Args: cobra.NoArgs,
 }
 
 var daemon *godaemonizer.Daemon
@@ -96,7 +104,7 @@ func processCommand(command *cobra.Command, args []string) error {
 
 		err, shutdownFn := run(&config)
 		if err != nil {
-			runErr := errors.Errorf("failed to run iRODS FUSE Lite Pool Service: %w", err)
+			runErr := errors.Wrapf(err, "failed to run iRODS FUSE Pool Service")
 			logger.Errorf("%+v", runErr)
 
 			ready(runErr)
@@ -128,7 +136,7 @@ func processCommand(command *cobra.Command, args []string) error {
 
 		err, shutdownFn := run(config)
 		if err != nil {
-			runErr := errors.Wrapf(err, "failed to run iRODS FUSE Lite Pool Service")
+			runErr := errors.Wrapf(err, "failed to run iRODS FUSE Pool Service")
 			logger.Errorf("%+v", runErr)
 		}
 
@@ -166,7 +174,7 @@ func main() {
 	}
 }
 
-// run runs iRODS FUSE Lite Pool Service
+// run runs iRODS FUSE Pool Service
 func run(config *commons.Config) (error, func()) {
 	logger := log.WithFields(log.Fields{})
 
@@ -175,19 +183,19 @@ func run(config *commons.Config) (error, func()) {
 	}
 
 	versionInfo := commons.GetVersion()
-	logger.Infof("iRODS FUSE Lite Pool Service version - %q, commit - %q", versionInfo.ServiceVersion, versionInfo.GitCommit)
+	logger.Infof("iRODS FUSE Pool Service version - %q, commit - %q", versionInfo.ServiceVersion, versionInfo.GitCommit)
 
 	// make work dirs required
 	err := config.MakeWorkDirs()
 	if err != nil {
-		mkdirErr := errors.Errorf("make work dir error: %w", err)
+		mkdirErr := errors.Wrapf(err, "make work dir error")
 		logger.Errorf("%+v", mkdirErr)
 		return err, nil
 	}
 
 	err = config.Validate()
 	if err != nil {
-		configErr := errors.Errorf("invalid configuration: %w", err)
+		configErr := errors.Wrapf(err, "invalid configuration")
 		logger.Errorf("%+v", configErr)
 		return err, nil
 	}
@@ -195,14 +203,14 @@ func run(config *commons.Config) (error, func()) {
 	// run a service
 	svc, err := service.NewPoolService(config)
 	if err != nil {
-		serviceErr := errors.Errorf("failed to create the service: %w", err)
+		serviceErr := errors.Wrapf(err, "failed to create the service")
 		logger.Errorf("%+v", serviceErr)
 		return err, nil
 	}
 
 	err = svc.Start()
 	if err != nil {
-		serviceErr := errors.Errorf("failed to start the service: %w", err)
+		serviceErr := errors.Wrapf(err, "failed to start the service")
 		logger.Errorf("%+v", serviceErr)
 		return err, nil
 	}

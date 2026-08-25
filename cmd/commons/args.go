@@ -2,10 +2,8 @@ package commons
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 
-	"github.com/cockroachdb/errors"
 	"github.com/cyverse/irodsfs-pool/commons"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -64,14 +62,7 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, bool, error) {
 	if configFlag != nil {
 		configPath := configFlag.Value.String()
 		if len(configPath) > 0 {
-			yamlBytes, err := os.ReadFile(configPath)
-			if err != nil {
-				readErr := errors.Errorf("failed to read config file %q: %w", configPath, err)
-				logger.Errorf("%+v", readErr)
-				return nil, false, readErr // stop here
-			}
-
-			serverConfig, err := commons.NewConfigFromYAML(yamlBytes)
+			serverConfig, err := commons.NewConfigFromFile(commons.NewDefaultConfig(), configPath)
 			if err != nil {
 				logger.Errorf("%+v", err)
 				return nil, false, err // stop here

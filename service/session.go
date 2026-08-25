@@ -554,7 +554,7 @@ func (manager *PoolSessionManager) GetSession(sessionID string) (*PoolSession, e
 		return session, nil
 	}
 
-	return nil, errors.Errorf("pool session not found: %s: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
+	return nil, commons.NewSessionNotFoundError(sessionID)
 }
 
 func (manager *PoolSessionManager) GetCacheManager() *irodsfs_common_cache.MemoryCacheManager {
@@ -722,7 +722,7 @@ func (session *PoolSession) GetPoolFileHandle(poolFileHandleID string) (*PoolFil
 		return handle, nil
 	}
 
-	return nil, errors.Errorf("pool file handle not found: %s: %w", poolFileHandleID, commons.NewFileHandleNotFoundError(poolFileHandleID))
+	return nil, commons.NewFileHandleNotFoundError(poolFileHandleID)
 }
 
 // makeAccountKey creates a unique key for an iRODS account

@@ -1572,8 +1572,9 @@ type PoolServiceFileHandle struct {
 
 	prefetch *prefetchState
 
-	closed bool
-	mutex  sync.Mutex
+	readMutex sync.Mutex
+	closed    bool
+	mutex     sync.Mutex
 
 	logger *log.Entry
 }
@@ -1605,6 +1606,14 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 	if handle.prefetch == nil {
 		return handle.readFromServer(buffer, offset)
 	}
+
+	// FUSE may issue concurrent reads for a single open file handle. The
+	// prefetch state uses a current and a next buffer and deliberately drops
+	// its own lock while fetching a cache miss. Serialize callers here so two
+	// misses cannot overwrite that shared state or start background fetches
+	// into the same next buffer.
+	handle.readMutex.Lock()
+	defer handle.readMutex.Unlock()
 
 	return handle.readWithPrefetch(buffer, offset)
 }

@@ -303,15 +303,13 @@ func run(config *commons.Config) (error, func()) {
 	if err := svc.Start(); err != nil {
 		serviceErr := errors.Wrapf(err, "failed to start the service")
 		logger.Error(serviceErr)
-		return err, nil
+		svc.Release()
+		return serviceErr, nil
 	}
 
 	shutdown := func() {
 		svc.Stop()
 		svc.Release()
-		if err := config.CleanSocketFile(); err != nil {
-			logger.WithError(err).Warn("failed to remove socket file")
-		}
 	}
 	return nil, shutdown
 }

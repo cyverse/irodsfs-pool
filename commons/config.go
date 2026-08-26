@@ -246,23 +246,6 @@ func (config *Config) MakeWorkDirs() error {
 	return nil
 }
 
-// CleanSocketFile
-func (config *Config) CleanSocketFile() error {
-	scheme, endpoint, err := ParsePoolServiceEndpoint(config.GetServiceEndpoint())
-	if err != nil {
-		return err
-	}
-
-	if scheme == "unix" {
-		err = config.removeUnixSocketFile(endpoint)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // makeDir makes a dir for use
 func (config *Config) makeDir(path string) error {
 	if len(path) == 0 {

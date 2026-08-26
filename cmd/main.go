@@ -222,21 +222,25 @@ func main() {
 			FullTimestamp:   true,
 		},
 	}
+
 	log.SetFormatter(myFormatter)
 	log.SetLevel(log.InfoLevel)
 	log.SetReportCaller(true)
 
 	logger := log.WithFields(log.Fields{})
+
+	// go-daemonizer relaunches os.Args[0]. Use an absolute path so daemon
+	// startup does not depend on the configured working directory.
 	executable, err := os.Executable()
 	if err != nil {
 		logger.WithError(err).Fatal("failed to resolve executable path")
 	}
 	os.Args[0] = executable
 
-	// Must be called before Cobra parses os.Args so --__daemon__ is stripped.
-	d := godaemonizer.New()
-	if err := Execute(d); err != nil {
-		logger.Error(err)
+	// must be called before Cobra parses os.Args so --__daemon__ is stripped.
+	daemon := godaemonizer.New()
+	if err := Execute(daemon); err != nil {
+		logger.Fatal(err)
 		os.Exit(1)
 	}
 }
@@ -297,7 +301,7 @@ func run(config *commons.Config) (error, func()) {
 	if err != nil {
 		serviceErr := errors.Wrapf(err, "failed to create the service")
 		logger.Error(serviceErr)
-		return err, nil
+		return serviceErr, nil
 	}
 
 	if err := svc.Start(); err != nil {
@@ -316,6 +320,7 @@ func run(config *commons.Config) (error, func()) {
 
 func waitForShutdown() {
 	signalChannel := make(chan os.Signal, 1)
+
 	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signalChannel)
 	<-signalChannel

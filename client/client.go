@@ -1619,6 +1619,30 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 }
 
 func (handle *PoolServiceFileHandle) readWithPrefetch(buffer []byte, offset int64) (int, error) {
+	totalRead := 0
+	for totalRead < len(buffer) {
+		currentOffset := offset + int64(totalRead)
+		if currentOffset >= handle.entry.Size {
+			return totalRead, io.EOF
+		}
+
+		n, err := handle.readFromPrefetchBlock(buffer[totalRead:], currentOffset)
+		totalRead += n
+		if err != nil && err != io.EOF {
+			return totalRead, err
+		}
+		if n == 0 {
+			return totalRead, io.EOF
+		}
+	}
+
+	return totalRead, nil
+}
+
+// readFromPrefetchBlock reads from one prefetch block. A short read with
+// io.EOF can mean the end of this internal block rather than the end of the
+// file; readWithPrefetch continues with the following block in that case.
+func (handle *PoolServiceFileHandle) readFromPrefetchBlock(buffer []byte, offset int64) (int, error) {
 	pf := handle.prefetch
 	pf.mu.Lock()
 
@@ -1668,6 +1692,7 @@ func (handle *PoolServiceFileHandle) readWithPrefetch(buffer []byte, offset int6
 			pf.bufStart = pf.nextStart
 			pf.bufSize = pf.nextSize
 			pf.nextSize = 0
+			pf.nextErr = nil
 
 			start := int(offset - pf.bufStart)
 			n := copy(buffer, pf.buf[start:pf.bufSize])
@@ -1712,6 +1737,7 @@ func (handle *PoolServiceFileHandle) readWithPrefetch(buffer []byte, offset int6
 	pf.bufStart = blockStart
 	pf.bufSize = n
 	pf.nextSize = 0
+	pf.nextErr = nil
 	pf.fetching = false
 
 	if n > 0 && offset >= blockStart && offset < blockStart+int64(n) {
@@ -1742,30 +1768,36 @@ func (handle *PoolServiceFileHandle) readWithPrefetch(buffer []byte, offset int6
 // triggerPrefetch starts background fetch of the next block. Must be called with pf.mu held.
 func (handle *PoolServiceFileHandle) triggerPrefetch(nextOffset int64) {
 	pf := handle.prefetch
-	if nextOffset >= handle.entry.Size {
+	if nextOffset >= handle.entry.Size || pf.fetching || pf.nextSize > 0 || pf.closed {
 		return
 	}
 
 	pf.fetching = true
 	pf.nextStart = nextOffset
-	pf.nextReady = make(chan struct{})
+	ready := make(chan struct{})
+	pf.nextReady = ready
+
+	// Remove the target buffer from shared state while the background read is
+	// mutating it. It is published again only after the complete read finishes.
+	nextBuffer := pf.nextBuf
+	pf.nextBuf = nil
+	if cap(nextBuffer) < prefetchBlockSize {
+		nextBuffer = make([]byte, prefetchBlockSize)
+	} else {
+		nextBuffer = nextBuffer[:prefetchBlockSize]
+	}
 
 	go func() {
+		n, err := handle.readFromServer(nextBuffer, nextOffset)
+
 		pf.mu.Lock()
-		if pf.closed {
-			pf.fetching = false
-			close(pf.nextReady)
-			pf.mu.Unlock()
-			return
+		if !pf.closed {
+			pf.nextBuf = nextBuffer
+			pf.nextSize = n
+			pf.nextErr = err
 		}
-		pf.mu.Unlock()
-
-		n, _ := handle.readFromServer(pf.nextBuf, nextOffset)
-
-		pf.mu.Lock()
-		pf.nextSize = n
 		pf.fetching = false
-		close(pf.nextReady)
+		close(ready)
 		pf.mu.Unlock()
 	}()
 }

@@ -1,0 +1,29 @@
+[Unit]
+Description=iRODS FS Pool Server
+Wants=network-online.target
+After=network-online.target nss-lookup.target
+
+[Service]
+Type=forking
+User=irodsfs-pool
+Group=irodsfs-pool
+
+RuntimeDirectory=irodsfs-pool
+RuntimeDirectoryMode=0750
+LogsDirectory=irodsfs-pool
+LogsDirectoryMode=0750
+
+PIDFile=/run/irodsfs-pool/irodsfs-pool.pid
+ExecStart=/usr/bin/irodsfs-pool start -c /etc/irodsfs-pool/config.yaml
+ExecStop=/usr/bin/irodsfs-pool stop -c /etc/irodsfs-pool/config.yaml --wait 20s
+
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=30s
+KillMode=mixed
+UMask=0027
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

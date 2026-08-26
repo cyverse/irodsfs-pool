@@ -14,20 +14,22 @@ endif
 .PHONY: install
 install:
 	cp bin/irodsfs-pool /usr/bin
-	cp install/irodsfs-pool.service /usr/lib/systemd/system/
+	cp packaging/systemd/irodsfs-pool.service /usr/lib/systemd/system/
 	id -u irodsfs-pool &> /dev/null || adduser ${ADDUSER_FLAGS} irodsfs-pool
 	mkdir -p /etc/irodsfs-pool
-	cp install/config.yaml /etc/irodsfs-pool
+	cp packaging/systemd/config.yaml /etc/irodsfs-pool
 	chown irodsfs-pool:irodsfs-pool /etc/irodsfs-pool/config.yaml
 	chmod 660 /etc/irodsfs-pool/config.yaml
 	mkdir -p $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
 	chown irodsfs-pool:irodsfs-pool $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
+	systemctl daemon-reload
 
 .PHONY: uninstall
 uninstall:
 	rm -f /usr/bin/irodsfs-pool
 	rm -f /etc/systemd/system/multi-user.target.wants/irodsfs-pool.service || true
 	rm -f /usr/lib/systemd/system/irodsfs-pool.service
+	systemctl daemon-reload
 	userdel irodsfs-pool || true
 	groupdel irodsfs-pool || true
 	rm -rf $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)

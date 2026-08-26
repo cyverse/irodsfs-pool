@@ -47,30 +47,32 @@ release: build
 	mkdir -p release
 	mkdir -p release/bin
 	cp bin/irodsfs-pool release/bin
-	mkdir -p release/install
-	cp install/config.yaml release/install
-	cp install/irodsfs-pool.service release/install
-	cp install/README.md release/install
+	mkdir -p release/packaging/systemd
+	cp packaging/systemd/config.yaml release/packaging/systemd
+	cp packaging/systemd/irodsfs-pool.service release/packaging/systemd
+	cp packaging/systemd/README.md release/packaging/systemd
 	cp Makefile.release release/Makefile
 	cd release && tar zcvf ../irodsfs-pool.tar.gz *
 
 .PHONY: install
 install:
 	cp bin/irodsfs-pool /usr/bin
-	cp install/irodsfs-pool.service /usr/lib/systemd/system/
+	cp packaging/systemd/irodsfs-pool.service /usr/lib/systemd/system/
 	id -u irodsfs-pool &> /dev/null || adduser ${ADDUSER_FLAGS} irodsfs-pool
 	mkdir -p /etc/irodsfs-pool
-	cp install/config.yaml /etc/irodsfs-pool
+	cp packaging/systemd/config.yaml /etc/irodsfs-pool
 	chown irodsfs-pool:irodsfs-pool /etc/irodsfs-pool/config.yaml
 	chmod 660 /etc/irodsfs-pool/config.yaml
 	mkdir -p $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
 	chown irodsfs-pool:irodsfs-pool $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
+	systemctl daemon-reload
 
 .PHONY: uninstall
 uninstall:
 	rm -f /usr/bin/irodsfs-pool
 	rm -f /etc/systemd/system/multi-user.target.wants/irodsfs-pool.service || true
 	rm -f /usr/lib/systemd/system/irodsfs-pool.service
+	systemctl daemon-reload
 	userdel irodsfs-pool || true
 	groupdel irodsfs-pool || true
 	rm -rf $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)

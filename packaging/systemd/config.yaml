@@ -1,6 +1,7 @@
 service_endpoint: tcp://0.0.0.0:12020
 debug: false
 data_root_path: /irodsfs_pool
+pid_file: /run/irodsfs-pool/irodsfs-pool.pid
 
 session_timeout: 10m
 session_timeout_check_interval: 10s
@@ -27,6 +28,4 @@ operation_timeout: 5m
 
 monitoring_service_port: 12021  # serves /monitor and /metrics
 
-foreground: false
-
-log_path: /irodsfs-pool/log/irodsfs-pool.log
+log_path: /var/log/irodsfs-pool/irodsfs-pool.log

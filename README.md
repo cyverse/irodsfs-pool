@@ -18,7 +18,7 @@ go build -o irodsfs-pool ./cmd
 
 ## Configuration
 
-Create a YAML config file (see `install/config.yaml` for a full example):
+Create a YAML config file (see `packaging/systemd/config.yaml` for a full example):
 
 ```yaml
 service_endpoint: tcp://0.0.0.0:12020
@@ -27,7 +27,6 @@ max_data_mem_cache_size: 107374182400  # 100GB
 data_mem_cache_ttl: 6h
 staging_root_path: /irodsfs_pool/staging
 monitoring_service_port: 12021
-foreground: false
 ```
 
 ## Usage
@@ -35,13 +34,17 @@ foreground: false
 Run in foreground (logs to stderr + file):
 
 ```bash
-./irodsfs-pool -c config.yaml -f
+./irodsfs-pool run -c config.yaml
 ```
 
 Run as daemon:
 
 ```bash
-./irodsfs-pool -c config.yaml
+./irodsfs-pool start -c config.yaml
+
+# Check or stop the daemon
+./irodsfs-pool status -c config.yaml
+./irodsfs-pool stop -c config.yaml
 ```
 
 ## Endpoints

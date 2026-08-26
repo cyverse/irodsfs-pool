@@ -2,7 +2,6 @@ package commons
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/cyverse/irodsfs-pool/commons"
 	log "github.com/sirupsen/logrus"
@@ -10,68 +9,38 @@ import (
 )
 
 func SetCommonFlags(command *cobra.Command) {
-	command.Flags().BoolP("version", "v", false, "Print version")
-	command.Flags().BoolP("help", "h", false, "Print help")
-	command.Flags().BoolP("debug", "d", false, "Enable debug mode")
-	command.Flags().BoolP("foreground", "f", false, "Run in foreground")
-
-	command.Flags().StringP("config", "c", "", "Set config file (yaml)")
+	command.PersistentFlags().BoolP("debug", "d", false, "Enable debug mode")
+	command.PersistentFlags().StringP("config", "c", "", "Set config file (yaml)")
 }
 
-func ProcessCommonFlags(command *cobra.Command) (*commons.Config, bool, error) {
+func ProcessCommonFlags(command *cobra.Command) (*commons.Config, error) {
 	logger := log.WithFields(log.Fields{})
 
-	debug := false
-	debugFlag := command.Flags().Lookup("debug")
-	if debugFlag != nil {
-		debug, _ = strconv.ParseBool(debugFlag.Value.String())
-	}
-
-	foreground := false
-	foregroundFlag := command.Flags().Lookup("foreground")
-	if foregroundFlag != nil {
-		foreground, _ = strconv.ParseBool(foregroundFlag.Value.String())
+	debug, err := command.Root().PersistentFlags().GetBool("debug")
+	if err != nil {
+		return nil, err
 	}
 
 	if debug {
 		log.SetLevel(log.DebugLevel)
 	}
 
-	helpFlag := command.Flags().Lookup("help")
-	if helpFlag != nil {
-		help, _ := strconv.ParseBool(helpFlag.Value.String())
-		if help {
-			PrintHelp(command)
-			return nil, false, nil // stop here
-		}
-	}
-
-	versionFlag := command.Flags().Lookup("version")
-	if versionFlag != nil {
-		version, _ := strconv.ParseBool(versionFlag.Value.String())
-		if version {
-			PrintVersion(command)
-			return nil, false, nil // stop here
-		}
-	}
-
 	readConfig := false
 	var config *commons.Config
 
-	configFlag := command.Flags().Lookup("config")
-	if configFlag != nil {
-		configPath := configFlag.Value.String()
-		if len(configPath) > 0 {
-			serverConfig, err := commons.NewConfigFromFile(commons.NewDefaultConfig(), configPath)
-			if err != nil {
-				logger.Error(err)
-				return nil, false, err // stop here
-			}
-
-			// overwrite config
-			config = serverConfig
-			readConfig = true
+	configPath, err := command.Root().PersistentFlags().GetString("config")
+	if err != nil {
+		return nil, err
+	}
+	if len(configPath) > 0 {
+		serverConfig, err := commons.NewConfigFromFile(commons.NewDefaultConfig(), configPath)
+		if err != nil {
+			logger.Error(err)
+			return nil, err
 		}
+
+		config = serverConfig
+		readConfig = true
 	}
 
 	// default config
@@ -85,21 +54,17 @@ func ProcessCommonFlags(command *cobra.Command) (*commons.Config, bool, error) {
 		config.Debug = true
 	}
 
-	if foreground {
-		config.Foreground = true
-	}
-
 	if config.Debug {
 		log.SetLevel(log.DebugLevel)
 	}
 
-	err := config.Validate()
+	err = config.Validate()
 	if err != nil {
 		logger.Error(err)
-		return nil, false, err // stop here
+		return nil, err
 	}
 
-	return config, true, nil // continue
+	return config, nil
 }
 
 func PrintVersion(command *cobra.Command) error {
@@ -108,10 +73,6 @@ func PrintVersion(command *cobra.Command) error {
 		return err
 	}
 
-	fmt.Println(info)
+	fmt.Fprintln(command.OutOrStdout(), info)
 	return nil
-}
-
-func PrintHelp(command *cobra.Command) error {
-	return command.Usage()
 }

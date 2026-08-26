@@ -1,4 +1,4 @@
-# irodsfs-pool Installation
+# irodsfs-pool systemd Installation
 
 ## Prerequisites
 
@@ -22,7 +22,7 @@ sudo make install
 This installs:
 - `/usr/bin/irodsfs-pool` — service binary
 - `/etc/irodsfs-pool/config.yaml` — configuration file
-- `/etc/systemd/system/irodsfs-pool.service` — systemd unit
+- `/usr/lib/systemd/system/irodsfs-pool.service` — systemd unit
 
 ## Configuration
 
@@ -41,9 +41,9 @@ Edit `/etc/irodsfs-pool/config.yaml` to adjust settings:
 | `staging_data_grace_period` | `10s` | Delay before syncing staged writes |
 | `operation_timeout` | `5m` | gRPC operation timeout |
 | `prometheus_exporter_port` | `12022` | Prometheus metrics port (0 to disable) |
-| `foreground` | `false` | Run in foreground (no daemonize) |
+| `pid_file` | `/run/irodsfs-pool/irodsfs-pool.pid` | PID file used by the daemon and systemd |
 | `debug` | `false` | Enable debug logging |
-| `log_path` | (auto) | Log file path |
+| `log_path` | `/var/log/irodsfs-pool/irodsfs-pool.log` | Log file path |
 
 ## Service Management
 
@@ -61,7 +61,13 @@ sudo systemctl status irodsfs-pool.service
 View logs:
 ```bash
 journalctl -u irodsfs-pool.service -f
+tail -F /var/log/irodsfs-pool/irodsfs-pool.log
 ```
+
+The unit uses `Type=forking`. It starts the service with
+`irodsfs-pool start`, tracks the daemon through `PIDFile`, and stops it with
+`irodsfs-pool stop`. Use `irodsfs-pool run` for foreground development or with
+a separate `Type=simple` unit.
 
 ## Uninstall
 

@@ -16,19 +16,11 @@ import (
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 )
 
-// GetDefaultDataRootDirPath returns default data root path
-func GetDefaultDataRootDirPath() string {
-	dirPath, err := os.Getwd()
-	if err != nil {
-		return DataRootPathFallback
-	}
-	return dirPath
-}
-
 // Config holds the parameters list which can be configured
 type Config struct {
 	ServiceEndpoint string `yaml:"service_endpoint,omitempty" json:"service_endpoint,omitempty"`
 	DataRootPath    string `yaml:"data_root_path,omitempty" json:"data_root_path,omitempty"`
+	PIDFile         string `yaml:"pid_file,omitempty" json:"pid_file,omitempty"`
 
 	SessionTimeout                        irodsclient_types.Duration                   `yaml:"session_timeout,omitempty" json:"session_timeout,omitempty"`
 	SessionTimeoutCheckInterval           irodsclient_types.Duration                   `yaml:"session_timeout_check_interval,omitempty" json:"session_timeout_check_interval,omitempty"`
@@ -52,8 +44,7 @@ type Config struct {
 
 	MonitoringServicePort int `yaml:"monitoring_service_port,omitempty" json:"monitoring_service_port,omitempty"`
 
-	Foreground bool `yaml:"foreground,omitempty" json:"foreground,omitempty"`
-	Debug      bool `yaml:"debug,omitempty" json:"debug,omitempty"`
+	Debug bool `yaml:"debug,omitempty" json:"debug,omitempty"`
 
 	LogPath string `yaml:"log_path,omitempty" json:"log_path,omitempty"`
 }
@@ -62,7 +53,8 @@ type Config struct {
 func NewDefaultConfig() *Config {
 	return &Config{
 		ServiceEndpoint: "",
-		DataRootPath:    GetDefaultDataRootDirPath(),
+		DataRootPath:    DataRootPathDefault,
+		PIDFile:         PIDFilePathDefault,
 
 		SessionTimeout:                        irodsclient_types.Duration(SessionTimeoutDefault),
 		SessionTimeoutCheckInterval:           irodsclient_types.Duration(SessionTimeoutCheckIntervalDefault),
@@ -77,7 +69,7 @@ func NewDefaultConfig() *Config {
 		MaxMetadataCacheSizePerSession:        MaxMetadataCacheSizePerSessionDefault,
 		MaxMetadataCacheBufferItemsPerSession: MaxMetadataCacheBufferItemsPerSessionDefault,
 		MetadataCacheTTL:                      irodsclient_types.Duration(MetadataCacheTTLDefault),
-		StagingRootPath:                       path.Join(GetDefaultDataRootDirPath(), StagingRootPathDefault),
+		StagingRootPath:                       path.Join(DataRootPathDefault, StagingRootPathDefault),
 		MaxStagingDataSize:                    MaxStagingDataSizeDefault,
 		MaxCacheFileSize:                      MaxCacheFileSizeDefault,
 		StagingDataGracePeriod:                irodsclient_types.Duration(StagingDataGracePeriodDefault),
@@ -86,8 +78,7 @@ func NewDefaultConfig() *Config {
 
 		MonitoringServicePort: MonitoringServicePortDefault,
 
-		Foreground: false,
-		Debug:      false,
+		Debug: false,
 
 		LogPath: "", // use default
 	}
@@ -367,6 +358,10 @@ func (config *Config) Validate() error {
 
 	if len(config.DataRootPath) == 0 {
 		return errors.Errorf("data root dir must be given")
+	}
+
+	if len(config.PIDFile) == 0 {
+		return errors.Errorf("pid file path must be given")
 	}
 
 	return nil

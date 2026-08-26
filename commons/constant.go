@@ -3,7 +3,8 @@ package commons
 import "time"
 
 const (
-	DataRootPathFallback                         string        = "/var/lib/irodsfs_pool"
+	DataRootPathDefault                          string        = "/var/lib/irodsfs_pool"
+	PIDFilePathDefault                           string        = "/run/irodsfs-pool/irodsfs-pool.pid"
 	SessionTimeoutDefault                        time.Duration = 10 * time.Minute
 	SessionTimeoutCheckIntervalDefault           time.Duration = 10 * time.Second
 	DataBlockSizeDefault                         int64         = 4 * 1024 * 1024          // 4mb

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func TestNewSessionLoggerWritesOnlyToSessionFile(t *testing.T) {
@@ -23,6 +24,14 @@ func TestNewSessionLoggerWritesOnlyToSessionFile(t *testing.T) {
 	logger, logFile, err := newSessionLogger(logRootPath, sessionID)
 	if err != nil {
 		t.Fatalf("newSessionLogger: %v", err)
+	}
+
+	logWriter, ok := logFile.(*lumberjack.Logger)
+	if !ok {
+		t.Fatalf("session log writer type = %T, want *lumberjack.Logger", logFile)
+	}
+	if logWriter.MaxSize != 10 || logWriter.MaxBackups != 10 || logWriter.MaxAge != 30 {
+		t.Fatalf("session log rotation = size:%d backups:%d age:%d, want 10/10/30", logWriter.MaxSize, logWriter.MaxBackups, logWriter.MaxAge)
 	}
 
 	logger.Info("session-only message")

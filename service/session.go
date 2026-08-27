@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -19,6 +20,13 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/cockroachdb/errors"
+	"gopkg.in/natefinch/lumberjack.v2"
+)
+
+const (
+	sessionLogMaxSizeMB  = 10
+	sessionLogMaxBackups = 10
+	sessionLogMaxAgeDays = 30
 )
 
 // PoolSessionManager manages PoolSession
@@ -635,7 +643,7 @@ type PoolSession struct {
 	releaseDone chan struct{}
 
 	logger         *log.Entry
-	sessionLogFile *os.File
+	sessionLogFile io.WriteCloser
 
 	mutex sync.RWMutex
 }
@@ -761,7 +769,7 @@ func makeAccountKey(account *irodsclient_types.IRODSAccount) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func newSessionLogger(logRootPath string, sessionID string) (*log.Entry, *os.File, error) {
+func newSessionLogger(logRootPath string, sessionID string) (*log.Entry, io.WriteCloser, error) {
 	if len(logRootPath) == 0 {
 		return nil, nil, errors.New("log root path is required")
 	}
@@ -772,9 +780,12 @@ func newSessionLogger(logRootPath string, sessionID string) (*log.Entry, *os.Fil
 	}
 
 	logFilePath := filepath.Join(sessionLogRootPath, fmt.Sprintf("%s.log", sessionID))
-	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0640)
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to open session log file %q", logFilePath)
+	logWriter := &lumberjack.Logger{
+		Filename:   logFilePath,
+		MaxSize:    sessionLogMaxSizeMB,
+		MaxBackups: sessionLogMaxBackups,
+		MaxAge:     sessionLogMaxAgeDays,
+		Compress:   false,
 	}
 
 	myFormatter := &irodsfs_common_util.StacktraceTextFormatter{
@@ -785,10 +796,10 @@ func newSessionLogger(logRootPath string, sessionID string) (*log.Entry, *os.Fil
 	}
 
 	sessionLogger := log.New()
-	sessionLogger.SetOutput(logFile)
+	sessionLogger.SetOutput(logWriter)
 	sessionLogger.SetFormatter(myFormatter)
 	sessionLogger.SetLevel(log.GetLevel())
 	sessionLogger.SetReportCaller(true)
 
-	return sessionLogger.WithField("session_id", sessionID), logFile, nil
+	return sessionLogger.WithField("session_id", sessionID), logWriter, nil
 }

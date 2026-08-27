@@ -414,7 +414,7 @@ func getLogWriterForDaemonProcess(logPath string) io.WriteCloser {
 	return &lumberjack.Logger{
 		Filename:   logFilePath,
 		MaxSize:    50, // 50MB
-		MaxBackups: 1000,
+		MaxBackups: 10,
 		MaxAge:     365, // 365 days
 		Compress:   false,
 	}

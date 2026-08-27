@@ -245,11 +245,24 @@ message ReadStreamParallelResponse {
 	int64 offset = 2;
 }
 
-message WriteStreamRequest {
+message WriteStreamHeader {
 	string session_id = 1;
-	string file_handle_id = 2;
-	int64 offset = 3;
-	bytes data = 4;
+	string irods_path = 2;
+}
+
+message WriteStreamBlock {
+	int64 offset = 1;
+	bytes data = 2;
+}
+
+message WriteStreamRequest {
+	reserved 1 to 4;
+	reserved "session_id", "file_handle_id", "offset", "data";
+
+	oneof payload {
+		WriteStreamHeader header = 5;
+		WriteStreamBlock block = 6;
+	}
 }
 
 message WriteStreamResponse {

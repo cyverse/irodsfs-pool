@@ -1360,23 +1360,23 @@ func (session *PoolServiceSession) UploadFile(localPath string, irodsPath string
 	}
 	defer localFile.Close()
 
-	// create file on server
-	handle, err := session.CreateFileBulk(irodsPath, string(irodsclient_types.FileOpenModeWriteOnly))
-	if err != nil {
-		return err
-	}
-	defer handle.Close()
-
-	poolHandle, ok := handle.(*PoolServiceFileHandle)
-	if !ok {
-		return errors.New("failed to cast to PoolServiceFileHandle")
-	}
-
 	// use WriteStream
 	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
 	stream, err := session.poolServiceClient.apiClient.WriteStream(ctx, getLargeWriteOption())
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+
+	err = stream.Send(&api.WriteStreamRequest{
+		Payload: &api.WriteStreamRequest_Header{
+			Header: &api.WriteStreamHeader{
+				SessionId: session.id,
+				IrodsPath: irodsPath,
+			},
+		},
+	})
 	if err != nil {
 		return commons.StatusToError(err)
 	}
@@ -1388,10 +1388,12 @@ func (session *PoolServiceSession) UploadFile(localPath string, irodsPath string
 		n, readErr := localFile.Read(buffer)
 		if n > 0 {
 			sendErr := stream.Send(&api.WriteStreamRequest{
-				SessionId:    session.id,
-				FileHandleId: poolHandle.id,
-				Offset:       offset,
-				Data:         buffer[:n],
+				Payload: &api.WriteStreamRequest_Block{
+					Block: &api.WriteStreamBlock{
+						Offset: offset,
+						Data:   buffer[:n],
+					},
+				},
 			})
 			if sendErr != nil {
 				return commons.StatusToError(sendErr)
@@ -1415,6 +1417,8 @@ func (session *PoolServiceSession) UploadFile(localPath string, irodsPath string
 	if err != nil {
 		return commons.StatusToError(err)
 	}
+
+	session.InvalidateCacheForCreateFile(irodsPath)
 
 	return nil
 }

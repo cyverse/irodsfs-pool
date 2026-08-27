@@ -2429,19 +2429,124 @@ func (x *ReadStreamParallelResponse) GetOffset() int64 {
 	return 0
 }
 
-type WriteStreamRequest struct {
+type WriteStreamHeader struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	FileHandleId  string                 `protobuf:"bytes,2,opt,name=file_handle_id,json=fileHandleId,proto3" json:"file_handle_id,omitempty"`
-	Offset        int64                  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
-	Data          []byte                 `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
+	IrodsPath     string                 `protobuf:"bytes,2,opt,name=irods_path,json=irodsPath,proto3" json:"irods_path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WriteStreamHeader) Reset() {
+	*x = WriteStreamHeader{}
+	mi := &file_service_api_api_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WriteStreamHeader) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteStreamHeader) ProtoMessage() {}
+
+func (x *WriteStreamHeader) ProtoReflect() protoreflect.Message {
+	mi := &file_service_api_api_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteStreamHeader.ProtoReflect.Descriptor instead.
+func (*WriteStreamHeader) Descriptor() ([]byte, []int) {
+	return file_service_api_api_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *WriteStreamHeader) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *WriteStreamHeader) GetIrodsPath() string {
+	if x != nil {
+		return x.IrodsPath
+	}
+	return ""
+}
+
+type WriteStreamBlock struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Offset        int64                  `protobuf:"varint,1,opt,name=offset,proto3" json:"offset,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WriteStreamBlock) Reset() {
+	*x = WriteStreamBlock{}
+	mi := &file_service_api_api_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WriteStreamBlock) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteStreamBlock) ProtoMessage() {}
+
+func (x *WriteStreamBlock) ProtoReflect() protoreflect.Message {
+	mi := &file_service_api_api_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteStreamBlock.ProtoReflect.Descriptor instead.
+func (*WriteStreamBlock) Descriptor() ([]byte, []int) {
+	return file_service_api_api_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *WriteStreamBlock) GetOffset() int64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *WriteStreamBlock) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type WriteStreamRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*WriteStreamRequest_Header
+	//	*WriteStreamRequest_Block
+	Payload       isWriteStreamRequest_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *WriteStreamRequest) Reset() {
 	*x = WriteStreamRequest{}
-	mi := &file_service_api_api_proto_msgTypes[40]
+	mi := &file_service_api_api_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2453,7 +2558,7 @@ func (x *WriteStreamRequest) String() string {
 func (*WriteStreamRequest) ProtoMessage() {}
 
 func (x *WriteStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[40]
+	mi := &file_service_api_api_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2466,36 +2571,49 @@ func (x *WriteStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteStreamRequest.ProtoReflect.Descriptor instead.
 func (*WriteStreamRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{40}
+	return file_service_api_api_proto_rawDescGZIP(), []int{42}
 }
 
-func (x *WriteStreamRequest) GetSessionId() string {
+func (x *WriteStreamRequest) GetPayload() isWriteStreamRequest_Payload {
 	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
-func (x *WriteStreamRequest) GetFileHandleId() string {
-	if x != nil {
-		return x.FileHandleId
-	}
-	return ""
-}
-
-func (x *WriteStreamRequest) GetOffset() int64 {
-	if x != nil {
-		return x.Offset
-	}
-	return 0
-}
-
-func (x *WriteStreamRequest) GetData() []byte {
-	if x != nil {
-		return x.Data
+		return x.Payload
 	}
 	return nil
 }
+
+func (x *WriteStreamRequest) GetHeader() *WriteStreamHeader {
+	if x != nil {
+		if x, ok := x.Payload.(*WriteStreamRequest_Header); ok {
+			return x.Header
+		}
+	}
+	return nil
+}
+
+func (x *WriteStreamRequest) GetBlock() *WriteStreamBlock {
+	if x != nil {
+		if x, ok := x.Payload.(*WriteStreamRequest_Block); ok {
+			return x.Block
+		}
+	}
+	return nil
+}
+
+type isWriteStreamRequest_Payload interface {
+	isWriteStreamRequest_Payload()
+}
+
+type WriteStreamRequest_Header struct {
+	Header *WriteStreamHeader `protobuf:"bytes,5,opt,name=header,proto3,oneof"`
+}
+
+type WriteStreamRequest_Block struct {
+	Block *WriteStreamBlock `protobuf:"bytes,6,opt,name=block,proto3,oneof"`
+}
+
+func (*WriteStreamRequest_Header) isWriteStreamRequest_Payload() {}
+
+func (*WriteStreamRequest_Block) isWriteStreamRequest_Payload() {}
 
 type WriteStreamResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2506,7 +2624,7 @@ type WriteStreamResponse struct {
 
 func (x *WriteStreamResponse) Reset() {
 	*x = WriteStreamResponse{}
-	mi := &file_service_api_api_proto_msgTypes[41]
+	mi := &file_service_api_api_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2518,7 +2636,7 @@ func (x *WriteStreamResponse) String() string {
 func (*WriteStreamResponse) ProtoMessage() {}
 
 func (x *WriteStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[41]
+	mi := &file_service_api_api_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2531,7 +2649,7 @@ func (x *WriteStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteStreamResponse.ProtoReflect.Descriptor instead.
 func (*WriteStreamResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{41}
+	return file_service_api_api_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *WriteStreamResponse) GetWritten() int64 {
@@ -2552,7 +2670,7 @@ type TruncateRequest struct {
 
 func (x *TruncateRequest) Reset() {
 	*x = TruncateRequest{}
-	mi := &file_service_api_api_proto_msgTypes[42]
+	mi := &file_service_api_api_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2564,7 +2682,7 @@ func (x *TruncateRequest) String() string {
 func (*TruncateRequest) ProtoMessage() {}
 
 func (x *TruncateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[42]
+	mi := &file_service_api_api_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2577,7 +2695,7 @@ func (x *TruncateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TruncateRequest.ProtoReflect.Descriptor instead.
 func (*TruncateRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{42}
+	return file_service_api_api_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *TruncateRequest) GetSessionId() string {
@@ -2611,7 +2729,7 @@ type FlushRequest struct {
 
 func (x *FlushRequest) Reset() {
 	*x = FlushRequest{}
-	mi := &file_service_api_api_proto_msgTypes[43]
+	mi := &file_service_api_api_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2623,7 +2741,7 @@ func (x *FlushRequest) String() string {
 func (*FlushRequest) ProtoMessage() {}
 
 func (x *FlushRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[43]
+	mi := &file_service_api_api_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2636,7 +2754,7 @@ func (x *FlushRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlushRequest.ProtoReflect.Descriptor instead.
 func (*FlushRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{43}
+	return file_service_api_api_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *FlushRequest) GetSessionId() string {
@@ -2663,7 +2781,7 @@ type CloseRequest struct {
 
 func (x *CloseRequest) Reset() {
 	*x = CloseRequest{}
-	mi := &file_service_api_api_proto_msgTypes[44]
+	mi := &file_service_api_api_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2675,7 +2793,7 @@ func (x *CloseRequest) String() string {
 func (*CloseRequest) ProtoMessage() {}
 
 func (x *CloseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[44]
+	mi := &file_service_api_api_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2688,7 +2806,7 @@ func (x *CloseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseRequest.ProtoReflect.Descriptor instead.
 func (*CloseRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{44}
+	return file_service_api_api_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *CloseRequest) GetSessionId() string {
@@ -2716,7 +2834,7 @@ type CacheFileRequest struct {
 
 func (x *CacheFileRequest) Reset() {
 	*x = CacheFileRequest{}
-	mi := &file_service_api_api_proto_msgTypes[45]
+	mi := &file_service_api_api_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2728,7 +2846,7 @@ func (x *CacheFileRequest) String() string {
 func (*CacheFileRequest) ProtoMessage() {}
 
 func (x *CacheFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[45]
+	mi := &file_service_api_api_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2741,7 +2859,7 @@ func (x *CacheFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CacheFileRequest.ProtoReflect.Descriptor instead.
 func (*CacheFileRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{45}
+	return file_service_api_api_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *CacheFileRequest) GetSessionId() string {
@@ -2774,7 +2892,7 @@ type SyncRequest struct {
 
 func (x *SyncRequest) Reset() {
 	*x = SyncRequest{}
-	mi := &file_service_api_api_proto_msgTypes[46]
+	mi := &file_service_api_api_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2786,7 +2904,7 @@ func (x *SyncRequest) String() string {
 func (*SyncRequest) ProtoMessage() {}
 
 func (x *SyncRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[46]
+	mi := &file_service_api_api_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2799,7 +2917,7 @@ func (x *SyncRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncRequest.ProtoReflect.Descriptor instead.
 func (*SyncRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{46}
+	return file_service_api_api_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *SyncRequest) GetSessionId() string {
@@ -3020,13 +3138,20 @@ const file_service_api_api_proto_rawDesc = "" +
 	"\btask_num\x18\x05 \x01(\x05R\ataskNum\"H\n" +
 	"\x1aReadStreamParallelResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
-	"\x06offset\x18\x02 \x01(\x03R\x06offset\"\x85\x01\n" +
-	"\x12WriteStreamRequest\x12\x1d\n" +
+	"\x06offset\x18\x02 \x01(\x03R\x06offset\"Q\n" +
+	"\x11WriteStreamHeader\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\x12$\n" +
-	"\x0efile_handle_id\x18\x02 \x01(\tR\ffileHandleId\x12\x16\n" +
-	"\x06offset\x18\x03 \x01(\x03R\x06offset\x12\x12\n" +
-	"\x04data\x18\x04 \x01(\fR\x04data\"/\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1d\n" +
+	"\n" +
+	"irods_path\x18\x02 \x01(\tR\tirodsPath\">\n" +
+	"\x10WriteStreamBlock\x12\x16\n" +
+	"\x06offset\x18\x01 \x01(\x03R\x06offset\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"\xb0\x01\n" +
+	"\x12WriteStreamRequest\x120\n" +
+	"\x06header\x18\x05 \x01(\v2\x16.api.WriteStreamHeaderH\x00R\x06header\x12-\n" +
+	"\x05block\x18\x06 \x01(\v2\x15.api.WriteStreamBlockH\x00R\x05blockB\t\n" +
+	"\apayloadJ\x04\b\x01\x10\x05R\n" +
+	"session_idR\x0efile_handle_idR\x06offsetR\x04data\"/\n" +
 	"\x13WriteStreamResponse\x12\x18\n" +
 	"\awritten\x18\x01 \x01(\x03R\awritten\"j\n" +
 	"\x0fTruncateRequest\x12\x1d\n" +
@@ -3110,7 +3235,7 @@ func file_service_api_api_proto_rawDescGZIP() []byte {
 	return file_service_api_api_proto_rawDescData
 }
 
-var file_service_api_api_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
+var file_service_api_api_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_service_api_api_proto_goTypes = []any{
 	(*Empty)(nil),                      // 0: api.Empty
 	(*SSLConfiguration)(nil),           // 1: api.SSLConfiguration
@@ -3152,13 +3277,15 @@ var file_service_api_api_proto_goTypes = []any{
 	(*ReadStreamResponse)(nil),         // 37: api.ReadStreamResponse
 	(*ReadStreamParallelRequest)(nil),  // 38: api.ReadStreamParallelRequest
 	(*ReadStreamParallelResponse)(nil), // 39: api.ReadStreamParallelResponse
-	(*WriteStreamRequest)(nil),         // 40: api.WriteStreamRequest
-	(*WriteStreamResponse)(nil),        // 41: api.WriteStreamResponse
-	(*TruncateRequest)(nil),            // 42: api.TruncateRequest
-	(*FlushRequest)(nil),               // 43: api.FlushRequest
-	(*CloseRequest)(nil),               // 44: api.CloseRequest
-	(*CacheFileRequest)(nil),           // 45: api.CacheFileRequest
-	(*SyncRequest)(nil),                // 46: api.SyncRequest
+	(*WriteStreamHeader)(nil),          // 40: api.WriteStreamHeader
+	(*WriteStreamBlock)(nil),           // 41: api.WriteStreamBlock
+	(*WriteStreamRequest)(nil),         // 42: api.WriteStreamRequest
+	(*WriteStreamResponse)(nil),        // 43: api.WriteStreamResponse
+	(*TruncateRequest)(nil),            // 44: api.TruncateRequest
+	(*FlushRequest)(nil),               // 45: api.FlushRequest
+	(*CloseRequest)(nil),               // 46: api.CloseRequest
+	(*CacheFileRequest)(nil),           // 47: api.CacheFileRequest
+	(*SyncRequest)(nil),                // 48: api.SyncRequest
 }
 var file_service_api_api_proto_depIdxs = []int32{
 	1,  // 0: api.Account.ssl_configuration:type_name -> api.SSLConfiguration
@@ -3169,67 +3296,69 @@ var file_service_api_api_proto_depIdxs = []int32{
 	3,  // 5: api.OpenFileResponse.entry:type_name -> api.Entry
 	3,  // 6: api.CreateFileBulkResponse.entry:type_name -> api.Entry
 	3,  // 7: api.OpenFileBulkResponse.entry:type_name -> api.Entry
-	4,  // 8: api.PoolAPI.Login:input_type -> api.LoginRequest
-	6,  // 9: api.PoolAPI.Logout:input_type -> api.LogoutRequest
-	7,  // 10: api.PoolAPI.KeepAlive:input_type -> api.KeepAliveRequest
-	8,  // 11: api.PoolAPI.List:input_type -> api.ListRequest
-	10, // 12: api.PoolAPI.Stat:input_type -> api.StatRequest
-	12, // 13: api.PoolAPI.ExistsDir:input_type -> api.ExistsDirRequest
-	14, // 14: api.PoolAPI.ExistsFile:input_type -> api.ExistsFileRequest
-	16, // 15: api.PoolAPI.RemoveFile:input_type -> api.RemoveFileRequest
-	17, // 16: api.PoolAPI.RemoveDir:input_type -> api.RemoveDirRequest
-	18, // 17: api.PoolAPI.MakeDir:input_type -> api.MakeDirRequest
-	19, // 18: api.PoolAPI.RenameDirToDir:input_type -> api.RenameDirToDirRequest
-	20, // 19: api.PoolAPI.RenameFileToFile:input_type -> api.RenameFileToFileRequest
-	21, // 20: api.PoolAPI.CreateFile:input_type -> api.CreateFileRequest
-	23, // 21: api.PoolAPI.OpenFile:input_type -> api.OpenFileRequest
-	25, // 22: api.PoolAPI.CreateFileBulk:input_type -> api.CreateFileBulkRequest
-	27, // 23: api.PoolAPI.OpenFileBulk:input_type -> api.OpenFileBulkRequest
-	29, // 24: api.PoolAPI.TruncateFile:input_type -> api.TruncateFileRequest
-	30, // 25: api.PoolAPI.ReadAt:input_type -> api.ReadAtRequest
-	32, // 26: api.PoolAPI.WriteAt:input_type -> api.WriteAtRequest
-	34, // 27: api.PoolAPI.GetAvailable:input_type -> api.GetAvailableRequest
-	42, // 28: api.PoolAPI.Truncate:input_type -> api.TruncateRequest
-	43, // 29: api.PoolAPI.Flush:input_type -> api.FlushRequest
-	44, // 30: api.PoolAPI.Close:input_type -> api.CloseRequest
-	36, // 31: api.PoolAPI.ReadStream:input_type -> api.ReadStreamRequest
-	38, // 32: api.PoolAPI.ReadStreamParallel:input_type -> api.ReadStreamParallelRequest
-	40, // 33: api.PoolAPI.WriteStream:input_type -> api.WriteStreamRequest
-	45, // 34: api.PoolAPI.CacheFile:input_type -> api.CacheFileRequest
-	46, // 35: api.PoolAPI.Sync:input_type -> api.SyncRequest
-	5,  // 36: api.PoolAPI.Login:output_type -> api.LoginResponse
-	0,  // 37: api.PoolAPI.Logout:output_type -> api.Empty
-	0,  // 38: api.PoolAPI.KeepAlive:output_type -> api.Empty
-	9,  // 39: api.PoolAPI.List:output_type -> api.ListResponse
-	11, // 40: api.PoolAPI.Stat:output_type -> api.StatResponse
-	13, // 41: api.PoolAPI.ExistsDir:output_type -> api.ExistsDirResponse
-	15, // 42: api.PoolAPI.ExistsFile:output_type -> api.ExistsFileResponse
-	0,  // 43: api.PoolAPI.RemoveFile:output_type -> api.Empty
-	0,  // 44: api.PoolAPI.RemoveDir:output_type -> api.Empty
-	0,  // 45: api.PoolAPI.MakeDir:output_type -> api.Empty
-	0,  // 46: api.PoolAPI.RenameDirToDir:output_type -> api.Empty
-	0,  // 47: api.PoolAPI.RenameFileToFile:output_type -> api.Empty
-	22, // 48: api.PoolAPI.CreateFile:output_type -> api.CreateFileResponse
-	24, // 49: api.PoolAPI.OpenFile:output_type -> api.OpenFileResponse
-	26, // 50: api.PoolAPI.CreateFileBulk:output_type -> api.CreateFileBulkResponse
-	28, // 51: api.PoolAPI.OpenFileBulk:output_type -> api.OpenFileBulkResponse
-	0,  // 52: api.PoolAPI.TruncateFile:output_type -> api.Empty
-	31, // 53: api.PoolAPI.ReadAt:output_type -> api.ReadAtResponse
-	33, // 54: api.PoolAPI.WriteAt:output_type -> api.WriteAtResponse
-	35, // 55: api.PoolAPI.GetAvailable:output_type -> api.GetAvailableResponse
-	0,  // 56: api.PoolAPI.Truncate:output_type -> api.Empty
-	0,  // 57: api.PoolAPI.Flush:output_type -> api.Empty
-	0,  // 58: api.PoolAPI.Close:output_type -> api.Empty
-	37, // 59: api.PoolAPI.ReadStream:output_type -> api.ReadStreamResponse
-	39, // 60: api.PoolAPI.ReadStreamParallel:output_type -> api.ReadStreamParallelResponse
-	41, // 61: api.PoolAPI.WriteStream:output_type -> api.WriteStreamResponse
-	0,  // 62: api.PoolAPI.CacheFile:output_type -> api.Empty
-	0,  // 63: api.PoolAPI.Sync:output_type -> api.Empty
-	36, // [36:64] is the sub-list for method output_type
-	8,  // [8:36] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	40, // 8: api.WriteStreamRequest.header:type_name -> api.WriteStreamHeader
+	41, // 9: api.WriteStreamRequest.block:type_name -> api.WriteStreamBlock
+	4,  // 10: api.PoolAPI.Login:input_type -> api.LoginRequest
+	6,  // 11: api.PoolAPI.Logout:input_type -> api.LogoutRequest
+	7,  // 12: api.PoolAPI.KeepAlive:input_type -> api.KeepAliveRequest
+	8,  // 13: api.PoolAPI.List:input_type -> api.ListRequest
+	10, // 14: api.PoolAPI.Stat:input_type -> api.StatRequest
+	12, // 15: api.PoolAPI.ExistsDir:input_type -> api.ExistsDirRequest
+	14, // 16: api.PoolAPI.ExistsFile:input_type -> api.ExistsFileRequest
+	16, // 17: api.PoolAPI.RemoveFile:input_type -> api.RemoveFileRequest
+	17, // 18: api.PoolAPI.RemoveDir:input_type -> api.RemoveDirRequest
+	18, // 19: api.PoolAPI.MakeDir:input_type -> api.MakeDirRequest
+	19, // 20: api.PoolAPI.RenameDirToDir:input_type -> api.RenameDirToDirRequest
+	20, // 21: api.PoolAPI.RenameFileToFile:input_type -> api.RenameFileToFileRequest
+	21, // 22: api.PoolAPI.CreateFile:input_type -> api.CreateFileRequest
+	23, // 23: api.PoolAPI.OpenFile:input_type -> api.OpenFileRequest
+	25, // 24: api.PoolAPI.CreateFileBulk:input_type -> api.CreateFileBulkRequest
+	27, // 25: api.PoolAPI.OpenFileBulk:input_type -> api.OpenFileBulkRequest
+	29, // 26: api.PoolAPI.TruncateFile:input_type -> api.TruncateFileRequest
+	30, // 27: api.PoolAPI.ReadAt:input_type -> api.ReadAtRequest
+	32, // 28: api.PoolAPI.WriteAt:input_type -> api.WriteAtRequest
+	34, // 29: api.PoolAPI.GetAvailable:input_type -> api.GetAvailableRequest
+	44, // 30: api.PoolAPI.Truncate:input_type -> api.TruncateRequest
+	45, // 31: api.PoolAPI.Flush:input_type -> api.FlushRequest
+	46, // 32: api.PoolAPI.Close:input_type -> api.CloseRequest
+	36, // 33: api.PoolAPI.ReadStream:input_type -> api.ReadStreamRequest
+	38, // 34: api.PoolAPI.ReadStreamParallel:input_type -> api.ReadStreamParallelRequest
+	42, // 35: api.PoolAPI.WriteStream:input_type -> api.WriteStreamRequest
+	47, // 36: api.PoolAPI.CacheFile:input_type -> api.CacheFileRequest
+	48, // 37: api.PoolAPI.Sync:input_type -> api.SyncRequest
+	5,  // 38: api.PoolAPI.Login:output_type -> api.LoginResponse
+	0,  // 39: api.PoolAPI.Logout:output_type -> api.Empty
+	0,  // 40: api.PoolAPI.KeepAlive:output_type -> api.Empty
+	9,  // 41: api.PoolAPI.List:output_type -> api.ListResponse
+	11, // 42: api.PoolAPI.Stat:output_type -> api.StatResponse
+	13, // 43: api.PoolAPI.ExistsDir:output_type -> api.ExistsDirResponse
+	15, // 44: api.PoolAPI.ExistsFile:output_type -> api.ExistsFileResponse
+	0,  // 45: api.PoolAPI.RemoveFile:output_type -> api.Empty
+	0,  // 46: api.PoolAPI.RemoveDir:output_type -> api.Empty
+	0,  // 47: api.PoolAPI.MakeDir:output_type -> api.Empty
+	0,  // 48: api.PoolAPI.RenameDirToDir:output_type -> api.Empty
+	0,  // 49: api.PoolAPI.RenameFileToFile:output_type -> api.Empty
+	22, // 50: api.PoolAPI.CreateFile:output_type -> api.CreateFileResponse
+	24, // 51: api.PoolAPI.OpenFile:output_type -> api.OpenFileResponse
+	26, // 52: api.PoolAPI.CreateFileBulk:output_type -> api.CreateFileBulkResponse
+	28, // 53: api.PoolAPI.OpenFileBulk:output_type -> api.OpenFileBulkResponse
+	0,  // 54: api.PoolAPI.TruncateFile:output_type -> api.Empty
+	31, // 55: api.PoolAPI.ReadAt:output_type -> api.ReadAtResponse
+	33, // 56: api.PoolAPI.WriteAt:output_type -> api.WriteAtResponse
+	35, // 57: api.PoolAPI.GetAvailable:output_type -> api.GetAvailableResponse
+	0,  // 58: api.PoolAPI.Truncate:output_type -> api.Empty
+	0,  // 59: api.PoolAPI.Flush:output_type -> api.Empty
+	0,  // 60: api.PoolAPI.Close:output_type -> api.Empty
+	37, // 61: api.PoolAPI.ReadStream:output_type -> api.ReadStreamResponse
+	39, // 62: api.PoolAPI.ReadStreamParallel:output_type -> api.ReadStreamParallelResponse
+	43, // 63: api.PoolAPI.WriteStream:output_type -> api.WriteStreamResponse
+	0,  // 64: api.PoolAPI.CacheFile:output_type -> api.Empty
+	0,  // 65: api.PoolAPI.Sync:output_type -> api.Empty
+	38, // [38:66] is the sub-list for method output_type
+	10, // [10:38] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_service_api_api_proto_init() }
@@ -3237,13 +3366,17 @@ func file_service_api_api_proto_init() {
 	if File_service_api_api_proto != nil {
 		return
 	}
+	file_service_api_api_proto_msgTypes[42].OneofWrappers = []any{
+		(*WriteStreamRequest_Header)(nil),
+		(*WriteStreamRequest_Block)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_service_api_api_proto_rawDesc), len(file_service_api_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   47,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

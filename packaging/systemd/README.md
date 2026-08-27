@@ -43,7 +43,7 @@ Edit `/etc/irodsfs-pool/config.yaml` to adjust settings:
 | `prometheus_exporter_port` | `12022` | Prometheus metrics port (0 to disable) |
 | `pid_file` | `/run/irodsfs-pool/irodsfs-pool.pid` | PID file used by the daemon and systemd |
 | `debug` | `false` | Enable debug logging |
-| `log_path` | `/var/log/irodsfs-pool/irodsfs-pool.log` | Log file path |
+| `log_root_path` | `/var/log/irodsfs-pool` | Directory containing the service log and per-session logs |
 
 ## Service Management
 
@@ -63,6 +63,9 @@ View logs:
 journalctl -u irodsfs-pool.service -f
 tail -F /var/log/irodsfs-pool/irodsfs-pool.log
 ```
+
+Each pool session writes its iRODS client logs only to
+`/var/log/irodsfs-pool/session_logs/<session-id>.log`.
 
 The unit uses `Type=forking`. It starts the service with
 `irodsfs-pool start`, tracks the daemon through `PIDFile`, and stops it with

@@ -35,6 +35,7 @@ type PoolServerConfig struct {
 	maxCacheFileSize                      int64
 	stagingDataGracePeriod                time.Duration
 	sessionCloseGracePeriod               time.Duration
+	logRootPath                           string
 	logger                                *log.Entry
 }
 

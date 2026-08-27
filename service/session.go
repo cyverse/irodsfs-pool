@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -199,7 +201,14 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	// Create new session
 	manager.logger.Infof("Creating a new pool session for username %q", account.ClientUser)
 
+	sessionLogger, sessionLogFile, err := newSessionLogger(manager.config.logRootPath, sessionID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create log file for session %q", sessionID)
+	}
+	sessionLogger.Infof("Creating a new pool session for username %q", account.ClientUser)
+
 	fsConfig := irodsclient_fs.NewFileSystemConfig(appName)
+	fsConfig.LogEntry = sessionLogger
 	fsConfig.IOConnection.MaxNumber = manager.config.maxIOConnectionPerSession
 	fsConfig.Cache.MetadataTimeoutSettings = manager.config.metadataCacheTimeoutSettings
 	fsConfig.Cache.StartNewTransaction = manager.config.startNewTransaction
@@ -212,6 +221,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 
 	fs, err := irodsclient_fs.NewFileSystem(irodsAccount, fsConfig)
 	if err != nil {
+		sessionLogFile.Close()
 		return nil, errors.Wrap(err, "failed to create iRODS filesystem")
 	}
 
@@ -233,6 +243,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	fsClient, err := irodsfs_common_irods.NewIRODSFSClientBuffered(fs, manager.cacheManager, buffConfig)
 	if err != nil {
 		fs.Release()
+		sessionLogFile.Close()
 		return nil, errors.Wrap(err, "failed to create buffered client")
 	}
 
@@ -248,9 +259,8 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 		lastAccessTime:  time.Now(),
 		poolFileHandles: map[string]*PoolFileHandle{},
 
-		logger: manager.logger.WithFields(log.Fields{
-			"session_id": sessionID,
-		}),
+		logger:         sessionLogger,
+		sessionLogFile: sessionLogFile,
 	}
 
 	manager.mutex.Lock()
@@ -258,6 +268,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Created a new pool session %q for username %q", session.id, irodsAccount.ClientUser)
+	session.logger.Infof("Created a new pool session for username %q", irodsAccount.ClientUser)
 	return session, nil
 }
 
@@ -431,7 +442,7 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 		defer manager.releaseWg.Done()
 		// Flush staging before capturing metrics so BytesSent reflects the
 		// actual iRODS upload, not just the local-disk write.
-		flushSessionStaging(session, manager.logger)
+		flushSessionStaging(session, session.logger)
 		if manager.onBeforeSessionRelease != nil {
 			manager.onBeforeSessionRelease(session)
 		}
@@ -476,7 +487,7 @@ func (manager *PoolSessionManager) startSessionRelease(sessionID string) {
 	manager.releaseWg.Add(1)
 	go func() {
 		defer manager.releaseWg.Done()
-		flushSessionStaging(session, manager.logger)
+		flushSessionStaging(session, session.logger)
 		if manager.onBeforeSessionRelease != nil {
 			manager.onBeforeSessionRelease(session)
 		}
@@ -537,7 +548,7 @@ func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
 	manager.releaseWg.Add(1)
 	go func() {
 		defer manager.releaseWg.Done()
-		flushSessionStaging(session, manager.logger)
+		flushSessionStaging(session, session.logger)
 		if manager.onBeforeSessionRelease != nil {
 			manager.onBeforeSessionRelease(session)
 		}
@@ -623,13 +634,22 @@ type PoolSession struct {
 	releasing   bool
 	releaseDone chan struct{}
 
-	logger *log.Entry
+	logger         *log.Entry
+	sessionLogFile *os.File
 
 	mutex sync.RWMutex
 }
 
 func (session *PoolSession) release() {
+	defer func() {
+		if session.sessionLogFile != nil {
+			session.sessionLogFile.Close()
+			session.sessionLogFile = nil
+		}
+	}()
 	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	session.logger.Info("Releasing the pool session")
 
 	session.backgroundWg.Wait()
 
@@ -650,6 +670,8 @@ func (session *PoolSession) release() {
 		session.fs.Release()
 		session.fs = nil
 	}
+
+	session.logger.Info("Released the pool session")
 }
 
 func (session *PoolSession) addConnection(connID string, appName string, description string) {
@@ -737,4 +759,36 @@ func makeAccountKey(account *irodsclient_types.IRODSAccount) string {
 	h.Write([]byte(account.Ticket))
 	h.Write([]byte(account.DefaultResource))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func newSessionLogger(logRootPath string, sessionID string) (*log.Entry, *os.File, error) {
+	if len(logRootPath) == 0 {
+		return nil, nil, errors.New("log root path is required")
+	}
+
+	sessionLogRootPath := filepath.Join(logRootPath, "session_logs")
+	if err := os.MkdirAll(sessionLogRootPath, 0775); err != nil {
+		return nil, nil, errors.Wrapf(err, "failed to create session log directory %q", sessionLogRootPath)
+	}
+
+	logFilePath := filepath.Join(sessionLogRootPath, fmt.Sprintf("%s.log", sessionID))
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0640)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "failed to open session log file %q", logFilePath)
+	}
+
+	myFormatter := &irodsfs_common_util.StacktraceTextFormatter{
+		TextFormatter: log.TextFormatter{
+			TimestampFormat: "2006-01-02 15:04:05.000000",
+			FullTimestamp:   true,
+		},
+	}
+
+	sessionLogger := log.New()
+	sessionLogger.SetOutput(logFile)
+	sessionLogger.SetFormatter(myFormatter)
+	sessionLogger.SetLevel(log.GetLevel())
+	sessionLogger.SetReportCaller(true)
+
+	return sessionLogger.WithField("session_id", sessionID), logFile, nil
 }

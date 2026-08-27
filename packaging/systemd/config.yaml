@@ -28,4 +28,4 @@ operation_timeout: 5m
 
 monitoring_service_port: 12021  # serves /monitor and /metrics
 
-log_path: /var/log/irodsfs-pool/irodsfs-pool.log
+log_root_path: /var/log/irodsfs-pool

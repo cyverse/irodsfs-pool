@@ -46,7 +46,7 @@ type Config struct {
 
 	Debug bool `yaml:"debug,omitempty" json:"debug,omitempty"`
 
-	LogPath string `yaml:"log_path,omitempty" json:"log_path,omitempty"`
+	LogRootPath string `yaml:"log_root_path,omitempty" json:"log_root_path,omitempty"`
 }
 
 // NewDefaultConfig returns a default config
@@ -80,7 +80,7 @@ func NewDefaultConfig() *Config {
 
 		Debug: false,
 
-		LogPath: "", // use default
+		LogRootPath: "", // use default
 	}
 }
 
@@ -185,14 +185,19 @@ func NewConfigFromJSON(config *Config, jsonBytes []byte) (*Config, error) {
 	return config, nil
 }
 
-// GetLogFilePath returns log file path
-func (config *Config) GetLogFilePath() string {
-	if len(config.LogPath) > 0 {
-		return config.LogPath
+// GetLogRootPath returns the directory containing service and session logs.
+func (config *Config) GetLogRootPath() string {
+	if len(config.LogRootPath) > 0 {
+		return config.LogRootPath
 	}
 
 	// default
-	return path.Join(config.DataRootPath, "irodsfs-pool.log")
+	return config.DataRootPath
+}
+
+// GetLogFilePath returns the service log file path.
+func (config *Config) GetLogFilePath() string {
+	return path.Join(config.GetLogRootPath(), "irodsfs-pool.log")
 }
 
 func (config *Config) GetServiceEndpoint() string {
@@ -213,8 +218,7 @@ func (config *Config) GetDataRootPath() string {
 
 // MakeLogDir makes a log dir required
 func (config *Config) MakeLogDir() error {
-	logFilePath := config.GetLogFilePath()
-	return config.makeDir(filepath.Dir(logFilePath))
+	return config.makeDir(config.GetLogRootPath())
 }
 
 // MakeWorkDirs makes dirs required
@@ -316,19 +320,6 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 		// ok - fall
 	}
 
-	return nil
-}
-
-// removeUnixSocketFile removes unix socket file
-func (config *Config) removeUnixSocketFile(endpoint string) error {
-	if len(endpoint) == 0 {
-		return nil
-	}
-
-	err := os.Remove(endpoint)
-	if err != nil {
-		return errors.Wrapf(err, "failed to remove unix socket file %q", endpoint)
-	}
 	return nil
 }
 

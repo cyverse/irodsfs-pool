@@ -1,10 +1,23 @@
 package commons
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestLogPaths(t *testing.T) {
+	config := NewDefaultConfig()
+	config.DataRootPath = "/var/lib/irodsfs-pool"
+
+	assert.Equal(t, "/var/lib/irodsfs-pool", config.GetLogRootPath())
+	assert.Equal(t, "/var/lib/irodsfs-pool/irodsfs-pool.log", config.GetLogFilePath())
+
+	config.LogRootPath = "/var/log/irodsfs-pool"
+	assert.Equal(t, "/var/log/irodsfs-pool", config.GetLogRootPath())
+	assert.Equal(t, filepath.Join(config.LogRootPath, "irodsfs-pool.log"), config.GetLogFilePath())
+}
 
 func TestParsePoolServiceEndpoint(t *testing.T) {
 	tests := []struct {

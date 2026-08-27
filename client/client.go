@@ -26,11 +26,11 @@ import (
 )
 
 const (
-	fileRWLengthMax          int = 1024 * 1024     // 1MB
-	messageRWLengthMax       int = 8 * 1024 * 1024 // 8MB
-	microBufferSize          int = 1024 * 1024     // 1MB - micro buffering threshold for WRONLY
-	prefetchBlockSize        int = 4 * 1024 * 1024 // 4MB - prefetch block size for RDONLY
-	prefetchDisableThreshold int = 3
+	fileRWLengthMax        int   = 1024 * 1024      // 1MB
+	messageRWLengthMax     int   = 8 * 1024 * 1024  // 8MB
+	microBufferSize        int   = 1024 * 1024      // 1MB - micro buffering threshold for WRONLY
+	prefetchBlockSize      int   = 4 * 1024 * 1024  // 4MB - prefetch block size for RDONLY
+	prefetchCacheThreshold int64 = 16 * 1024 * 1024 // 16MB - switch to server-side memory cache after this much data is read
 
 	localMetadataCacheTiemout time.Duration = 10 * time.Second
 )
@@ -50,9 +50,9 @@ type prefetchState struct {
 	nextErr   error
 	fetching  bool
 
-	seekMissCount int
-	disabled      bool
-	closed        bool
+	bytesRead int64
+	disabled  bool
+	closed    bool
 }
 
 // PoolServiceClient is a client of pool service
@@ -1625,7 +1625,29 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 	handle.readMutex.Lock()
 	defer handle.readMutex.Unlock()
 
-	return handle.readWithPrefetch(buffer, offset)
+	n, err := handle.readWithPrefetch(buffer, offset)
+
+	pf := handle.prefetch
+	pf.mu.Lock()
+	requestCache := false
+	if !pf.disabled {
+		pf.bytesRead += int64(n)
+		if pf.bytesRead > prefetchCacheThreshold {
+			pf.disabled = true
+			pf.buf = nil
+			pf.nextBuf = nil
+			pf.bufSize = 0
+			pf.nextSize = 0
+			requestCache = true
+		}
+	}
+	pf.mu.Unlock()
+
+	if requestCache {
+		handle.poolServiceSession.CacheFileAsync(handle.entry.Path)
+	}
+
+	return n, err
 }
 
 func (handle *PoolServiceFileHandle) readWithPrefetch(buffer []byte, offset int64) (int, error) {
@@ -1663,9 +1685,6 @@ func (handle *PoolServiceFileHandle) readFromPrefetchBlock(buffer []byte, offset
 
 	bufEnd := pf.bufStart + int64(pf.bufSize)
 	if pf.bufSize > 0 && offset >= pf.bufStart && offset < bufEnd {
-		// cache hit - reset seek miss counter
-		pf.seekMissCount = 0
-
 		start := int(offset - pf.bufStart)
 		n := copy(buffer, pf.buf[start:pf.bufSize])
 		readEnd := offset + int64(n)
@@ -1694,9 +1713,6 @@ func (handle *PoolServiceFileHandle) readFromPrefetchBlock(buffer []byte, offset
 	if pf.nextSize > 0 {
 		nextEnd := pf.nextStart + int64(pf.nextSize)
 		if offset >= pf.nextStart && offset < nextEnd {
-			// cache hit via next buffer - reset seek miss counter
-			pf.seekMissCount = 0
-
 			// swap next → current
 			pf.buf, pf.nextBuf = pf.nextBuf, pf.buf
 			pf.bufStart = pf.nextStart
@@ -1720,20 +1736,6 @@ func (handle *PoolServiceFileHandle) readFromPrefetchBlock(buffer []byte, offset
 			}
 			return n, nil
 		}
-	}
-	// cache miss - check seek detection
-	pf.seekMissCount++
-	if pf.seekMissCount >= prefetchDisableThreshold {
-		pf.disabled = true
-		pf.buf = nil
-		pf.nextBuf = nil
-		pf.bufSize = 0
-		pf.nextSize = 0
-		irodsPath := handle.entry.Path
-		pf.mu.Unlock()
-
-		handle.poolServiceSession.CacheFileAsync(irodsPath)
-		return handle.readFromServer(buffer, offset)
 	}
 	pf.mu.Unlock()
 
@@ -1801,7 +1803,7 @@ func (handle *PoolServiceFileHandle) triggerPrefetch(nextOffset int64) {
 		n, err := handle.readFromServer(nextBuffer, nextOffset)
 
 		pf.mu.Lock()
-		if !pf.closed {
+		if !pf.closed && !pf.disabled {
 			pf.nextBuf = nextBuffer
 			pf.nextSize = n
 			pf.nextErr = err

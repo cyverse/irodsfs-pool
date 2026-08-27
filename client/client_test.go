@@ -20,6 +20,12 @@ type readAtPoolAPIClient struct {
 	activeReads    int32
 	maxActiveReads int32
 	totalReads     int32
+	cacheRequests  int32
+}
+
+func (client *readAtPoolAPIClient) CacheFile(_ context.Context, _ *api.CacheFileRequest, _ ...grpc.CallOption) (*api.Empty, error) {
+	atomic.AddInt32(&client.cacheRequests, 1)
+	return &api.Empty{}, nil
 }
 
 type writeAtPoolAPIClient struct {
@@ -286,5 +292,68 @@ func TestPoolServiceFileHandleDoesNotRestartReadyPrefetch(t *testing.T) {
 	wantCalls := int32(2 * rpcCallsPerBlock)
 	if calls := atomic.LoadInt32(&apiClient.totalReads); calls != wantCalls {
 		t.Fatalf("ready block was prefetched again: got %d RPC reads, want %d", calls, wantCalls)
+	}
+}
+
+func TestPoolServiceFileHandleCachesAfterReadThreshold(t *testing.T) {
+	const fileSize = prefetchCacheThreshold + int64(prefetchBlockSize)
+
+	apiClient := &readAtPoolAPIClient{fileSize: fileSize}
+	poolClient := &PoolServiceClient{
+		operationTimeout: time.Minute,
+		apiClient:        apiClient,
+	}
+	session := &PoolServiceSession{
+		id:                "test-session",
+		poolServiceClient: poolClient,
+		loggedIn:          true,
+	}
+	handle := &PoolServiceFileHandle{
+		id:                 "test-handle",
+		poolServiceClient:  poolClient,
+		poolServiceSession: session,
+		entry:              &irodsclient_fs.Entry{Path: "/zone/home/user/file", Size: fileSize},
+		prefetch: &prefetchState{
+			buf:     make([]byte, prefetchBlockSize),
+			nextBuf: make([]byte, prefetchBlockSize),
+		},
+	}
+
+	buffer := make([]byte, prefetchCacheThreshold)
+	if n, err := handle.ReadAt(buffer, 0); err != nil || n != len(buffer) {
+		t.Fatalf("read through threshold: n=%d, err=%v", n, err)
+	}
+	if requests := atomic.LoadInt32(&apiClient.cacheRequests); requests != 0 {
+		t.Fatalf("cache requested at threshold: got %d requests, want 0", requests)
+	}
+
+	if n, err := handle.ReadAt(buffer[:1], prefetchCacheThreshold); err != nil || n != 1 {
+		t.Fatalf("read beyond threshold: n=%d, err=%v", n, err)
+	}
+	if requests := atomic.LoadInt32(&apiClient.cacheRequests); requests != 1 {
+		t.Fatalf("cache requests after threshold: got %d, want 1", requests)
+	}
+
+	handle.prefetch.mu.Lock()
+	disabled := handle.prefetch.disabled
+	bytesRead := handle.prefetch.bytesRead
+	buf := handle.prefetch.buf
+	nextBuf := handle.prefetch.nextBuf
+	handle.prefetch.mu.Unlock()
+	if !disabled {
+		t.Fatal("prefetch remained enabled after crossing read threshold")
+	}
+	if bytesRead != prefetchCacheThreshold+1 {
+		t.Fatalf("tracked read bytes: got %d, want %d", bytesRead, prefetchCacheThreshold+1)
+	}
+	if buf != nil || nextBuf != nil {
+		t.Fatal("prefetch buffers were retained after disabling prefetch")
+	}
+
+	if n, err := handle.ReadAt(buffer[:1], prefetchCacheThreshold+1); err != nil || n != 1 {
+		t.Fatalf("read after disabling prefetch: n=%d, err=%v", n, err)
+	}
+	if requests := atomic.LoadInt32(&apiClient.cacheRequests); requests != 1 {
+		t.Fatalf("cache was requested more than once: got %d requests, want 1", requests)
 	}
 }

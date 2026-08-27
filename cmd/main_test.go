@@ -10,7 +10,48 @@ import (
 	"testing"
 
 	godaemonizer "github.com/cyverse/go-daemonizer"
+	"github.com/cyverse/irodsfs-pool/commons"
 )
+
+func TestConfigureForegroundPaths(t *testing.T) {
+	workingDirectory := t.TempDir()
+	t.Chdir(workingDirectory)
+
+	config := commons.NewDefaultConfig()
+	config.DataRootPath = "/unwritable/data"
+	config.StagingRootPath = "/unwritable/data/staging"
+
+	if err := configureForegroundPaths(config); err != nil {
+		t.Fatalf("configureForegroundPaths: %v", err)
+	}
+
+	if config.DataRootPath != workingDirectory {
+		t.Fatalf("DataRootPath = %q, want %q", config.DataRootPath, workingDirectory)
+	}
+	expectedStagingRootPath := filepath.Join(workingDirectory, commons.StagingRootPathDefault)
+	if config.StagingRootPath != expectedStagingRootPath {
+		t.Fatalf("StagingRootPath = %q, want %q", config.StagingRootPath, expectedStagingRootPath)
+	}
+	if config.GetLogRootPath() != workingDirectory {
+		t.Fatalf("default log root = %q, want %q", config.GetLogRootPath(), workingDirectory)
+	}
+}
+
+func TestConfigureForegroundPathsPreservesExplicitStagingRoot(t *testing.T) {
+	workingDirectory := t.TempDir()
+	t.Chdir(workingDirectory)
+
+	config := commons.NewDefaultConfig()
+	config.StagingRootPath = "/explicit/staging"
+
+	if err := configureForegroundPaths(config); err != nil {
+		t.Fatalf("configureForegroundPaths: %v", err)
+	}
+
+	if config.StagingRootPath != "/explicit/staging" {
+		t.Fatalf("StagingRootPath = %q, want explicit path", config.StagingRootPath)
+	}
+}
 
 func TestRootCommandContainsLifecycleCommands(t *testing.T) {
 	root := newRootCommand(godaemonizer.New())

@@ -27,6 +27,7 @@ max_data_mem_cache_size: 107374182400  # 100GB
 data_mem_cache_ttl: 6h
 staging_root_path: /irodsfs_pool/staging
 monitoring_service_port: 12021
+log_root_path: /var/log/irodsfs-pool
 ```
 
 ## Usage
@@ -36,6 +37,10 @@ Run in foreground (logs to stderr + file):
 ```bash
 ./irodsfs-pool run -c config.yaml
 ```
+
+Foreground `run` uses the current working directory as `data_root_path`. A
+staging path derived from the configured data root is moved to `./staging`;
+an explicitly configured staging path is preserved. No PID file is created.
 
 Run as daemon:
 

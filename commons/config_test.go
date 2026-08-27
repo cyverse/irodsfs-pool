@@ -1,11 +1,34 @@
 package commons
 
 import (
+	"bytes"
+	"io"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+type trackingWriteCloser struct {
+	bytes.Buffer
+	closed bool
+}
+
+func (writer *trackingWriteCloser) Close() error {
+	writer.closed = true
+	return nil
+}
+
+func TestNonClosingWriter(t *testing.T) {
+	underlying := &trackingWriteCloser{}
+	writer := NewMultiWriteCloser(nonClosingWriter{Writer: underlying})
+
+	_, err := io.WriteString(writer, "message")
+	assert.NoError(t, err)
+	assert.NoError(t, writer.Close())
+	assert.Equal(t, "message", underlying.String())
+	assert.False(t, underlying.closed)
+}
 
 func TestLogPaths(t *testing.T) {
 	config := NewDefaultConfig()

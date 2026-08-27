@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -65,7 +66,6 @@ func newStartCommand(d *godaemonizer.Daemon) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("process command flags: %w", err)
 			}
-
 			logWriter, err := config.GetLogWriter(true)
 			if err != nil {
 				return fmt.Errorf("get parent log writer: %w", err)
@@ -102,7 +102,7 @@ func runDaemonChild(command *cobra.Command, d *godaemonizer.Daemon) error {
 		log.SetOutput(logWriter)
 	}
 
-	return runManaged(&config, ready)
+	return runDaemonManaged(&config, ready)
 }
 
 func newRunCommand() *cobra.Command {
@@ -115,6 +115,9 @@ func newRunCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("process command flags: %w", err)
 			}
+			if err := configureForegroundPaths(config); err != nil {
+				return fmt.Errorf("configure foreground paths: %w", err)
+			}
 
 			logWriter, err := config.GetLogWriter(true)
 			if err != nil {
@@ -125,13 +128,30 @@ func newRunCommand() *cobra.Command {
 				log.SetOutput(logWriter)
 			}
 
-			return runManaged(config, nil)
+			return runForeground(config)
 		},
 	}
 }
 
 func loadConfig(command *cobra.Command) (*commons.Config, error) {
 	return cmd_commons.ProcessCommonFlags(command)
+}
+
+func configureForegroundPaths(config *commons.Config) error {
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get current working directory: %w", err)
+	}
+
+	oldDataRootPath := config.DataRootPath
+	oldDefaultStagingRootPath := filepath.Join(oldDataRootPath, commons.StagingRootPathDefault)
+
+	config.DataRootPath = workingDirectory
+	if config.StagingRootPath == "" || filepath.Clean(config.StagingRootPath) == filepath.Clean(oldDefaultStagingRootPath) {
+		config.StagingRootPath = filepath.Join(workingDirectory, commons.StagingRootPathDefault)
+	}
+
+	return nil
 }
 
 func newStopCommand() *cobra.Command {
@@ -240,12 +260,12 @@ func main() {
 	// must be called before Cobra parses os.Args so --__daemon__ is stripped.
 	daemon := godaemonizer.New()
 	if err := Execute(daemon); err != nil {
-		logger.Fatal(err)
+		fmt.Fprintf(os.Stderr, "irodsfs-pool: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func runManaged(config *commons.Config, ready func(error)) error {
+func runDaemonManaged(config *commons.Config, ready func(error)) error {
 	pidFile, err := cmd_commons.AcquirePIDFile(config.PIDFile)
 	if err != nil {
 		reportReady(ready, err)
@@ -253,6 +273,14 @@ func runManaged(config *commons.Config, ready func(error)) error {
 	}
 	defer pidFile.Close()
 
+	return runUntilShutdown(config, ready)
+}
+
+func runForeground(config *commons.Config) error {
+	return runUntilShutdown(config, nil)
+}
+
+func runUntilShutdown(config *commons.Config, ready func(error)) error {
 	runErr, shutdownFn := run(config)
 	if runErr != nil {
 		reportReady(ready, runErr)

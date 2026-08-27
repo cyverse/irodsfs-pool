@@ -41,7 +41,7 @@ Edit `/etc/irodsfs-pool/config.yaml` to adjust settings:
 | `staging_data_grace_period` | `10s` | Delay before syncing staged writes |
 | `operation_timeout` | `5m` | gRPC operation timeout |
 | `prometheus_exporter_port` | `12022` | Prometheus metrics port (0 to disable) |
-| `pid_file` | `/run/irodsfs-pool/irodsfs-pool.pid` | PID file used by the daemon and systemd |
+| `pid_file` | `/run/irodsfs-pool/irodsfs-pool.pid` | PID file used by `start`, `stop`, and `status` (not by foreground `run`) |
 | `debug` | `false` | Enable debug logging |
 | `log_root_path` | `/var/log/irodsfs-pool` | Directory containing the service log and per-session logs |
 

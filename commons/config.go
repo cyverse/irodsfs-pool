@@ -346,6 +346,12 @@ type MultiWriteCloser struct {
 	writers []io.Writer
 }
 
+// nonClosingWriter prevents MultiWriteCloser from closing a writer it does not own.
+// In particular, foreground logging must never close os.Stderr.
+type nonClosingWriter struct {
+	io.Writer
+}
+
 func NewMultiWriteCloser(writers ...io.Writer) *MultiWriteCloser {
 	return &MultiWriteCloser{writers: writers}
 }
@@ -385,7 +391,7 @@ func (config *Config) GetLogWriter(foregroundProcess bool) (io.WriteCloser, erro
 
 	if foregroundProcess {
 		fileWriter := getLogWriterForForegroundProcess(logFilePath)
-		return NewMultiWriteCloser(os.Stderr, fileWriter), nil
+		return NewMultiWriteCloser(nonClosingWriter{Writer: os.Stderr}, fileWriter), nil
 	}
 
 	daemonWriter := getLogWriterForDaemonProcess(logFilePath)

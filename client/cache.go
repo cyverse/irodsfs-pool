@@ -56,7 +56,8 @@ func (cache *MetadataCache) ClearDirCache() {
 
 // AddEntryCache adds an entry cache
 func (cache *MetadataCache) AddEntryCache(entry *irodsclient_fs.Entry) {
-	cache.entryCache.Set(entry.Path, entry, 0)
+	entryCopy := *entry
+	cache.entryCache.Set(entry.Path, &entryCopy, 0)
 }
 
 // RemoveEntryCache removes an entry cache
@@ -68,7 +69,8 @@ func (cache *MetadataCache) RemoveEntryCache(path string) {
 func (cache *MetadataCache) GetEntryCache(path string) *irodsclient_fs.Entry {
 	entry, _ := cache.entryCache.Get(path)
 	if fsentry, ok := entry.(*irodsclient_fs.Entry); ok {
-		return fsentry
+		entryCopy := *fsentry
+		return &entryCopy
 	}
 	return nil
 }

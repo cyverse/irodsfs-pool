@@ -22,6 +22,74 @@ type readAtPoolAPIClient struct {
 	totalReads     int32
 }
 
+type writeAtPoolAPIClient struct {
+	api.PoolAPIClient
+}
+
+func (client *writeAtPoolAPIClient) WriteAt(_ context.Context, request *api.WriteAtRequest, _ ...grpc.CallOption) (*api.WriteAtResponse, error) {
+	return &api.WriteAtResponse{Length: int32(len(request.Data))}, nil
+}
+
+func TestPoolServiceFileHandleWriteAtPublishesSizeBeforeFlush(t *testing.T) {
+	const (
+		writeOffset = int64(606208)
+		writeLength = 1430
+	)
+
+	poolClient := &PoolServiceClient{
+		operationTimeout: time.Minute,
+		apiClient:        &writeAtPoolAPIClient{},
+		fsCache:          NewMetadataCache(time.Minute, time.Minute),
+	}
+	session := &PoolServiceSession{
+		id:                "test-session",
+		poolServiceClient: poolClient,
+		loggedIn:          true,
+	}
+	entry := &irodsclient_fs.Entry{Path: "/zone/home/user/tmp_pack", Size: 0}
+	poolClient.fsCache.AddEntryCache(entry)
+	handle := &PoolServiceFileHandle{
+		id:                 "test-handle",
+		poolServiceClient:  poolClient,
+		poolServiceSession: session,
+		entry:              entry,
+	}
+
+	n, err := handle.WriteAt(make([]byte, writeLength), writeOffset)
+	if err != nil {
+		t.Fatalf("WriteAt failed: %v", err)
+	}
+	if n != writeLength {
+		t.Fatalf("WriteAt length: got %d, want %d", n, writeLength)
+	}
+
+	wantSize := writeOffset + writeLength
+	cachedEntry := poolClient.fsCache.GetEntryCache(entry.Path)
+	if cachedEntry == nil {
+		t.Fatal("written entry was not published to metadata cache")
+	}
+	if cachedEntry.Size != wantSize {
+		t.Fatalf("cached size before Flush: got %d, want %d", cachedEntry.Size, wantSize)
+	}
+}
+
+func TestMetadataCacheStoresEntrySnapshots(t *testing.T) {
+	metadataCache := NewMetadataCache(time.Minute, time.Minute)
+	entry := &irodsclient_fs.Entry{Path: "/zone/home/user/file", Size: 10}
+	metadataCache.AddEntryCache(entry)
+
+	entry.Size = 20
+	if got := metadataCache.GetEntryCache(entry.Path).Size; got != 10 {
+		t.Fatalf("cached entry changed through source pointer: got %d, want 10", got)
+	}
+
+	cachedEntry := metadataCache.GetEntryCache(entry.Path)
+	cachedEntry.Size = 30
+	if got := metadataCache.GetEntryCache(entry.Path).Size; got != 10 {
+		t.Fatalf("cached entry changed through returned pointer: got %d, want 10", got)
+	}
+}
+
 func (client *readAtPoolAPIClient) ReadAt(_ context.Context, request *api.ReadAtRequest, _ ...grpc.CallOption) (*api.ReadAtResponse, error) {
 	atomic.AddInt32(&client.totalReads, 1)
 	active := atomic.AddInt32(&client.activeReads, 1)

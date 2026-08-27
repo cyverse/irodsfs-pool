@@ -867,6 +867,7 @@ func (session *PoolServiceSession) CreateFile(path string, mode string) (irodsfs
 
 	// remove cache
 	session.InvalidateCacheForCreateFile(path)
+	session.poolServiceClient.fsCache.AddEntryCache(irodsEntry)
 
 	handle := &PoolServiceFileHandle{
 		id:                 response.FileHandleId,
@@ -951,6 +952,11 @@ func (session *PoolServiceSession) OpenFile(path string, mode string) (irodsfs_c
 
 		logger: session.logger.WithFields(log.Fields{"handle_id": response.FileHandleId}),
 	}
+
+	// The server-side open observes the current size of staged files. Publish
+	// that snapshot so a following getattr cannot reuse metadata cached before
+	// the file was written.
+	session.poolServiceClient.fsCache.AddEntryCache(irodsEntry)
 
 	if irodsclient_types.FileOpenMode(mode).IsReadOnly() {
 		count := atomic.AddInt32(&session.openReadOnlyHandles, 1)
@@ -1930,6 +1936,7 @@ func (handle *PoolServiceFileHandle) WriteAt(data []byte, offset int64) (int, er
 	if handle.entry.Size < endOffset {
 		handle.entry.Size = endOffset
 	}
+	handle.poolServiceClient.fsCache.AddEntryCache(handle.entry)
 
 	return dataLen, nil
 }
@@ -1983,6 +1990,7 @@ func (handle *PoolServiceFileHandle) sendToServer(data []byte, offset int64) (in
 			handle.entry.Size = curOffset
 		}
 	}
+	handle.poolServiceClient.fsCache.AddEntryCache(handle.entry)
 
 	return totalWriteLength, nil
 }
@@ -2015,6 +2023,7 @@ func (handle *PoolServiceFileHandle) Truncate(size int64) error {
 	}
 
 	handle.entry.Size = size
+	handle.poolServiceClient.fsCache.AddEntryCache(handle.entry)
 
 	return nil
 }

@@ -190,7 +190,9 @@ func (client *PoolServiceClient) backgroundReconnect(ctx context.Context) {
 			return
 		}
 
-		client.Disconnect()
+		// Use disconnectConn (not Disconnect) to avoid cancelling bgCtx or
+		// resetting reconnectingFlag from within the reconnect loop itself.
+		client.disconnectConn()
 		if err := client.Connect(); err != nil {
 			client.logger.WithError(err).Warn("backgroundReconnect: failed to create connection")
 		} else {
@@ -264,6 +266,18 @@ func (client *PoolServiceClient) Connect() error {
 	return nil
 }
 
+// disconnectConn tears down the gRPC connection without touching bgCancel or
+// reconnectingFlag.  Used internally by the reconnect paths so they don't
+// accidentally cancel themselves or reset the in-progress flag.
+func (client *PoolServiceClient) disconnectConn() {
+	client.apiClient = nil
+	if client.grpcConnection != nil {
+		client.grpcConnection.Close()
+		client.grpcConnection = nil
+	}
+	client.connected = false
+}
+
 // Disconnect disconnects connection from pool service
 func (client *PoolServiceClient) Disconnect() {
 	// Stop any running background reconnect goroutine.
@@ -275,16 +289,7 @@ func (client *PoolServiceClient) Disconnect() {
 	client.bgCancelMu.Unlock()
 	atomic.StoreInt32(&client.reconnectingFlag, 0)
 
-	if client.apiClient != nil {
-		client.apiClient = nil
-	}
-
-	if client.grpcConnection != nil {
-		client.grpcConnection.Close()
-		client.grpcConnection = nil
-	}
-
-	client.connected = false
+	client.disconnectConn()
 }
 
 func (client *PoolServiceClient) getContextWithDeadline() (context.Context, context.CancelFunc) {
@@ -568,7 +573,8 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 			}
 
 			// One immediate attempt: recreate connection and test with Relogin.
-			client.Disconnect()
+			// Use disconnectConn (not Disconnect) to preserve reconnectingFlag==1.
+			client.disconnectConn()
 			_ = client.Connect()
 			if conn := client.grpcConnection; conn != nil {
 				conn.Connect()

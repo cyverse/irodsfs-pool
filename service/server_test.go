@@ -2,11 +2,33 @@ package service
 
 import (
 	"bytes"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/cyverse/irodsfs-pool/commons"
 	log "github.com/sirupsen/logrus"
 )
+
+func TestMonitoringModalClosesOnlyWithCloseButton(t *testing.T) {
+	server := &PoolServer{
+		sessionManager: &PoolSessionManager{
+			sessions: map[string]*PoolSession{},
+		},
+	}
+	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
+
+	body := recorder.Body.String()
+	if strings.Contains(body, "modal-overlay').addEventListener('click'") {
+		t.Fatal("monitoring modal must not close when the overlay is clicked")
+	}
+	if !strings.Contains(body, `id="modal-close" onclick="closeDetail()"`) {
+		t.Fatal("monitoring modal close button is missing")
+	}
+}
 
 func TestGetSessionAndLoggerUsesSessionLogger(t *testing.T) {
 	serverOutput := &bytes.Buffer{}

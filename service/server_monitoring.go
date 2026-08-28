@@ -85,7 +85,6 @@ function closeDetail() {
   document.getElementById('modal-overlay').style.display = 'none';
   try { sessionStorage.removeItem('_openDetail'); } catch(e) {}
 }
-document.getElementById('modal-overlay').addEventListener('click', function(e){ if (e.target === this) closeDetail(); });
 (function(){
   try {
     var id = sessionStorage.getItem('_openDetail');

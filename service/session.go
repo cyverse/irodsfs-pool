@@ -215,8 +215,13 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	}
 	sessionLogger.Infof("Creating a new pool session for username %q", account.ClientUser)
 
+	irodsClientLogger, err := newIrodsClientLogger(sessionLogFile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create log file for go-irodsclient %q", sessionID)
+	}
+
 	fsConfig := irodsclient_fs.NewFileSystemConfig(appName)
-	fsConfig.LogEntry = sessionLogger
+	fsConfig.LogEntry = irodsClientLogger
 	fsConfig.IOConnection.MaxNumber = manager.config.maxIOConnectionPerSession
 	fsConfig.Cache.MetadataTimeoutSettings = manager.config.metadataCacheTimeoutSettings
 	fsConfig.Cache.StartNewTransaction = manager.config.startNewTransaction
@@ -802,4 +807,21 @@ func newSessionLogger(logRootPath string, sessionID string) (*log.Entry, io.Writ
 	sessionLogger.SetReportCaller(true)
 
 	return sessionLogger.WithField("session_id", sessionID), logWriter, nil
+}
+
+func newIrodsClientLogger(logWriter io.WriteCloser) (*log.Entry, error) {
+	myFormatter := &irodsfs_common_util.StacktraceTextFormatter{
+		TextFormatter: log.TextFormatter{
+			TimestampFormat: "2006-01-02 15:04:05.000000",
+			FullTimestamp:   true,
+		},
+	}
+
+	irodsClientLogger := log.New()
+	irodsClientLogger.SetOutput(logWriter)
+	irodsClientLogger.SetFormatter(myFormatter)
+	irodsClientLogger.SetLevel(log.ErrorLevel)
+	irodsClientLogger.SetReportCaller(true)
+
+	return irodsClientLogger.WithFields(log.Fields{}), nil
 }

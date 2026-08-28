@@ -197,7 +197,7 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 		return
 	}
 
-	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Access</th><th>Clients</th><th>File Handles</th></tr>`)
+	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Access</th><th>Clients</th><th>File Handles</th><th>iRODS Conns</th></tr>`)
 	for _, session := range sessions {
 		session.mutex.RLock()
 		handleCount := len(session.poolFileHandles)
@@ -208,6 +208,11 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 		}
 		lastAccess := session.lastAccessTime
 		session.mutex.RUnlock()
+
+		var irodsConns int
+		if session.fsClient != nil {
+			irodsConns = session.fsClient.GetOpenConnections()
+		}
 
 		sort.Slice(connEntries, func(i, j int) bool { return connEntries[i].id < connEntries[j].id })
 
@@ -231,8 +236,8 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 			clientsCell = sb.String()
 		}
 
-		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('%s')"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td></tr>`,
-			session.id, session.id[:12]+"…", userInfo, hostInfo, lastAccess.Format("15:04:05"), clientsCell, handleCount)
+		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('%s')"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td></tr>`,
+			session.id, session.id[:12]+"…", userInfo, hostInfo, lastAccess.Format("15:04:05"), clientsCell, handleCount, irodsConns)
 	}
 	fmt.Fprint(w, `</table>`)
 	fmt.Fprint(w, `<p class="info">Click a row to see staged files, sync status, and open file handles.</p>`)

@@ -337,27 +337,34 @@ func (manager *PoolSessionManager) ReleaseAllSessions() {
 	manager.connMap = map[string]string{}
 	manager.mutex.Unlock()
 
+	wg := sync.WaitGroup{}
 	for _, session := range sessions {
-		manager.logger.Infof("Force releasing pool session %q", session.id)
-		if manager.onBeforeSessionRelease != nil {
-			manager.onBeforeSessionRelease(session)
-		}
+		wg.Add(1)
+		go func(sess *PoolSession) {
+			defer wg.Done()
 
-		session.mutex.Lock()
-		alreadyReleasing := session.releasing
-		if !alreadyReleasing {
-			session.releasing = true
-			session.releaseDone = make(chan struct{})
-		}
-		session.mutex.Unlock()
+			manager.logger.Infof("Force releasing pool session %q", sess.id)
+			if manager.onBeforeSessionRelease != nil {
+				manager.onBeforeSessionRelease(sess)
+			}
 
-		if !alreadyReleasing {
-			session.release()
-			close(session.releaseDone)
-		} else {
-			<-session.releaseDone
-		}
+			sess.mutex.Lock()
+			alreadyReleasing := sess.releasing
+			if !alreadyReleasing {
+				sess.releasing = true
+				sess.releaseDone = make(chan struct{})
+			}
+			sess.mutex.Unlock()
+
+			if !alreadyReleasing {
+				sess.release()
+				close(sess.releaseDone)
+			} else {
+				<-sess.releaseDone
+			}
+		}(session)
 	}
+	wg.Wait()
 }
 
 func (manager *PoolSessionManager) AddConnection(connID string, sessionID string, appName string, description string) {
@@ -669,9 +676,15 @@ func (session *PoolSession) release() {
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
+	handleWg := sync.WaitGroup{}
 	for _, handle := range session.poolFileHandles {
-		handle.Release()
+		handleWg.Add(1)
+		go func(h *PoolFileHandle) {
+			defer handleWg.Done()
+			h.Release()
+		}(handle)
 	}
+	handleWg.Wait()
 	session.poolFileHandles = map[string]*PoolFileHandle{}
 
 	if session.fsClient != nil {

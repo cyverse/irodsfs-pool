@@ -26,12 +26,13 @@ const (
 )
 
 type FailedSessionInfo struct {
-	ID             string                        `json:"id"`
-	Status         FailedSessionStatus           `json:"status"`
-	AccountKey     string                        `json:"account_key"`
-	IRODSAccount   RedactedIRODSAccount          `json:"irods_account"`
-	Connections    []FailedSessionConnectionInfo `json:"connections"`
-	LastAccessTime time.Time                     `json:"last_access_time"`
+	ID               string                        `json:"id"`
+	Status           FailedSessionStatus           `json:"status"`
+	AccountKey       string                        `json:"account_key"`
+	IRODSAccount     RedactedIRODSAccount          `json:"irods_account"`
+	EncryptedAccount *EncryptedIRODSAccount        `json:"encrypted_account,omitempty"`
+	Connections      []FailedSessionConnectionInfo `json:"connections"`
+	LastAccessTime   time.Time                     `json:"last_access_time"`
 }
 
 type FailedSessionConnectionInfo struct {
@@ -71,7 +72,7 @@ type RedactedIRODSSSLConfig struct {
 
 func (manager *PoolSessionManager) handleSessionReleaseResult(session *PoolSession, releaseErr error) {
 	if releaseErr != nil {
-		if err := manager.saveFailedSession(snapshotFailedSession(session, FailedSessionStatusReleaseFailed)); err != nil {
+		if err := manager.saveFailedSession(manager.snapshotFailedSession(session, FailedSessionStatusReleaseFailed)); err != nil {
 			manager.logger.WithError(errors.CombineErrors(releaseErr, err)).Errorf(
 				"Failed to release pool session %q cleanly and persist its recovery information", session.id)
 			return
@@ -86,7 +87,7 @@ func (manager *PoolSessionManager) handleSessionReleaseResult(session *PoolSessi
 	}
 }
 
-func snapshotFailedSession(session *PoolSession, status FailedSessionStatus) FailedSessionInfo {
+func (manager *PoolSessionManager) snapshotFailedSession(session *PoolSession, status FailedSessionStatus) FailedSessionInfo {
 	session.mutex.RLock()
 	defer session.mutex.RUnlock()
 
@@ -97,6 +98,14 @@ func snapshotFailedSession(session *PoolSession, status FailedSessionStatus) Fai
 		IRODSAccount:   redactIRODSAccount(session.irodsAccount),
 		Connections:    make([]FailedSessionConnectionInfo, 0, len(session.connections)),
 		LastAccessTime: session.lastAccessTime,
+	}
+	if manager.recoveryCipher != nil && session.irodsAccount != nil {
+		encrypted, err := manager.recoveryCipher.Encrypt(session.irodsAccount, session.id, session.accountKey)
+		if err != nil {
+			manager.logger.WithError(err).Warnf("Failed to encrypt iRODS account for session %q", session.id)
+		} else {
+			info.EncryptedAccount = &encrypted
+		}
 	}
 	for connectionID, connection := range session.connections {
 		info.Connections = append(info.Connections, FailedSessionConnectionInfo{
@@ -111,6 +120,13 @@ func snapshotFailedSession(session *PoolSession, status FailedSessionStatus) Fai
 	return info
 }
 
+func (manager *PoolSessionManager) DecryptSessionAccount(info *FailedSessionInfo) (*irodsclient_types.IRODSAccount, error) {
+	if info.EncryptedAccount == nil {
+		return nil, errors.New("no encrypted account stored for this session")
+	}
+	return manager.recoveryCipher.Decrypt(*info.EncryptedAccount, info.ID, info.AccountKey)
+}
+
 func (manager *PoolSessionManager) trackActiveSession(session *PoolSession) error {
 	status := FailedSessionStatusActive
 	existing, err := manager.getStoredSession(session.id)
@@ -120,7 +136,7 @@ func (manager *PoolSessionManager) trackActiveSession(session *PoolSession) erro
 	if existing != nil && existing.Status != FailedSessionStatusActive {
 		status = FailedSessionStatusRecovering
 	}
-	return manager.saveFailedSession(snapshotFailedSession(session, status))
+	return manager.saveFailedSession(manager.snapshotFailedSession(session, status))
 }
 
 func (manager *PoolSessionManager) checkpointSession(session *PoolSession) {
@@ -133,7 +149,7 @@ func (manager *PoolSessionManager) checkpointSession(session *PoolSession) {
 	if existing != nil {
 		status = existing.Status
 	}
-	if err := manager.saveFailedSession(snapshotFailedSession(session, status)); err != nil {
+	if err := manager.saveFailedSession(manager.snapshotFailedSession(session, status)); err != nil {
 		manager.logger.WithError(err).Errorf("Failed to checkpoint lifecycle record for session %q", session.id)
 	}
 }

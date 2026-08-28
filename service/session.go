@@ -41,6 +41,7 @@ type PoolSessionManager struct {
 	failedSessionDBPath string
 	failedSessionDB     *badger.DB
 	failedSessionMutex  sync.Mutex
+	recoveryCipher      *recoveryAccountCipher
 
 	onBeforeSessionRelease func(session *PoolSession)
 
@@ -91,6 +92,12 @@ func NewPoolSessionManager(config *PoolServerConfig) (*PoolSessionManager, error
 		mutex:         sync.RWMutex{},
 		terminateChan: make(chan bool),
 	}
+	recoveryCipher, err := newRecoveryAccountCipher(config.recoveryEncryptionKey)
+	if err != nil {
+		cacheManager.Release()
+		return nil, err
+	}
+	manager.recoveryCipher = recoveryCipher
 
 	manager.failedSessionDBPath = filepath.Join(config.dataRootPath, failedSessionDBDirectoryName)
 	if err := manager.loadFailedSessionStore(); err != nil {

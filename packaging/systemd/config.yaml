@@ -2,6 +2,7 @@ service_endpoint: tcp://0.0.0.0:12020
 debug: false
 data_root_path: /irodsfs_pool
 pid_file: /run/irodsfs-pool/irodsfs-pool.pid
+recovery_encryption_key: ""  # required: base64-encoded 32-byte key
 
 session_timeout: 10m
 session_timeout_check_interval: 10s

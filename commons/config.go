@@ -1,12 +1,14 @@
 package commons
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/natefinch/lumberjack.v2"
 	yaml "gopkg.in/yaml.v2"
@@ -21,6 +23,8 @@ type Config struct {
 	ServiceEndpoint string `yaml:"service_endpoint,omitempty" json:"service_endpoint,omitempty"`
 	DataRootPath    string `yaml:"data_root_path,omitempty" json:"data_root_path,omitempty"`
 	PIDFile         string `yaml:"pid_file,omitempty" json:"pid_file,omitempty"`
+
+	RecoveryEncryptionKey string `yaml:"recovery_encryption_key,omitempty" json:"recovery_encryption_key,omitempty"`
 
 	SessionTimeout                        irodsclient_types.Duration                   `yaml:"session_timeout,omitempty" json:"session_timeout,omitempty"`
 	SessionTimeoutCheckInterval           irodsclient_types.Duration                   `yaml:"session_timeout_check_interval,omitempty" json:"session_timeout_check_interval,omitempty"`
@@ -216,6 +220,21 @@ func (config *Config) GetDataRootPath() string {
 	return config.DataRootPath
 }
 
+func (config *Config) GetRecoveryEncryptionKey() ([]byte, error) {
+	encodedKey := strings.TrimSpace(config.RecoveryEncryptionKey)
+	if encodedKey == "" {
+		return nil, errors.New("recovery encryption key must be given")
+	}
+	key, err := base64.StdEncoding.DecodeString(encodedKey)
+	if err != nil {
+		return nil, errors.Wrap(err, "recovery encryption key must be valid base64")
+	}
+	if len(key) != 32 {
+		return nil, errors.Errorf("recovery encryption key must decode to exactly 32 bytes, got %d", len(key))
+	}
+	return key, nil
+}
+
 // MakeLogDir makes a log dir required
 func (config *Config) MakeLogDir() error {
 	return config.makeDir(config.GetLogRootPath())
@@ -336,6 +355,10 @@ func (config *Config) Validate() error {
 
 	if len(config.PIDFile) == 0 {
 		return errors.Errorf("pid file path must be given")
+	}
+
+	if _, err := config.GetRecoveryEncryptionKey(); err != nil {
+		return err
 	}
 
 	return nil

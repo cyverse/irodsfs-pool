@@ -36,8 +36,14 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 
 	defer irodsfs_common_util.StackTraceFromPanic(logger)
 
+	recoveryEncryptionKey, err := config.GetRecoveryEncryptionKey()
+	if err != nil {
+		return nil, err
+	}
+
 	poolServerConfig := &PoolServerConfig{
 		dataRootPath:                          config.DataRootPath,
+		recoveryEncryptionKey:                 recoveryEncryptionKey,
 		sessionTimeout:                        time.Duration(config.SessionTimeout),
 		sessionTimeoutCheckInterval:           time.Duration(config.SessionTimeoutCheckInterval),
 		dataBlockSize:                         config.DataBlockSize,

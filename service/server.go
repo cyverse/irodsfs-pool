@@ -19,6 +19,7 @@ import (
 
 type PoolServerConfig struct {
 	dataRootPath                          string
+	recoveryEncryptionKey                 []byte
 	sessionTimeout                        time.Duration
 	sessionTimeoutCheckInterval           time.Duration
 	dataBlockSize                         int64

@@ -434,7 +434,7 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 		manager.pendingReleases[sessionID] = t
 		session.UpdateLastAccessTime()
 		manager.mutex.Unlock()
-		manager.logger.Infof("Session %q has no connections; will release after grace period %v", sessionID, manager.config.sessionCloseGracePeriod)
+		manager.logger.Infof("Session %q has no connections; will release after grace period %q", sessionID, manager.config.sessionCloseGracePeriod)
 		return
 	}
 

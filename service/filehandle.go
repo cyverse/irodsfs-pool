@@ -81,6 +81,6 @@ func flushSessionStaging(session *PoolSession, logger *log.Entry) {
 		return
 	}
 	if err := syncer.Sync(); err != nil {
-		logger.Warnf("staging flush before metrics collection failed for session %q: %v", session.id, err)
+		logger.WithError(err).Warnf("staging flush before metrics collection failed for session %q", session.id)
 	}
 }

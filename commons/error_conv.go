@@ -216,6 +216,9 @@ func StatusToError(err error) error {
 				return irodsclient_types.NewAuthError(&account)
 			case codes.Internal:
 				return errors.New(st.Message())
+			case codes.Unavailable:
+				// Preserve as gRPC status so callers can detect transport errors.
+				return err
 			default:
 				return errors.New(st.Message())
 			}

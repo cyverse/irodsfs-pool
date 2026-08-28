@@ -535,31 +535,8 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 	// now let's go
 	res, err := f()
 	if err != nil {
-		// relogin required
-		if commons.IsReloginRequiredError(err) {
-			session.mutex.Lock()
-			session.loggedIn = false
-			session.mutex.Unlock()
-
-			// relogin
-			err2 := session.Relogin()
-			if err2 != nil {
-				return nil, err2
-			}
-
-			// retry
-			res, err = f()
-			if commons.IsReloginRequiredError(err) {
-				// logged out
-				session.mutex.Lock()
-				session.loggedIn = false
-				session.mutex.Unlock()
-			}
-
-			return res, err
-		}
-
-		// server unreachable
+		// Check for transport error FIRST: IsReloginRequiredError also returns
+		// true for codes.Unavailable, so it must not intercept transport errors.
 		if client.autoReconnect && isTransportError(err) {
 			session.logger.Warnf("Transport error detected: %v", err)
 
@@ -599,6 +576,30 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 			// Immediate attempt failed — hand off to background reconnect loop.
 			client.logger.Warn("Immediate reconnect failed, starting background reconnect")
 			client.startBackgroundReconnect()
+			return res, err
+		}
+
+		// relogin required (session expired, not a transport failure)
+		if commons.IsReloginRequiredError(err) {
+			session.mutex.Lock()
+			session.loggedIn = false
+			session.mutex.Unlock()
+
+			// relogin
+			err2 := session.Relogin()
+			if err2 != nil {
+				return nil, err2
+			}
+
+			// retry
+			res, err = f()
+			if commons.IsReloginRequiredError(err) {
+				// logged out
+				session.mutex.Lock()
+				session.loggedIn = false
+				session.mutex.Unlock()
+			}
+
 			return res, err
 		}
 

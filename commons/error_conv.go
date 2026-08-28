@@ -131,6 +131,15 @@ func StatusToError(err error) error {
 
 	st, _ := status.FromError(err)
 	if st != nil {
+		// Preserve transport errors before any message parsing so that
+		// isTransportError() in client code can still detect them via
+		// status.FromError().  Raw gRPC transport messages have no ";"
+		// delimiter so they fall through to errorTypeInternalError otherwise,
+		// which strips the gRPC status code.
+		if st.Code() == codes.Unavailable {
+			return err
+		}
+
 		errType, errContent, _ := extractErrorInfoFromMessage(st.Message())
 		switch errType {
 		case errorTypeSessionNotFound:

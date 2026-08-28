@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -203,6 +204,80 @@ func TestRESTAPIGetSessionNotFound(t *testing.T) {
 	}
 	if response.Error != "session not found" {
 		t.Fatalf("error = %q", response.Error)
+	}
+}
+
+func TestRESTAPIFailedSessions(t *testing.T) {
+	manager := newFailedSessionStoreTestManager(t.TempDir())
+	manager.handleSessionReleaseResult(newFailedSessionStoreTestSession("session-1"), errors.New("sync failed"))
+	t.Cleanup(func() {
+		if err := manager.closeFailedSessionStore(); err != nil {
+			t.Errorf("closeFailedSessionStore: %v", err)
+		}
+	})
+
+	server := &PoolServer{sessionManager: manager}
+	mux := http.NewServeMux()
+	NewRESTAPIHandler(server, nil).RegisterRoutes(mux)
+
+	listRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(listRecorder, httptest.NewRequest(http.MethodGet, "/api/recovery-sessions", nil))
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d", listRecorder.Code, http.StatusOK)
+	}
+	var sessions []FailedSessionInfo
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &sessions); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].ID != "session-1" || sessions[0].AccountKey != "account-session-1" {
+		t.Fatalf("unexpected failed sessions: %#v", sessions)
+	}
+	if sessions[0].Status != FailedSessionStatusReleaseFailed {
+		t.Fatalf("status = %q, want %q", sessions[0].Status, FailedSessionStatusReleaseFailed)
+	}
+	if len(sessions[0].Connections) != 2 || sessions[0].IRODSAccount.ClientUser != "rods" {
+		t.Fatalf("failed session metadata is incomplete: %#v", sessions[0])
+	}
+
+	detailRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(detailRecorder, httptest.NewRequest(http.MethodGet, "/api/recovery-sessions/session-1", nil))
+	if detailRecorder.Code != http.StatusOK {
+		t.Fatalf("detail status = %d, want %d", detailRecorder.Code, http.StatusOK)
+	}
+	var detail FailedSessionInfo
+	if err := json.Unmarshal(detailRecorder.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	if detail.ID != "session-1" || detail.IRODSAccount.Host != "irods.example.org" {
+		t.Fatalf("unexpected failed session detail: %#v", detail)
+	}
+
+	missingRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(missingRecorder, httptest.NewRequest(http.MethodGet, "/api/recovery-sessions/missing", nil))
+	if missingRecorder.Code != http.StatusNotFound {
+		t.Fatalf("missing status = %d, want %d", missingRecorder.Code, http.StatusNotFound)
+	}
+
+	combinedBody := strings.ToLower(listRecorder.Body.String() + detailRecorder.Body.String())
+	for _, secret := range []string{"secret-password", "secret-ticket", "secret-pam-token", `"password"`, `"ticket"`, `"pam_token"`} {
+		if strings.Contains(combinedBody, secret) {
+			t.Fatalf("failed-session API exposes sensitive account data %q: %s", secret, combinedBody)
+		}
+	}
+}
+
+func TestRESTAPIFailedSessionCompatibilityAlias(t *testing.T) {
+	manager := newFailedSessionStoreTestManager(t.TempDir())
+	manager.handleSessionReleaseResult(newFailedSessionStoreTestSession("session-1"), errors.New("sync failed"))
+	t.Cleanup(func() { _ = manager.closeFailedSessionStore() })
+
+	server := &PoolServer{sessionManager: manager}
+	mux := http.NewServeMux()
+	NewRESTAPIHandler(server, nil).RegisterRoutes(mux)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/failed-sessions/session-1", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("compatibility alias status = %d, want %d", recorder.Code, http.StatusOK)
 	}
 }
 

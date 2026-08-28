@@ -52,6 +52,10 @@ The pool client (`client/client.go`) implements `IRODSFSClient` interface and co
 - Sessions are keyed by account credentials (host, port, user, zone, ticket, resource).
 - Multiple client connections sharing the same account reuse a single session.
 - Sessions are released when all connections disconnect or after a configurable timeout.
+- Every active session has lifecycle metadata in the Badger database at `<data_root_path>/failed_sessions.db`.
+- Records contain the session ID, lifecycle status, account key, redacted account, client connections, and last-access time. Passwords, tickets, and PAM tokens are never persisted.
+- Records left in `active` or `recovering` state by a crash are changed to `interrupted` on server startup. A matching client login reopens the persistent staging directory and changes the record to `recovering`; the staging worker then retries queued operations.
+- A clean release failure changes the status to `release_failed`. A successful release removes the record, and the database directory is deleted when no records remain.
 
 ### Block Cache (ReadOnly)
 
@@ -130,9 +134,12 @@ A single HTTP server (default port 12021) exposes monitoring, metrics, and a rea
 | `/api/sysinfo` | JSON server, memory cache, staging, and I/O metrics information |
 | `/api/sessions` | JSON list of active sessions with clients, staged files, and open file handles |
 | `/api/sessions/{sessionID}` | JSON details for one active session, including clients, staged files, and open file handles |
+| `/api/recovery-sessions` | JSON list of interrupted, recovering, or release-failed sessions |
+| `/api/recovery-sessions/{sessionID}` | JSON persisted recovery metadata for one session |
 
-The dashboard auto-refreshes every 10 seconds and shows red warnings when system memory or staging disk space is insufficient.
+The dashboard auto-refreshes every 10 seconds, shows sessions pending recovery in a separate section, and shows red warnings when system memory or staging disk space is insufficient.
 The REST API does not expose account credentials, tickets, or PAM tokens.
+The earlier `/api/failed-sessions` paths remain compatibility aliases for the recovery-session endpoints.
 
 ## Configuration
 

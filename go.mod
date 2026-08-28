@@ -6,7 +6,8 @@ require (
 	github.com/cockroachdb/errors v1.12.0
 	github.com/cyverse/go-daemonizer v0.2.0
 	github.com/cyverse/go-irodsclient v0.21.2-0.20260828173043-2baa63a00f3f
-	github.com/cyverse/irodsfs-common v0.0.0-20260828175820-2fcb49bfc15c
+	github.com/cyverse/irodsfs-common v0.0.0-20260828203753-be08b3440da7
+	github.com/dgraph-io/badger/v3 v3.2103.5
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/prometheus/client_golang v1.22.0
 	github.com/rs/xid v1.3.0
@@ -29,7 +30,6 @@ require (
 	github.com/cockroachdb/redact v1.1.5 // indirect
 	github.com/danwakefield/fnmatch v0.0.0-20160403171240-cbb64ac3d964 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dgraph-io/badger/v3 v3.2103.5 // indirect
 	github.com/dgraph-io/ristretto v0.2.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect

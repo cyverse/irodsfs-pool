@@ -2,6 +2,8 @@ package service
 
 import (
 	"fmt"
+	"html"
+	"html/template"
 	"net/http"
 	"sort"
 	"strings"
@@ -68,9 +70,11 @@ tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 	h.renderCacheInfo(w)
 	h.renderStagingInfo(w)
 	h.renderSessions(w)
+	h.renderFailedSessions(w)
 	h.renderMetrics(w)
 
 	h.renderSessionDetails(w)
+	h.renderFailedSessionDetails(w)
 
 	fmt.Fprintf(w, `<p class="info">Last refreshed: %s</p>`, time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprint(w, `<script>
@@ -248,6 +252,50 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 	fmt.Fprint(w, `<p class="info">Click a row to see staged files, sync status, and open file handles.</p>`)
 }
 
+func (h *MonitoringHandler) renderFailedSessions(w http.ResponseWriter) {
+	fmt.Fprint(w, `<h2>Sessions Pending Recovery</h2>`)
+
+	sessions, err := h.poolServer.GetSessionManager().GetFailedSessions()
+	if err != nil {
+		fmt.Fprint(w, `<p class="dirty">Unable to load persisted recovery information.</p>`)
+		return
+	}
+
+	fmt.Fprintf(w, `<p>Total: %d</p>`, len(sessions))
+	if len(sessions) == 0 {
+		fmt.Fprint(w, `<p class="info">No sessions are pending recovery.</p>`)
+		return
+	}
+
+	fmt.Fprint(w, `<table><tr><th>ID</th><th>Status</th><th>User</th><th>Host</th><th>Last Access</th><th>Clients</th></tr>`)
+	for _, session := range sessions {
+		displayID := session.ID
+		if len(displayID) > 12 {
+			displayID = displayID[:12] + "…"
+		}
+		account := session.IRODSAccount
+		userInfo := fmt.Sprintf("%s@%s", account.ClientUser, account.ClientZone)
+		hostInfo := fmt.Sprintf("%s:%d", account.Host, account.Port)
+
+		var clientsCell strings.Builder
+		fmt.Fprintf(&clientsCell, `<span style="margin-right:4px">%d</span>`, len(session.Connections))
+		for _, connection := range session.Connections {
+			tooltip := connection.Application
+			if connection.Description != "" {
+				tooltip += ": " + connection.Description
+			}
+			fmt.Fprintf(&clientsCell, `<span class="badge" title="%s">%s(%s)</span>`,
+				html.EscapeString(tooltip), html.EscapeString(connection.ConnectionID), html.EscapeString(connection.Application))
+		}
+
+		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('%s')"><td>%s</td><td><span class="badge">%s</span></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+			template.JSEscapeString("failed-"+session.ID), html.EscapeString(displayID), html.EscapeString(string(session.Status)), html.EscapeString(userInfo), html.EscapeString(hostInfo),
+			session.LastAccessTime.Format("2006-01-02 15:04:05"), clientsCell.String())
+	}
+	fmt.Fprint(w, `</table>`)
+	fmt.Fprint(w, `<p class="info">These sessions were interrupted, are recovering, or failed during release. Click a row for recovery metadata.</p>`)
+}
+
 func (h *MonitoringHandler) renderSessionDetails(w http.ResponseWriter) {
 	// Modal overlay (hidden; JS populates #modal-content on row click)
 	fmt.Fprint(w, `<div id="modal-overlay"><div id="modal-box"><button id="modal-close" onclick="closeDetail()">✕</button><div id="modal-content"></div></div></div>`)
@@ -256,6 +304,60 @@ func (h *MonitoringHandler) renderSessionDetails(w http.ResponseWriter) {
 	for _, session := range sessions {
 		h.renderOneSessionDetail(w, session)
 	}
+}
+
+func (h *MonitoringHandler) renderFailedSessionDetails(w http.ResponseWriter) {
+	sessions, err := h.poolServer.GetSessionManager().GetFailedSessions()
+	if err != nil {
+		return
+	}
+	for _, session := range sessions {
+		h.renderOneFailedSessionDetail(w, session)
+	}
+}
+
+func (h *MonitoringHandler) renderOneFailedSessionDetail(w http.ResponseWriter, session FailedSessionInfo) {
+	escape := html.EscapeString
+	account := session.IRODSAccount
+	fmt.Fprintf(w, `<div id="detail-failed-%s" style="display:none">`, escape(session.ID))
+	fmt.Fprint(w, `<h3>Session Pending Recovery</h3><table>`)
+	fmt.Fprintf(w, `<tr><th>ID</th><td>%s</td></tr>`, escape(session.ID))
+	fmt.Fprintf(w, `<tr><th>Status</th><td>%s</td></tr>`, escape(string(session.Status)))
+	fmt.Fprintf(w, `<tr><th>Account Key</th><td>%s</td></tr>`, escape(session.AccountKey))
+	fmt.Fprintf(w, `<tr><th>User</th><td>%s@%s</td></tr>`, escape(account.ClientUser), escape(account.ClientZone))
+	fmt.Fprintf(w, `<tr><th>Host</th><td>%s:%d</td></tr>`, escape(account.Host), account.Port)
+	fmt.Fprintf(w, `<tr><th>Authentication Scheme</th><td>%s</td></tr>`, escape(account.AuthenticationScheme))
+	fmt.Fprintf(w, `<tr><th>Client Server Negotiation</th><td>%t</td></tr>`, account.ClientServerNegotiation)
+	fmt.Fprintf(w, `<tr><th>CS Negotiation Policy</th><td>%s</td></tr>`, escape(account.CSNegotiationPolicy))
+	fmt.Fprintf(w, `<tr><th>Proxy User</th><td>%s@%s</td></tr>`, escape(account.ProxyUser), escape(account.ProxyZone))
+	fmt.Fprintf(w, `<tr><th>Default Resource</th><td>%s</td></tr>`, escape(account.DefaultResource))
+	fmt.Fprintf(w, `<tr><th>Default Hash Scheme</th><td>%s</td></tr>`, escape(account.DefaultHashScheme))
+	fmt.Fprintf(w, `<tr><th>PAM TTL</th><td>%d</td></tr>`, account.PAMTTL)
+	fmt.Fprintf(w, `<tr><th>Last Access</th><td>%s</td></tr>`, session.LastAccessTime.Format("2006-01-02 15:04:05 MST"))
+	fmt.Fprint(w, `</table>`)
+
+	if ssl := account.SSLConfiguration; ssl != nil {
+		fmt.Fprint(w, `<h3>SSL Configuration</h3><table>`)
+		fmt.Fprintf(w, `<tr><th>CA Certificate File</th><td>%s</td></tr>`, escape(ssl.CACertificateFile))
+		fmt.Fprintf(w, `<tr><th>CA Certificate Path</th><td>%s</td></tr>`, escape(ssl.CACertificatePath))
+		fmt.Fprintf(w, `<tr><th>Encryption</th><td>%s, key %d, salt %d, rounds %d</td></tr>`, escape(ssl.EncryptionAlgorithm), ssl.EncryptionKeySize, ssl.EncryptionSaltSize, ssl.EncryptionNumHashRounds)
+		fmt.Fprintf(w, `<tr><th>Verify Server</th><td>%s</td></tr>`, escape(ssl.VerifyServer))
+		fmt.Fprintf(w, `<tr><th>DH Params File</th><td>%s</td></tr>`, escape(ssl.DHParamsFile))
+		fmt.Fprintf(w, `<tr><th>Server Name</th><td>%s</td></tr>`, escape(ssl.ServerName))
+		fmt.Fprint(w, `</table>`)
+	}
+
+	fmt.Fprintf(w, `<h3>Clients (%d)</h3>`, len(session.Connections))
+	if len(session.Connections) == 0 {
+		fmt.Fprint(w, `<p>No recorded clients.</p>`)
+	} else {
+		fmt.Fprint(w, `<table><tr><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
+		for _, connection := range session.Connections {
+			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td></tr>`, escape(connection.ConnectionID), escape(connection.Application), escape(connection.Description))
+		}
+		fmt.Fprint(w, `</table>`)
+	}
+	fmt.Fprint(w, `<p class="info">Credentials, tickets, and PAM tokens are not stored.</p></div>`)
 }
 
 func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, session *PoolSession) {

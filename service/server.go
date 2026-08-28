@@ -18,6 +18,7 @@ import (
 )
 
 type PoolServerConfig struct {
+	dataRootPath                          string
 	sessionTimeout                        time.Duration
 	sessionTimeoutCheckInterval           time.Duration
 	dataBlockSize                         int64

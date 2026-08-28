@@ -37,6 +37,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 	defer irodsfs_common_util.StackTraceFromPanic(logger)
 
 	poolServerConfig := &PoolServerConfig{
+		dataRootPath:                          config.DataRootPath,
 		sessionTimeout:                        time.Duration(config.SessionTimeout),
 		sessionTimeoutCheckInterval:           time.Duration(config.SessionTimeoutCheckInterval),
 		dataBlockSize:                         config.DataBlockSize,
@@ -191,7 +192,7 @@ func (svc *PoolService) Start() error {
 		svc.monitoringServer = &http.Server{Addr: addr, Handler: mux}
 
 		go func() {
-			svc.logger.Infof("Starting monitoring service at %s (endpoints: /monitor, /metrics, /api/sysinfo, /api/sessions)", addr)
+			svc.logger.Infof("Starting monitoring service at %s (endpoints: /monitor, /metrics, /api/sysinfo, /api/sessions, /api/recovery-sessions)", addr)
 			if err := svc.monitoringServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				svc.logger.WithError(err).Error("monitoring service error")
 			}

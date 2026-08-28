@@ -137,6 +137,11 @@ func (h *RESTAPIHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sysinfo", h.getSystemInfo)
 	mux.HandleFunc("GET /api/sessions", h.listSessions)
 	mux.HandleFunc("GET /api/sessions/{sessionID}", h.getSession)
+	mux.HandleFunc("GET /api/recovery-sessions", h.listFailedSessions)
+	mux.HandleFunc("GET /api/recovery-sessions/{sessionID}", h.getFailedSession)
+	// Keep the original endpoint as a compatibility alias.
+	mux.HandleFunc("GET /api/failed-sessions", h.listFailedSessions)
+	mux.HandleFunc("GET /api/failed-sessions/{sessionID}", h.getFailedSession)
 }
 
 func (h *RESTAPIHandler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
@@ -273,6 +278,34 @@ func (h *RESTAPIHandler) getSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, snapshotSessionInfo(session))
+}
+
+func (h *RESTAPIHandler) listFailedSessions(w http.ResponseWriter, _ *http.Request) {
+	sessions, err := h.poolServer.GetSessionManager().GetFailedSessions()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, apiErrorResponse{Error: "failed to list sessions pending recovery"})
+		return
+	}
+	writeJSON(w, http.StatusOK, sessions)
+}
+
+func (h *RESTAPIHandler) getFailedSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("sessionID"))
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, apiErrorResponse{Error: "session ID is required"})
+		return
+	}
+
+	session, err := h.poolServer.GetSessionManager().GetFailedSession(sessionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, apiErrorResponse{Error: "failed to read session pending recovery"})
+		return
+	}
+	if session == nil {
+		writeJSON(w, http.StatusNotFound, apiErrorResponse{Error: "recovery session not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
 }
 
 func snapshotSessionInfo(session *PoolSession) SessionInfo {

@@ -405,7 +405,7 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 }
 
 // Release logouts from iRODS service session
-func (session *PoolServiceSession) Release() {
+func (session *PoolServiceSession) Release() error {
 	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	session.terminateChan <- true
@@ -424,8 +424,9 @@ func (session *PoolServiceSession) Release() {
 	_, err := session.poolServiceClient.apiClient.Logout(ctx, request)
 	if err != nil {
 		session.logger.Error(err)
-		return
+		return err
 	}
+	return nil
 }
 
 // Relogin re-login iRODS service session

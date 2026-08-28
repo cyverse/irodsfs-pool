@@ -17,6 +17,7 @@ import (
 	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
+	"github.com/dgraph-io/badger/v3"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/cockroachdb/errors"
@@ -36,6 +37,10 @@ type PoolSessionManager struct {
 	sessions     map[string]*PoolSession // key: account key (hash)
 	connMap      map[string]string       // key: connection id -> session id
 	logger       *log.Entry
+
+	failedSessionDBPath string
+	failedSessionDB     *badger.DB
+	failedSessionMutex  sync.Mutex
 
 	onBeforeSessionRelease func(session *PoolSession)
 
@@ -87,6 +92,12 @@ func NewPoolSessionManager(config *PoolServerConfig) (*PoolSessionManager, error
 		terminateChan: make(chan bool),
 	}
 
+	manager.failedSessionDBPath = filepath.Join(config.dataRootPath, failedSessionDBDirectoryName)
+	if err := manager.loadFailedSessionStore(); err != nil {
+		cacheManager.Release()
+		return nil, errors.Wrap(err, "failed to load failed session store")
+	}
+
 	checkInterval := manager.config.sessionTimeoutCheckInterval
 
 	go func() {
@@ -98,6 +109,7 @@ func NewPoolSessionManager(config *PoolServerConfig) (*PoolSessionManager, error
 			case <-manager.terminateChan:
 				return
 			case <-ticker.C:
+				manager.checkpointActiveSessions()
 				manager.releaseStaleSessions()
 			}
 		}
@@ -138,7 +150,7 @@ func (manager *PoolSessionManager) Release() {
 			sess.mutex.Unlock()
 
 			if !alreadyReleasing {
-				sess.release()
+				manager.releaseSessionResources(sess)
 				close(sess.releaseDone)
 			} else {
 				<-sess.releaseDone
@@ -158,6 +170,10 @@ func (manager *PoolSessionManager) Release() {
 
 	// Also wait for any sessions that were released asynchronously (e.g. via RemoveConnection).
 	manager.releaseWg.Wait()
+
+	if err := manager.closeFailedSessionStore(); err != nil {
+		manager.logger.WithError(err).Error("Failed to close failed session store")
+	}
 }
 
 func (manager *PoolSessionManager) NewSession(account *api.Account, appName string) (*PoolSession, error) {
@@ -195,6 +211,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 
 			session.UpdateLastAccessTime()
 			manager.mutex.Unlock()
+			manager.checkpointSession(session)
 
 			manager.logger.Infof("Reusing existing session %q for username %q", accountKey, irodsAccount.ClientUser)
 			return session, nil
@@ -275,6 +292,10 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 		logger:         sessionLogger,
 		sessionLogFile: sessionLogFile,
 	}
+	if err := manager.trackActiveSession(session); err != nil {
+		releaseErr := session.release()
+		return nil, errors.CombineErrors(errors.Wrap(err, "failed to persist session lifecycle record"), releaseErr)
+	}
 
 	manager.mutex.Lock()
 	manager.sessions[session.id] = session
@@ -315,7 +336,7 @@ func (manager *PoolSessionManager) ReleaseSession(sessionID string) {
 	if manager.onBeforeSessionRelease != nil {
 		manager.onBeforeSessionRelease(session)
 	}
-	session.release()
+	manager.releaseSessionResources(session)
 
 	// After release completes, remove from maps and signal waiters
 	manager.mutex.Lock()
@@ -357,7 +378,7 @@ func (manager *PoolSessionManager) ReleaseAllSessions() {
 			sess.mutex.Unlock()
 
 			if !alreadyReleasing {
-				sess.release()
+				manager.releaseSessionResources(sess)
 				close(sess.releaseDone)
 			} else {
 				<-sess.releaseDone
@@ -378,6 +399,7 @@ func (manager *PoolSessionManager) AddConnection(connID string, sessionID string
 		if oldSessionID != sessionID {
 			if oldSession, ok := manager.sessions[oldSessionID]; ok {
 				oldSession.removeConnection(connID)
+				manager.checkpointSession(oldSession)
 				manager.logger.Infof("Moved connection %q from session %q to session %q", connID, oldSessionID, sessionID)
 			}
 		}
@@ -394,6 +416,7 @@ func (manager *PoolSessionManager) AddConnection(connID string, sessionID string
 			manager.logger.Infof("Cancelled pending grace-period release for session %q (connection %q added)", sessionID, connID)
 		}
 		session.addConnection(connID, appName, description)
+		manager.checkpointSession(session)
 		manager.logger.Infof("Added connection %q (app=%q) to session %q (connections=%d)", connID, appName, sessionID, session.getConnectionCount())
 	}
 }
@@ -418,10 +441,11 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 	}
 
 	remaining := session.removeConnection(connID)
+	session.UpdateLastAccessTime()
+	manager.checkpointSession(session)
 	manager.logger.Infof("Removed connection %q from session %q (remaining connections=%d)", connID, sessionID, remaining)
 
 	if remaining > 0 {
-		session.UpdateLastAccessTime()
 		manager.mutex.Unlock()
 		return
 	}
@@ -439,7 +463,6 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 			manager.startSessionRelease(sessionID)
 		})
 		manager.pendingReleases[sessionID] = t
-		session.UpdateLastAccessTime()
 		manager.mutex.Unlock()
 		manager.logger.Infof("Session %q has no connections; will release after grace period %q", sessionID, manager.config.sessionCloseGracePeriod)
 		return
@@ -466,7 +489,7 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 		if manager.onBeforeSessionRelease != nil {
 			manager.onBeforeSessionRelease(session)
 		}
-		session.release()
+		manager.releaseSessionResources(session)
 		close(session.releaseDone)
 	}()
 }
@@ -511,7 +534,7 @@ func (manager *PoolSessionManager) startSessionRelease(sessionID string) {
 		if manager.onBeforeSessionRelease != nil {
 			manager.onBeforeSessionRelease(session)
 		}
-		session.release()
+		manager.releaseSessionResources(session)
 		close(session.releaseDone)
 	}()
 }
@@ -532,6 +555,12 @@ func (manager *PoolSessionManager) releaseStaleSessions() {
 
 	for _, sessionID := range staleIDs {
 		manager.forceReleaseSession(sessionID)
+	}
+}
+
+func (manager *PoolSessionManager) checkpointActiveSessions() {
+	for _, session := range manager.GetAllSessions() {
+		manager.checkpointSession(session)
 	}
 }
 
@@ -572,7 +601,7 @@ func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
 		if manager.onBeforeSessionRelease != nil {
 			manager.onBeforeSessionRelease(session)
 		}
-		session.release()
+		manager.releaseSessionResources(session)
 		close(session.releaseDone)
 	}()
 }
@@ -630,6 +659,11 @@ func (manager *PoolSessionManager) GetTotalIRODSFSClientConnections() int {
 	return total
 }
 
+func (manager *PoolSessionManager) releaseSessionResources(session *PoolSession) {
+	releaseErr := session.release()
+	manager.handleSessionReleaseResult(session, releaseErr)
+}
+
 // connInfo holds per-connection metadata supplied at Login time.
 type connInfo struct {
 	appName     string
@@ -660,7 +694,7 @@ type PoolSession struct {
 	mutex sync.RWMutex
 }
 
-func (session *PoolSession) release() {
+func (session *PoolSession) release() error {
 	defer func() {
 		if session.sessionLogFile != nil {
 			session.sessionLogFile.Close()
@@ -677,18 +711,27 @@ func (session *PoolSession) release() {
 	defer session.mutex.Unlock()
 
 	handleWg := sync.WaitGroup{}
+	handleErrChan := make(chan error, len(session.poolFileHandles))
 	for _, handle := range session.poolFileHandles {
 		handleWg.Add(1)
 		go func(h *PoolFileHandle) {
 			defer handleWg.Done()
-			h.Release()
+			if err := h.Release(); err != nil {
+				handleErrChan <- err
+			}
 		}(handle)
 	}
 	handleWg.Wait()
+	close(handleErrChan)
 	session.poolFileHandles = map[string]*PoolFileHandle{}
 
+	var releaseErr error
+	for err := range handleErrChan {
+		releaseErr = errors.CombineErrors(releaseErr, err)
+	}
+
 	if session.fsClient != nil {
-		session.fsClient.Release()
+		releaseErr = errors.CombineErrors(releaseErr, session.fsClient.Release())
 		session.fsClient = nil
 	}
 
@@ -697,7 +740,13 @@ func (session *PoolSession) release() {
 		session.fs = nil
 	}
 
-	session.logger.Info("Released the pool session")
+	if releaseErr != nil {
+		session.logger.WithError(releaseErr).Error("Released the pool session with errors")
+	} else {
+		session.logger.Info("Released the pool session")
+	}
+
+	return releaseErr
 }
 
 func (session *PoolSession) addConnection(connID string, appName string, description string) {

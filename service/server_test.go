@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -27,6 +28,42 @@ func TestMonitoringModalClosesOnlyWithCloseButton(t *testing.T) {
 	}
 	if !strings.Contains(body, `id="modal-close" onclick="closeDetail()"`) {
 		t.Fatal("monitoring modal close button is missing")
+	}
+}
+
+func TestMonitoringShowsSessionsPendingRecoveryWithoutCredentials(t *testing.T) {
+	manager := newFailedSessionStoreTestManager(t.TempDir())
+	manager.handleSessionReleaseResult(newFailedSessionStoreTestSession("session-1"), errors.New("sync failed"))
+	t.Cleanup(func() {
+		if err := manager.closeFailedSessionStore(); err != nil {
+			t.Errorf("closeFailedSessionStore: %v", err)
+		}
+	})
+
+	server := &PoolServer{sessionManager: manager}
+	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
+
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		"Sessions Pending Recovery",
+		"session-1",
+		"account-session-1",
+		"rods@tempZone",
+		"connection-a",
+		"Session Pending Recovery",
+		"release_failed",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("monitor response does not contain %q", expected)
+		}
+	}
+	lowerBody := strings.ToLower(body)
+	for _, secret := range []string{"secret-password", "secret-ticket", "secret-pam-token"} {
+		if strings.Contains(lowerBody, secret) {
+			t.Fatalf("monitor response exposes sensitive account data %q", secret)
+		}
 	}
 }
 

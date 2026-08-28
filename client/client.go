@@ -73,7 +73,11 @@ type PoolServiceClient struct {
 	connected        bool
 	autoReconnect    bool
 	reconnectingFlag int32 // atomic: 0=normal, 1=reconnect in progress
-	logger           *log.Entry
+
+	bgCancelMu sync.Mutex
+	bgCancel   context.CancelFunc // cancels the running backgroundReconnect goroutine
+
+	logger *log.Entry
 }
 
 // PoolServiceSession is a service session
@@ -150,15 +154,42 @@ func waitForReady(ctx context.Context, conn *grpc.ClientConn) bool {
 	}
 }
 
-// backgroundReconnect runs in a goroutine after an immediate reconnect attempt
-// fails.  It recreates the gRPC connection with exponential backoff (cap 1 min,
-// timeout 1 hr) and clears reconnectingFlag once the connection reaches Ready.
-// While this flag is set every API call returns an error immediately.
-func (client *PoolServiceClient) backgroundReconnect() {
+// startBackgroundReconnect creates a cancellable context, stores the cancel
+// func so Disconnect() can stop the goroutine, then starts backgroundReconnect.
+func (client *PoolServiceClient) startBackgroundReconnect() {
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+
+	client.bgCancelMu.Lock()
+	if client.bgCancel != nil {
+		client.bgCancel() // cancel any previous (should not happen, but be safe)
+	}
+	client.bgCancel = bgCancel
+	client.bgCancelMu.Unlock()
+
+	go client.backgroundReconnect(bgCtx)
+}
+
+// backgroundReconnect runs until ctx is cancelled (by Disconnect) or the
+// connection is re-established.  It uses exponential backoff capped at 1 min
+// and gives up after 1 hr.  While running, reconnectingFlag == 1 and every
+// API call returns an error immediately.
+func (client *PoolServiceClient) backgroundReconnect(ctx context.Context) {
+	defer func() {
+		atomic.StoreInt32(&client.reconnectingFlag, 0)
+		client.bgCancelMu.Lock()
+		client.bgCancel = nil
+		client.bgCancelMu.Unlock()
+	}()
+
 	interval := reconnectInitialInterval
 	deadline := time.Now().Add(reconnectTimeout)
 
 	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			client.logger.Info("backgroundReconnect: stopped by Disconnect")
+			return
+		}
+
 		client.Disconnect()
 		if err := client.Connect(); err != nil {
 			client.logger.WithError(err).Warn("backgroundReconnect: failed to create connection")
@@ -172,13 +203,12 @@ func (client *PoolServiceClient) backgroundReconnect() {
 				waitDur = remaining
 			}
 
-			waitCtx, cancel := context.WithTimeout(context.Background(), waitDur)
+			waitCtx, cancel := context.WithTimeout(ctx, waitDur)
 			ready := waitForReady(waitCtx, conn)
 			cancel()
 
 			if ready {
 				client.logger.Info("Reconnected to pool service")
-				atomic.StoreInt32(&client.reconnectingFlag, 0)
 				return
 			}
 		}
@@ -192,7 +222,6 @@ func (client *PoolServiceClient) backgroundReconnect() {
 	}
 
 	client.logger.Error("Reconnect timed out after 1 hour, giving up")
-	atomic.StoreInt32(&client.reconnectingFlag, 0)
 }
 
 // Connect connects to pool service
@@ -237,6 +266,15 @@ func (client *PoolServiceClient) Connect() error {
 
 // Disconnect disconnects connection from pool service
 func (client *PoolServiceClient) Disconnect() {
+	// Stop any running background reconnect goroutine.
+	client.bgCancelMu.Lock()
+	if client.bgCancel != nil {
+		client.bgCancel()
+		client.bgCancel = nil
+	}
+	client.bgCancelMu.Unlock()
+	atomic.StoreInt32(&client.reconnectingFlag, 0)
+
 	if client.apiClient != nil {
 		client.apiClient = nil
 	}
@@ -482,7 +520,7 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 				// Transport error during relogin: trigger background reconnect if not already running.
 				if atomic.CompareAndSwapInt32(&client.reconnectingFlag, 0, 1) {
 					client.logger.Warn("Transport error on re-login, starting background reconnect")
-					go client.backgroundReconnect()
+					client.startBackgroundReconnect()
 				}
 			}
 			return nil, err
@@ -554,7 +592,7 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 
 			// Immediate attempt failed — hand off to background reconnect loop.
 			client.logger.Warn("Immediate reconnect failed, starting background reconnect")
-			go client.backgroundReconnect()
+			client.startBackgroundReconnect()
 			return res, err
 		}
 

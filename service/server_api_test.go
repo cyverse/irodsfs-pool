@@ -266,20 +266,6 @@ func TestRESTAPIFailedSessions(t *testing.T) {
 	}
 }
 
-func TestRESTAPIFailedSessionCompatibilityAlias(t *testing.T) {
-	manager := newFailedSessionStoreTestManager(t.TempDir())
-	manager.handleSessionReleaseResult(newFailedSessionStoreTestSession("session-1"), errors.New("sync failed"))
-	t.Cleanup(func() { _ = manager.closeFailedSessionStore() })
-
-	server := &PoolServer{sessionManager: manager}
-	mux := http.NewServeMux()
-	NewRESTAPIHandler(server, nil).RegisterRoutes(mux)
-	recorder := httptest.NewRecorder()
-	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/failed-sessions/session-1", nil))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("compatibility alias status = %d, want %d", recorder.Code, http.StatusOK)
-	}
-}
 
 func TestRESTAPIRejectsUnsupportedMethod(t *testing.T) {
 	handler := newRESTAPITestHandler()

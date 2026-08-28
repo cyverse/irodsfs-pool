@@ -26,6 +26,6 @@ max_staging_data_size: 536870912000 #500GB
 
 operation_timeout: 5m
 
-monitoring_service_port: 12021  # serves /monitor and /metrics
+monitoring_service_port: 12021  # serves /monitor, /metrics, and /api
 
 log_root_path: /var/log/irodsfs-pool

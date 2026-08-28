@@ -119,16 +119,20 @@ To prevent excessive memory usage when many files are open:
 - Handles exceeding the threshold operate in direct pass-through mode; a background `CacheFile` RPC is issued so the server pre-warms its block cache for that file.
 - Counts are tracked per session and decremented on `Close`.
 
-## HTTP Monitoring Service
+## HTTP Monitoring and API Service
 
-A single HTTP server (default port 12021) exposes both monitoring and metrics:
+A single HTTP server (default port 12021) exposes monitoring, metrics, and a read-only REST API:
 
 | Path | Purpose |
 |------|---------|
 | `/monitor` | HTML dashboard with sessions, cache, staging, metrics, and resource warnings |
 | `/metrics` | Prometheus exporter (scrape target) |
+| `/api/sysinfo` | JSON server, memory cache, staging, and I/O metrics information |
+| `/api/sessions` | JSON list of active sessions with clients, staged files, and open file handles |
+| `/api/sessions/{sessionID}` | JSON details for one active session, including clients, staged files, and open file handles |
 
 The dashboard auto-refreshes every 10 seconds and shows red warnings when system memory or staging disk space is insufficient.
+The REST API does not expose account credentials, tickets, or PAM tokens.
 
 ## Configuration
 
@@ -142,4 +146,4 @@ Key server-side parameters (see `commons/config.go`):
 | `max_io_connection_per_session` | 30 | Max iRODS connections per session |
 | `session_timeout` | 10min | Idle session timeout |
 | `staging_data_grace_period` | 10s | Delay before syncing staged writes to iRODS |
-| `monitoring_service_port` | 12021 | HTTP port for /monitor and /metrics |
+| `monitoring_service_port` | 12021 | HTTP port for /monitor, /metrics, and /api |

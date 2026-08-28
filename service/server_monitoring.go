@@ -20,10 +20,14 @@ type MonitoringHandler struct {
 }
 
 func NewMonitoringHandler(poolServer *PoolServer, config *commons.Config) *MonitoringHandler {
+	return newMonitoringHandler(poolServer, config, time.Now())
+}
+
+func newMonitoringHandler(poolServer *PoolServer, config *commons.Config, startTime time.Time) *MonitoringHandler {
 	return &MonitoringHandler{
 		poolServer: poolServer,
 		config:     config,
-		startTime:  time.Now(),
+		startTime:  startTime,
 	}
 }
 
@@ -109,6 +113,7 @@ func (h *MonitoringHandler) renderServerInfo(w http.ResponseWriter) {
 	if h.config.MonitoringServicePort > 0 {
 		fmt.Fprintf(w, `<tr><th>Monitoring</th><td>:%d/monitor</td></tr>`, h.config.MonitoringServicePort)
 		fmt.Fprintf(w, `<tr><th>Prometheus</th><td>:%d/metrics</td></tr>`, h.config.MonitoringServicePort)
+		fmt.Fprintf(w, `<tr><th>REST API</th><td>:%d/api</td></tr>`, h.config.MonitoringServicePort)
 	}
 	fmt.Fprint(w, `</table>`)
 }

@@ -160,24 +160,22 @@ var (
 
 // GetTotalMetrics returns the current total: accumulated (terminated sessions) + active sessions
 func (server *PoolServer) GetTotalMetrics() AccumulatedMetrics {
+	server.metricsMutex.Lock()
 	total := server.accumulatedMetrics
+	server.metricsMutex.Unlock()
 
 	sessions := server.sessionManager.GetAllSessions()
 	for _, session := range sessions {
-		if session.fsClient == nil {
-			continue
-		}
-
-		// Skip sessions that are being released — their metrics are already in accumulatedMetrics
 		session.mutex.RLock()
-		isReleasing := session.releasing
-		session.mutex.RUnlock()
-		if isReleasing {
+		// Skip sessions that are being released — their metrics are already in accumulatedMetrics.
+		if session.releasing || session.fsClient == nil {
+			session.mutex.RUnlock()
 			continue
 		}
 
 		metric := session.fsClient.GetMetrics()
 		if metric == nil {
+			session.mutex.RUnlock()
 			continue
 		}
 
@@ -209,6 +207,7 @@ func (server *PoolServer) GetTotalMetrics() AccumulatedMetrics {
 		total.RequestFailures += metric.GetCounterForRequestResponseFailures()
 		total.ConnectionFailures += metric.GetCounterForConnectionFailures()
 		total.ConnectionPoolFailures += metric.GetCounterForConnectionPoolFailures()
+		session.mutex.RUnlock()
 	}
 
 	return total
@@ -216,6 +215,7 @@ func (server *PoolServer) GetTotalMetrics() AccumulatedMetrics {
 
 func (server *PoolServer) CollectPrometheusMetrics() {
 	current := server.GetTotalMetrics()
+	server.metricsMutex.Lock()
 	last := &server.lastReportedMetrics
 
 	promCounterForStat.Add(float64(current.Stat - last.Stat))
@@ -246,38 +246,39 @@ func (server *PoolServer) CollectPrometheusMetrics() {
 	promCounterForConnectionFailures.Add(float64(current.ConnectionFailures - last.ConnectionFailures))
 	promCounterForConnectionPoolFailures.Add(float64(current.ConnectionPoolFailures - last.ConnectionPoolFailures))
 
+	server.lastReportedMetrics = current
+	server.metricsMutex.Unlock()
+
 	// gauges: set directly from active sessions
 	sessions := server.sessionManager.GetAllSessions()
 	var openFileHandles, connectionsOpened, connectionsOccupied uint64
 	for _, session := range sessions {
-		if session.fsClient == nil {
-			continue
-		}
-
 		session.mutex.RLock()
-		isReleasing := session.releasing
-		session.mutex.RUnlock()
-		if isReleasing {
+		if session.releasing || session.fsClient == nil {
+			session.mutex.RUnlock()
 			continue
 		}
 
 		metric := session.fsClient.GetMetrics()
 		if metric == nil {
+			session.mutex.RUnlock()
 			continue
 		}
 		openFileHandles += metric.GetCounterForOpenFileHandles()
 		connectionsOpened += metric.GetConnectionsOpened()
 		connectionsOccupied += metric.GetConnectionsOccupied()
+		session.mutex.RUnlock()
 	}
 	promGaugeForOpenFileHandles.Set(float64(openFileHandles))
 	promGaugeForConnectionsOpened.Set(float64(connectionsOpened))
 	promGaugeForConnectionsOccupied.Set(float64(connectionsOccupied))
-
-	server.lastReportedMetrics = current
 }
 
 // CollectSessionMetrics captures a session's final metrics before it is released.
 func (server *PoolServer) CollectSessionMetrics(session *PoolSession) {
+	session.mutex.RLock()
+	defer session.mutex.RUnlock()
+
 	if session.fsClient == nil {
 		return
 	}
@@ -285,6 +286,9 @@ func (server *PoolServer) CollectSessionMetrics(session *PoolSession) {
 	if metric == nil {
 		return
 	}
+
+	server.metricsMutex.Lock()
+	defer server.metricsMutex.Unlock()
 
 	server.accumulatedMetrics.Stat += metric.GetCounterForStat()
 	server.accumulatedMetrics.List += metric.GetCounterForList()

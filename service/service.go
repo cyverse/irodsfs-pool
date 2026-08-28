@@ -179,16 +179,19 @@ func (svc *PoolService) Start() error {
 	}()
 
 	if svc.config.MonitoringServicePort > 0 {
-		monitoringHandler := NewMonitoringHandler(svc.poolServer, svc.config)
+		startTime := time.Now()
+		monitoringHandler := newMonitoringHandler(svc.poolServer, svc.config, startTime)
+		apiHandler := newRESTAPIHandler(svc.poolServer, svc.config, startTime)
 		mux := http.NewServeMux()
 		mux.Handle("/monitor", monitoringHandler)
 		mux.Handle("/metrics", promhttp.Handler())
+		apiHandler.RegisterRoutes(mux)
 
 		addr := fmt.Sprintf(":%d", svc.config.MonitoringServicePort)
 		svc.monitoringServer = &http.Server{Addr: addr, Handler: mux}
 
 		go func() {
-			svc.logger.Infof("Starting monitoring service at %s (endpoints: /monitor, /metrics)", addr)
+			svc.logger.Infof("Starting monitoring service at %s (endpoints: /monitor, /metrics, /api/sysinfo, /api/sessions)", addr)
 			if err := svc.monitoringServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				svc.logger.WithError(err).Error("monitoring service error")
 			}

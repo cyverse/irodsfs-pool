@@ -7,7 +7,7 @@ A shared middleware server that pools iRODS connections, caches data blocks in m
 - **Session multiplexing** — clients sharing the same iRODS account reuse a single session and connection pool.
 - **Block cache** — 4MB blocks cached in memory (Ristretto) with configurable capacity and TTL, shared across all sessions.
 - **Local staging** — writes are stored on local disk immediately and synced to iRODS in the background.
-- **Monitoring** — built-in HTTP dashboard (`/monitor`) and Prometheus metrics (`/metrics`) on a single port.
+- **Monitoring** — built-in HTTP dashboard (`/monitor`), Prometheus metrics (`/metrics`), and a read-only REST API (`/api`) on a single port.
 - **Resource checks** — warns on startup and in the dashboard when memory or disk is insufficient.
 
 ## Build
@@ -59,3 +59,6 @@ Run as daemon:
 | 12020 | — | gRPC service (FUSE clients connect here) |
 | 12021 | `/monitor` | HTML monitoring dashboard |
 | 12021 | `/metrics` | Prometheus scrape target |
+| 12021 | `/api/sysinfo` | Server, memory cache, staging, and I/O metrics (JSON) |
+| 12021 | `/api/sessions` | List active sessions with full monitoring details (JSON) |
+| 12021 | `/api/sessions/{sessionID}` | Get active session details (JSON) |

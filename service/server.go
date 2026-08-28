@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -79,6 +80,7 @@ type PoolServer struct {
 	sessionManager      *PoolSessionManager
 	accumulatedMetrics  AccumulatedMetrics // sum of terminated sessions' final metrics
 	lastReportedMetrics AccumulatedMetrics // last total reported to Prometheus (for delta)
+	metricsMutex        sync.Mutex
 	logger              *log.Entry
 }
 

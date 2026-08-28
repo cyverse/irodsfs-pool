@@ -22,7 +22,10 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -33,6 +36,10 @@ const (
 	prefetchCacheThreshold int64 = 16 * 1024 * 1024 // 16MB - switch to server-side memory cache after this much data is read
 
 	localMetadataCacheTiemout time.Duration = 10 * time.Second
+
+	reconnectInitialInterval time.Duration = 1 * time.Second
+	reconnectMaxInterval     time.Duration = 1 * time.Minute
+	reconnectTimeout         time.Duration = 1 * time.Hour
 )
 
 // prefetchState manages double-buffered read-ahead for ReadOnly file handles
@@ -64,6 +71,8 @@ type PoolServiceClient struct {
 	apiClient        api.PoolAPIClient
 	fsCache          *MetadataCache
 	connected        bool
+	autoReconnect    bool
+	reconnectingFlag int32 // atomic: 0=normal, 1=reconnect in progress
 	logger           *log.Entry
 }
 
@@ -89,7 +98,7 @@ type PoolServiceSession struct {
 }
 
 // NewPoolServiceClient creates a new pool service client
-func NewPoolServiceClient(address string, operationTimeout time.Duration, logger *log.Entry) *PoolServiceClient {
+func NewPoolServiceClient(address string, operationTimeout time.Duration, autoReconnect bool, logger *log.Entry) *PoolServiceClient {
 	clientID := xid.New().String()
 
 	if logger == nil {
@@ -109,9 +118,81 @@ func NewPoolServiceClient(address string, operationTimeout time.Duration, logger
 		grpcConnection:   nil,
 		fsCache:          NewMetadataCache(localMetadataCacheTiemout, localMetadataCacheTiemout),
 		connected:        false,
+		autoReconnect:    autoReconnect,
 
 		logger: logger,
 	}
+}
+
+// isTransportError returns true for gRPC errors that indicate the server is unreachable.
+func isTransportError(err error) bool {
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	return st.Code() == codes.Unavailable
+}
+
+// waitForReady blocks until conn reaches connectivity.Ready, or the context
+// expires, or the connection is shut down.
+func waitForReady(ctx context.Context, conn *grpc.ClientConn) bool {
+	for {
+		state := conn.GetState()
+		if state == connectivity.Ready {
+			return true
+		}
+		if state == connectivity.Shutdown {
+			return false
+		}
+		if !conn.WaitForStateChange(ctx, state) {
+			return false
+		}
+	}
+}
+
+// backgroundReconnect runs in a goroutine after an immediate reconnect attempt
+// fails.  It recreates the gRPC connection with exponential backoff (cap 1 min,
+// timeout 1 hr) and clears reconnectingFlag once the connection reaches Ready.
+// While this flag is set every API call returns an error immediately.
+func (client *PoolServiceClient) backgroundReconnect() {
+	interval := reconnectInitialInterval
+	deadline := time.Now().Add(reconnectTimeout)
+
+	for time.Now().Before(deadline) {
+		client.Disconnect()
+		if err := client.Connect(); err != nil {
+			client.logger.WithError(err).Warn("backgroundReconnect: failed to create connection")
+		} else {
+			conn := client.grpcConnection
+			conn.Connect()
+
+			remaining := time.Until(deadline)
+			waitDur := interval
+			if waitDur > remaining {
+				waitDur = remaining
+			}
+
+			waitCtx, cancel := context.WithTimeout(context.Background(), waitDur)
+			ready := waitForReady(waitCtx, conn)
+			cancel()
+
+			if ready {
+				client.logger.Info("Reconnected to pool service")
+				atomic.StoreInt32(&client.reconnectingFlag, 0)
+				return
+			}
+		}
+
+		if interval < reconnectMaxInterval {
+			interval *= 2
+			if interval > reconnectMaxInterval {
+				interval = reconnectMaxInterval
+			}
+		}
+	}
+
+	client.logger.Error("Reconnect timed out after 1 hour, giving up")
+	atomic.StoreInt32(&client.reconnectingFlag, 0)
 }
 
 // Connect connects to pool service
@@ -382,15 +463,28 @@ func (session *PoolServiceSession) GetMetrics() *irodsclient_metrics.IRODSMetric
 }
 
 func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) (interface{}, error) {
+	client := session.poolServiceClient
+
+	// While background reconnect is running every call fails immediately.
+	if atomic.LoadInt32(&client.reconnectingFlag) == 1 {
+		return nil, errors.New("pool server reconnect in progress, please retry later")
+	}
+
 	session.mutex.RLock()
 	loggedIn := session.loggedIn
 	session.mutex.RUnlock()
 
 	if !loggedIn {
-		// keepalive detected logged out
-		// relogin first
+		// keepalive detected logged out — relogin first
 		err := session.Relogin()
 		if err != nil {
+			if client.autoReconnect && isTransportError(err) {
+				// Transport error during relogin: trigger background reconnect if not already running.
+				if atomic.CompareAndSwapInt32(&client.reconnectingFlag, 0, 1) {
+					client.logger.Warn("Transport error on re-login, starting background reconnect")
+					go client.backgroundReconnect()
+				}
+			}
 			return nil, err
 		}
 	}
@@ -419,6 +513,48 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 				session.mutex.Unlock()
 			}
 
+			return res, err
+		}
+
+		// server unreachable
+		if client.autoReconnect && isTransportError(err) {
+			session.logger.Warnf("Transport error detected: %v", err)
+
+			session.mutex.Lock()
+			session.loggedIn = false
+			session.mutex.Unlock()
+
+			// Only one goroutine handles the reconnect; others return error immediately.
+			if !atomic.CompareAndSwapInt32(&client.reconnectingFlag, 0, 1) {
+				return res, err
+			}
+
+			// One immediate attempt: recreate connection and test with Relogin.
+			client.Disconnect()
+			_ = client.Connect()
+			if conn := client.grpcConnection; conn != nil {
+				conn.Connect()
+				waitCtx, cancel := context.WithTimeout(context.Background(), reconnectInitialInterval)
+				ready := waitForReady(waitCtx, conn)
+				cancel()
+
+				if ready {
+					if reloginErr := session.Relogin(); reloginErr == nil {
+						// Server is back, resume normally.
+						atomic.StoreInt32(&client.reconnectingFlag, 0)
+						res, err = f()
+						return res, err
+					} else if !isTransportError(reloginErr) {
+						// Server reachable but auth/other error — don't background reconnect.
+						atomic.StoreInt32(&client.reconnectingFlag, 0)
+						return nil, reloginErr
+					}
+				}
+			}
+
+			// Immediate attempt failed — hand off to background reconnect loop.
+			client.logger.Warn("Immediate reconnect failed, starting background reconnect")
+			go client.backgroundReconnect()
 			return res, err
 		}
 

@@ -140,6 +140,7 @@ func (h *RESTAPIHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/recovery-sessions", h.listFailedSessions)
 	mux.HandleFunc("GET /api/recovery-sessions/{sessionID}", h.getFailedSession)
 	mux.HandleFunc("POST /api/recovery-sessions/{sessionID}/recover", h.recoverSession)
+	mux.HandleFunc("POST /api/recovery-sessions/{sessionID}/discard", h.discardSessionStaging)
 }
 
 func (h *RESTAPIHandler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
@@ -319,11 +320,31 @@ func (h *RESTAPIHandler) recoverSession(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	status := http.StatusOK
+	code := http.StatusOK
 	if !result.Success {
-		status = http.StatusInternalServerError
+		code = http.StatusInternalServerError
 	}
-	writeJSON(w, status, result)
+	writeJSON(w, code, result)
+}
+
+func (h *RESTAPIHandler) discardSessionStaging(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("sessionID"))
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, apiErrorResponse{Error: "session ID is required"})
+		return
+	}
+
+	result, err := h.poolServer.GetSessionManager().DiscardSessionStaging(sessionID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiErrorResponse{Error: err.Error()})
+		return
+	}
+
+	code := http.StatusOK
+	if !result.Success {
+		code = http.StatusInternalServerError
+	}
+	writeJSON(w, code, result)
 }
 
 func snapshotSessionInfo(session *PoolSession) SessionInfo {

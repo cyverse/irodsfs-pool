@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -53,7 +54,7 @@ func (manager *PoolSessionManager) RecoverSession(sessionID string) (*RecoveryRe
 		manager.logger.WithError(saveErr).Warnf("Failed to mark session %q as recovering in store", sessionID)
 	}
 
-	recoverErr := manager.doRecoverSession(sessionID, info, result)
+	recoverErr := manager.doRecoverSession(sessionID, info)
 
 	result.CompletedAt = time.Now()
 	if recoverErr != nil {
@@ -69,7 +70,7 @@ func (manager *PoolSessionManager) RecoverSession(sessionID string) (*RecoveryRe
 	return result, nil
 }
 
-func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *FailedSessionInfo, result *RecoveryResult) error {
+func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *FailedSessionInfo) error {
 	// Decrypt credentials.
 	irodsAccount, err := manager.DecryptSessionAccount(info)
 	if err != nil {
@@ -160,4 +161,58 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 	}
 	manager.handleSessionReleaseResult(session, nil)
 	return nil
+}
+
+// DiscardResult holds the outcome of a DiscardSessionStaging call.
+type DiscardResult struct {
+	SessionID   string `json:"session_id"`
+	StagingPath string `json:"staging_path,omitempty"`
+	Removed     bool   `json:"removed"`
+	Success     bool   `json:"success"`
+	Error       string `json:"error,omitempty"`
+}
+
+// DiscardSessionStaging removes the local staging directory for a
+// failed/interrupted session and deletes its DB record. Use this when the data
+// has already been pushed to iRODS by other means and only the local leftovers
+// need to be cleaned up — no iRODS connection is required.
+func (manager *PoolSessionManager) DiscardSessionStaging(sessionID string) (*DiscardResult, error) {
+	result := &DiscardResult{SessionID: sessionID}
+
+	info, err := manager.getStoredSession(sessionID)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read session from store")
+	}
+	if info == nil {
+		return nil, errors.Errorf("session %q not found in recovery store", sessionID)
+	}
+	switch info.Status {
+	case FailedSessionStatusActive, FailedSessionStatusRecovering:
+		return nil, errors.Errorf("session %q cannot be discarded while in status %q", sessionID, info.Status)
+	}
+
+	// Remove local staging directory if it exists.
+	stagingPath := manager.config.stagingRootPath
+	if stagingPath != "" {
+		stagingPath = fmt.Sprintf("%s/%s", stagingPath, sessionID)
+		result.StagingPath = stagingPath
+
+		if _, statErr := os.Stat(stagingPath); statErr == nil {
+			if removeErr := os.RemoveAll(stagingPath); removeErr != nil {
+				result.Error = removeErr.Error()
+				return result, nil
+			}
+			result.Removed = true
+			manager.logger.Infof("Discarded local staging directory %q for session %q", stagingPath, sessionID)
+		}
+	}
+
+	// Remove DB record.
+	if removeErr := manager.RemoveFailedSession(sessionID); removeErr != nil {
+		result.Error = removeErr.Error()
+		return result, nil
+	}
+
+	result.Success = true
+	return result, nil
 }

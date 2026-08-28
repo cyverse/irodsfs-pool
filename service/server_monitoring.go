@@ -63,6 +63,12 @@ tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 #modal-close:hover { background:#333; }
 #modal-box table tr:nth-child(even) { background:#1a2a4e; }
 #modal-box table tr:nth-child(odd) { background:#0f2040; }
+.action-btn { background:#1e3a5f; color:#8cf; border:1px solid #335; padding:6px 14px; border-radius:4px; cursor:pointer; font-family:monospace; font-size:13px; }
+.action-btn:hover { background:#2a4a7f; }
+.action-btn-warn { background:#3d2600; color:#ffc875; border-color:#554400; }
+.action-btn-warn:hover { background:#5a3a00; }
+.action-result-ok  { color:#4c4; margin:4px 0; }
+.action-result-err { color:#f44; margin:4px 0; }
 </style>`)
 	fmt.Fprint(w, `</head><body>`)
 
@@ -92,6 +98,39 @@ function showDetail(id) {
 function closeDetail() {
   document.getElementById('modal-overlay').style.display = 'none';
   try { sessionStorage.removeItem('_openDetail'); } catch(e) {}
+}
+function recoverSession(id) {
+  var el = document.getElementById('action-result-' + id);
+  if (el) el.innerHTML = '<span class="action-result-ok">Recovering…</span>';
+  fetch('/api/recovery-sessions/' + encodeURIComponent(id) + '/recover', {method:'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!el) return;
+      if (data.success) {
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Recovery succeeded. Page will refresh.</span>';
+        setTimeout(function(){ location.reload(); }, 2000);
+      } else {
+        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
+      }
+    })
+    .catch(function(e){ if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>'; });
+}
+function discardSession(id) {
+  if (!confirm('Discard local staging data for this session?\n\nOnly do this if the data has already been pushed to iRODS manually.')) return;
+  var el = document.getElementById('action-result-' + id);
+  if (el) el.innerHTML = '<span class="action-result-ok">Discarding…</span>';
+  fetch('/api/recovery-sessions/' + encodeURIComponent(id) + '/discard', {method:'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!el) return;
+      if (data.success) {
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging discarded. Page will refresh.</span>';
+        setTimeout(function(){ location.reload(); }, 2000);
+      } else {
+        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
+      }
+    })
+    .catch(function(e){ if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>'; });
 }
 (function(){
   try {
@@ -357,7 +396,16 @@ func (h *MonitoringHandler) renderOneFailedSessionDetail(w http.ResponseWriter, 
 		}
 		fmt.Fprint(w, `</table>`)
 	}
-	fmt.Fprint(w, `<p class="info">Credentials, tickets, and PAM tokens are not stored.</p></div>`)
+	fmt.Fprint(w, `<p class="info">Credentials, tickets, and PAM tokens are not stored.</p>`)
+
+	fmt.Fprintf(w, `<div style="margin-top:16px;display:flex;gap:10px">`)
+	fmt.Fprintf(w, `<button class="action-btn" onclick="recoverSession('%s')">&#x21BA; Recover (sync &amp; release)</button>`,
+		template.JSEscapeString(session.ID))
+	fmt.Fprintf(w, `<button class="action-btn action-btn-warn" onclick="discardSession('%s')">&#x1F5D1; Discard local staging</button>`,
+		template.JSEscapeString(session.ID))
+	fmt.Fprint(w, `</div>`)
+	fmt.Fprintf(w, `<div id="action-result-%s" style="margin-top:10px"></div>`, escape(session.ID))
+	fmt.Fprint(w, `</div>`)
 }
 
 func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, session *PoolSession) {

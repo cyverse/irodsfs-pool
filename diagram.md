@@ -11,7 +11,7 @@
  |     (beyond 10 read handles/session -> server-side CacheFileAsync) |
  |     (after 16MB read -> local prefetch disabled, server cache)     |
  |                                                                    |
- |  WRONLY: micro buffer 1MB                                          |
+ |  WRONLY: micro buffer 1MB (enabled for every write-only handle)    |
  |     flush on 1MB full / non-sequential offset / Flush / Close      |
  |  RDWR:  pass-through (no buffering)                                 |
  |     every ReadAt/WriteAt/Flush forwarded 1:1 to the server         |
@@ -53,7 +53,7 @@
                  miss -> fetch 4MB block from iRODS, cache it, return
             (staged/pending file -> read from local staging copy)
 
-  WRONLY  FUSE write
+  WRONLY  FUSE write (all concurrently open write-only handles)
             -> client 1MB micro buffer -> WriteAt RPC (1MB chunks)
             -> server: staged handle -> local file under {root}/{session}/data
                  + Badger "dirty" record (at open/create)

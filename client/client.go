@@ -82,10 +82,7 @@ type PoolServiceClient struct {
 
 // PoolServiceSession is a service session
 // implements irodsfs-common/irods/interface.go
-const (
-	maxPrefetchHandles      int = 10
-	maxWriteBufferedHandles int = 10
-)
+const maxPrefetchHandles int = 10
 
 type PoolServiceSession struct {
 	id                string
@@ -93,12 +90,11 @@ type PoolServiceSession struct {
 	account           *irodsclient_types.IRODSAccount
 	applicationName   string
 
-	loggedIn             bool
-	openReadOnlyHandles  int32
-	openWriteOnlyHandles int32
-	mutex                sync.RWMutex // mutex to access PoolServiceSession
-	terminateChan        chan bool
-	logger               *log.Entry
+	loggedIn            bool
+	openReadOnlyHandles int32
+	mutex               sync.RWMutex // mutex to access PoolServiceSession
+	terminateChan       chan bool
+	logger              *log.Entry
 }
 
 // NewPoolServiceClient creates a new pool service client
@@ -1061,10 +1057,7 @@ func (session *PoolServiceSession) CreateFile(path string, mode string) (irodsfs
 	}
 
 	if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
-		count := atomic.AddInt32(&session.openWriteOnlyHandles, 1)
-		if int(count) <= maxWriteBufferedHandles {
-			handle.writeBuffered = true
-		}
+		handle.writeBuffered = true
 	}
 
 	return handle, nil
@@ -1151,10 +1144,7 @@ func (session *PoolServiceSession) OpenFile(path string, mode string) (irodsfs_c
 			session.CacheFileAsync(irodsEntry.Path)
 		}
 	} else if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
-		count := atomic.AddInt32(&session.openWriteOnlyHandles, 1)
-		if int(count) <= maxWriteBufferedHandles {
-			handle.writeBuffered = true
-		}
+		handle.writeBuffered = true
 	}
 
 	return handle, nil
@@ -1228,10 +1218,7 @@ func (session *PoolServiceSession) CreateFileBulk(path string, mode string) (iro
 	}
 
 	if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
-		count := atomic.AddInt32(&session.openWriteOnlyHandles, 1)
-		if int(count) <= maxWriteBufferedHandles {
-			handle.writeBuffered = true
-		}
+		handle.writeBuffered = true
 	}
 
 	return handle, nil
@@ -1312,10 +1299,7 @@ func (session *PoolServiceSession) OpenFileBulk(path string, mode string) (irods
 			session.CacheFileAsync(irodsEntry.Path)
 		}
 	} else if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
-		count := atomic.AddInt32(&session.openWriteOnlyHandles, 1)
-		if int(count) <= maxWriteBufferedHandles {
-			handle.writeBuffered = true
-		}
+		handle.writeBuffered = true
 	}
 
 	return handle, nil
@@ -2287,8 +2271,6 @@ func (handle *PoolServiceFileHandle) Close() error {
 
 	if handle.openMode.IsReadOnly() {
 		atomic.AddInt32(&handle.poolServiceSession.openReadOnlyHandles, -1)
-	} else if handle.openMode.IsWriteOnly() {
-		atomic.AddInt32(&handle.poolServiceSession.openWriteOnlyHandles, -1)
 	}
 
 	if handle.openMode.IsWrite() {

@@ -38,7 +38,7 @@ The pool client (`client/client.go`) implements `IRODSFSClient` interface and co
 - Small writes are accumulated in a 1MB buffer before being sent to the server.
 - Contiguous sequential writes are appended to the buffer; non-contiguous writes flush the buffer first.
 - Buffer is flushed on `Flush`, `Close`, `Truncate`, or when it reaches 1MB.
-- Micro buffering is disabled when more than `maxWriteBufferedHandles` (default 10) WriteOnly handles are open simultaneously.
+- Micro buffering is enabled for every WriteOnly handle, with no per-session handle limit.
 
 ### ReadWrite Mode — Pass-Through
 
@@ -116,12 +116,12 @@ The pool client (`client/client.go`) implements `IRODSFSClient` interface and co
 
 ## Memory Management
 
-To prevent excessive memory usage when many files are open:
+Read prefetch memory is limited when many files are open:
 
 - `maxPrefetchHandles` (default 10): Only the first N ReadOnly handles get prefetch buffers (8MB each).
-- `maxWriteBufferedHandles` (default 10): Only the first N WriteOnly handles get write buffers (1MB each).
-- Handles exceeding the threshold operate in direct pass-through mode; a background `CacheFile` RPC is issued so the server pre-warms its block cache for that file.
-- Counts are tracked per session and decremented on `Close`.
+- ReadOnly handles exceeding the threshold operate in direct pass-through mode; a background `CacheFile` RPC is issued so the server pre-warms its block cache for that file.
+- The ReadOnly handle count is tracked per session and decremented on `Close`.
+- Every WriteOnly handle gets a 1MB micro buffer, without a per-session handle limit.
 
 ## HTTP Monitoring and API Service
 

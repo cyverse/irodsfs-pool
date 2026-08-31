@@ -99,6 +99,31 @@ function closeDetail() {
   document.getElementById('modal-overlay').style.display = 'none';
   try { sessionStorage.removeItem('_openDetail'); } catch(e) {}
 }
+function syncSessionStaging(id) {
+  var modal = document.getElementById('modal-content');
+  var el = modal.querySelector('.session-action-result');
+  var button = modal.querySelector('.sync-staging-btn');
+  if (button) button.disabled = true;
+  if (el) el.innerHTML = '<span class="action-result-ok">Syncing staged data…</span>';
+  fetch('/api/sessions/' + encodeURIComponent(id) + '/staging/sync', {method:'POST'})
+    .then(function(r){
+      return r.json().then(function(data){ return {ok:r.ok, data:data}; });
+    })
+    .then(function(result){
+      if (!el) return;
+      if (result.ok && result.data.success) {
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging sync succeeded. Page will refresh.</span>';
+        setTimeout(function(){ location.reload(); }, 2000);
+      } else {
+        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (result.data.error || 'unknown error') + '</span>';
+        if (button) button.disabled = false;
+      }
+    })
+    .catch(function(e){
+      if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>';
+      if (button) button.disabled = false;
+    });
+}
 function recoverSession(id) {
   var el = document.getElementById('action-result-' + id);
   if (el) el.innerHTML = '<span class="action-result-ok">Recovering…</span>';
@@ -153,10 +178,10 @@ func (h *MonitoringHandler) renderServerInfo(w http.ResponseWriter) {
 	fmt.Fprintf(w, `<tr><th>Uptime</th><td>%s</td></tr>`, uptime)
 	fmt.Fprintf(w, `<tr><th>Endpoint</th><td>%s</td></tr>`, h.config.GetServiceEndpoint())
 	fmt.Fprintf(w, `<tr><th>Data Root</th><td>%s</td></tr>`, h.config.DataRootPath)
-	if h.config.MonitoringServicePort > 0 {
-		fmt.Fprintf(w, `<tr><th>Monitoring</th><td>:%d/monitor</td></tr>`, h.config.MonitoringServicePort)
-		fmt.Fprintf(w, `<tr><th>Prometheus</th><td>:%d/metrics</td></tr>`, h.config.MonitoringServicePort)
-		fmt.Fprintf(w, `<tr><th>REST API</th><td>:%d/api</td></tr>`, h.config.MonitoringServicePort)
+	if h.config.ManagementServicePort > 0 {
+		fmt.Fprintf(w, `<tr><th>Monitoring</th><td>:%d/monitor</td></tr>`, h.config.ManagementServicePort)
+		fmt.Fprintf(w, `<tr><th>Prometheus</th><td>:%d/metrics</td></tr>`, h.config.ManagementServicePort)
+		fmt.Fprintf(w, `<tr><th>REST API</th><td>:%d/api</td></tr>`, h.config.ManagementServicePort)
 	}
 	fmt.Fprint(w, `</table>`)
 }
@@ -516,6 +541,12 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 		}
 		fmt.Fprint(w, `</table>`)
 	}
+
+	fmt.Fprint(w, `<div style="margin-top:16px;display:flex;gap:10px">`)
+	fmt.Fprintf(w, `<button class="action-btn sync-staging-btn" onclick="syncSessionStaging('%s')">&#x21BA; Sync Staging</button>`,
+		template.JSEscapeString(session.id))
+	fmt.Fprint(w, `</div>`)
+	fmt.Fprint(w, `<div class="session-action-result" style="margin-top:10px"></div>`)
 
 	fmt.Fprint(w, `</div>`) // end detail div
 }

@@ -27,7 +27,7 @@ data_root_path: /irodsfs_pool
 max_data_mem_cache_size: 107374182400  # 100GB
 data_mem_cache_ttl: 6h
 staging_root_path: /irodsfs_pool/staging
-monitoring_service_port: 12021
+management_service_port: 12021
 log_root_path: /var/log/irodsfs-pool
 ```
 

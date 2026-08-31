@@ -163,7 +163,7 @@ func (h *RESTAPIHandler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 		uptime = 0
 	}
 
-	port := h.config.MonitoringServicePort
+	port := h.config.ManagementServicePort
 	info := SystemInfo{
 		Server: ServerInfo{
 			Version: VersionInfo{

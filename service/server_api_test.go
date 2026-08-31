@@ -55,7 +55,7 @@ func TestRESTAPIGetSystemInfo(t *testing.T) {
 	config.DataRootPath = t.TempDir()
 	config.StagingRootPath = t.TempDir()
 	config.MaxStagingDataSize = 123456
-	config.MonitoringServicePort = 12021
+	config.ManagementServicePort = 12021
 
 	server := &PoolServer{
 		sessionManager: &PoolSessionManager{sessions: map[string]*PoolSession{}},

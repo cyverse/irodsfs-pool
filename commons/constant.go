@@ -24,7 +24,7 @@ const (
 	SessionCloseGracePeriodDefault               time.Duration = 30 * time.Second
 	OperationTimeoutDefault                      time.Duration = 5 * time.Minute
 
-	MonitoringServicePortDefault int = 12021
+	ManagementServicePortDefault int = 12021
 )
 
 const ()

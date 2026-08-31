@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/irodsfs-pool/commons"
 	log "github.com/sirupsen/logrus"
 )
@@ -28,6 +29,43 @@ func TestMonitoringModalClosesOnlyWithCloseButton(t *testing.T) {
 	}
 	if !strings.Contains(body, `id="modal-close" onclick="closeDetail()"`) {
 		t.Fatal("monitoring modal close button is missing")
+	}
+}
+
+func TestMonitoringSessionDetailIncludesSyncStagingAction(t *testing.T) {
+	session := &PoolSession{
+		id: "0123456789abcdef",
+		irodsAccount: &irodsclient_types.IRODSAccount{
+			Host:       "irods.example.org",
+			Port:       1247,
+			ClientUser: "rods",
+			ClientZone: "tempZone",
+		},
+		connections:     map[string]connInfo{},
+		poolFileHandles: map[string]*PoolFileHandle{},
+	}
+	server := &PoolServer{
+		sessionManager: &PoolSessionManager{
+			sessions: map[string]*PoolSession{session.id: session},
+		},
+	}
+	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
+
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		`class="action-btn sync-staging-btn"`,
+		`Sync Staging`,
+		`syncSessionStaging('0123456789abcdef')`,
+		`/api/sessions/`,
+		`/staging/sync`,
+		`class="session-action-result"`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("monitor response does not contain %q", expected)
+		}
 	}
 }
 

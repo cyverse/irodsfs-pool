@@ -46,7 +46,7 @@ type Config struct {
 	SessionCloseGracePeriod               irodsclient_types.Duration                   `yaml:"session_close_grace_period,omitempty" json:"session_close_grace_period,omitempty"`
 	OperationTimeout                      irodsclient_types.Duration                   `yaml:"operation_timeout,omitempty" json:"operation_timeout,omitempty"`
 
-	MonitoringServicePort int `yaml:"monitoring_service_port,omitempty" json:"monitoring_service_port,omitempty"`
+	ManagementServicePort int `yaml:"management_service_port,omitempty" json:"management_service_port,omitempty"`
 
 	Debug bool `yaml:"debug,omitempty" json:"debug,omitempty"`
 
@@ -80,7 +80,7 @@ func NewDefaultConfig() *Config {
 		SessionCloseGracePeriod:               irodsclient_types.Duration(SessionCloseGracePeriodDefault),
 		OperationTimeout:                      irodsclient_types.Duration(OperationTimeoutDefault),
 
-		MonitoringServicePort: MonitoringServicePortDefault,
+		ManagementServicePort: ManagementServicePortDefault,
 
 		Debug: false,
 

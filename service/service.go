@@ -185,7 +185,7 @@ func (svc *PoolService) Start() error {
 		}
 	}()
 
-	if svc.config.MonitoringServicePort > 0 {
+	if svc.config.ManagementServicePort > 0 {
 		startTime := time.Now()
 		monitoringHandler := newMonitoringHandler(svc.poolServer, svc.config, startTime)
 		apiHandler := newRESTAPIHandler(svc.poolServer, svc.config, startTime)
@@ -194,7 +194,7 @@ func (svc *PoolService) Start() error {
 		mux.Handle("/metrics", promhttp.Handler())
 		apiHandler.RegisterRoutes(mux)
 
-		addr := fmt.Sprintf(":%d", svc.config.MonitoringServicePort)
+		addr := fmt.Sprintf(":%d", svc.config.ManagementServicePort)
 		svc.monitoringServer = &http.Server{Addr: addr, Handler: mux}
 
 		go func() {

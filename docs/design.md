@@ -155,4 +155,4 @@ Key server-side parameters (see `commons/config.go`):
 | `max_io_connection_per_session` | 30 | Max iRODS connections per session |
 | `session_timeout` | 10min | Idle session timeout |
 | `staging_data_grace_period` | 10s | Delay before syncing staged writes to iRODS |
-| `monitoring_service_port` | 12021 | HTTP port for /monitor, /metrics, and /api |
+| `management_service_port` | 12021 | HTTP port for /monitor, /metrics, and /api |

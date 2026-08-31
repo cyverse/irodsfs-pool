@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -127,6 +128,11 @@ type MetadataCacheInvalidationResult struct {
 	Success   bool   `json:"success"`
 }
 
+type SessionStagingSyncResult struct {
+	SessionID string `json:"session_id"`
+	Success   bool   `json:"success"`
+}
+
 func NewRESTAPIHandler(poolServer *PoolServer, config *commons.Config) *RESTAPIHandler {
 	return newRESTAPIHandler(poolServer, config, time.Now())
 }
@@ -143,6 +149,7 @@ func (h *RESTAPIHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions", h.listSessions)
 	mux.HandleFunc("GET /api/sessions/{sessionID}", h.getSession)
 	mux.HandleFunc("POST /api/sessions/{sessionID}/metadata-cache/invalidate", h.invalidateSessionMetadataCache)
+	mux.HandleFunc("POST /api/sessions/{sessionID}/staging/sync", h.syncSessionStaging)
 	mux.HandleFunc("GET /api/recovery-sessions", h.listFailedSessions)
 	mux.HandleFunc("GET /api/recovery-sessions/{sessionID}", h.getFailedSession)
 	mux.HandleFunc("POST /api/recovery-sessions/{sessionID}/recover", h.recoverSession)
@@ -304,6 +311,34 @@ func (h *RESTAPIHandler) invalidateSessionMetadataCache(w http.ResponseWriter, r
 	}
 
 	writeJSON(w, http.StatusOK, MetadataCacheInvalidationResult{
+		SessionID: sessionID,
+		Success:   true,
+	})
+}
+
+func (h *RESTAPIHandler) syncSessionStaging(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("sessionID"))
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, apiErrorResponse{Error: "session ID is required"})
+		return
+	}
+
+	err := h.poolServer.GetSessionManager().SyncSessionStaging(sessionID)
+	if err != nil {
+		if commons.IsSessionNotFoundError(err) {
+			writeJSON(w, http.StatusNotFound, apiErrorResponse{Error: "session not found"})
+			return
+		}
+		if errors.Is(err, errSessionUnavailable) {
+			writeJSON(w, http.StatusConflict, apiErrorResponse{Error: err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusInternalServerError, apiErrorResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, SessionStagingSyncResult{
 		SessionID: sessionID,
 		Success:   true,
 	})

@@ -64,6 +64,7 @@ Run as daemon:
 | 12021 | `/api/sessions` | List active sessions with full monitoring details (JSON) |
 | 12021 | `/api/sessions/{sessionID}` | Get active session details (JSON) |
 | 12021 | `POST /api/sessions/{sessionID}/metadata-cache/invalidate` | Invalidate an active session's filesystem metadata cache |
+| 12021 | `POST /api/sessions/{sessionID}/staging/sync` | Sync an active session's staged data to iRODS |
 | 12021 | `/api/recovery-sessions` | List interrupted, recovering, or release-failed sessions (JSON) |
 | 12021 | `/api/recovery-sessions/{sessionID}` | Get persisted recovery metadata for one session (JSON) |
 

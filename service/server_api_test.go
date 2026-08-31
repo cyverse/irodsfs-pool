@@ -10,6 +10,7 @@ import (
 	"time"
 
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	"github.com/cyverse/irodsfs-pool/commons"
 )
 
@@ -36,6 +37,17 @@ func (fs *fakeSessionFileSystem) ClearCache() {
 }
 
 func (fs *fakeSessionFileSystem) Release() {}
+
+type fakeSyncIRODSFSClient struct {
+	irodsfs_common_irods.IRODSFSClient
+	syncCalls int
+	syncErr   error
+}
+
+func (client *fakeSyncIRODSFSClient) Sync() error {
+	client.syncCalls++
+	return client.syncErr
+}
 
 func TestRESTAPIGetSystemInfo(t *testing.T) {
 	config := commons.NewDefaultConfig()
@@ -270,6 +282,80 @@ func TestRESTAPIInvalidateSessionMetadataCacheWhileReleasing(t *testing.T) {
 	}
 	if fs.clearCacheCalls != 0 {
 		t.Fatalf("ClearCache calls = %d, want 0", fs.clearCacheCalls)
+	}
+}
+
+func TestRESTAPISyncSessionStaging(t *testing.T) {
+	client := &fakeSyncIRODSFSClient{}
+	handler := newRESTAPITestHandler(&PoolSession{
+		id:       "session-1",
+		fsClient: client,
+	})
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/sessions/session-1/staging/sync", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if client.syncCalls != 1 {
+		t.Fatalf("Sync calls = %d, want 1", client.syncCalls)
+	}
+
+	var result SessionStagingSyncResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.SessionID != "session-1" || !result.Success {
+		t.Fatalf("unexpected sync result: %#v", result)
+	}
+}
+
+func TestRESTAPISyncSessionStagingNotFound(t *testing.T) {
+	handler := newRESTAPITestHandler()
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/sessions/missing/staging/sync", nil))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
+	}
+}
+
+func TestRESTAPISyncSessionStagingWhileReleasing(t *testing.T) {
+	client := &fakeSyncIRODSFSClient{}
+	handler := newRESTAPITestHandler(&PoolSession{
+		id:        "session-1",
+		fsClient:  client,
+		releasing: true,
+	})
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/sessions/session-1/staging/sync", nil))
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusConflict)
+	}
+	if client.syncCalls != 0 {
+		t.Fatalf("Sync calls = %d, want 0", client.syncCalls)
+	}
+}
+
+func TestRESTAPISyncSessionStagingFailure(t *testing.T) {
+	client := &fakeSyncIRODSFSClient{syncErr: errors.New("sync failed")}
+	handler := newRESTAPITestHandler(&PoolSession{
+		id:       "session-1",
+		fsClient: client,
+	})
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/sessions/session-1/staging/sync", nil))
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusInternalServerError)
+	}
+	if client.syncCalls != 1 {
+		t.Fatalf("Sync calls = %d, want 1", client.syncCalls)
 	}
 }
 

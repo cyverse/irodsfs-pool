@@ -30,6 +30,8 @@ const (
 	sessionLogMaxAgeDays = 30
 )
 
+var errSessionUnavailable = errors.New("session is not available")
+
 // PoolSessionManager manages PoolSession
 type PoolSessionManager struct {
 	config       *PoolServerConfig
@@ -633,6 +635,15 @@ func (manager *PoolSessionManager) InvalidateSessionMetadataCache(sessionID stri
 	return session.invalidateMetadataCache()
 }
 
+func (manager *PoolSessionManager) SyncSessionStaging(sessionID string) error {
+	session, err := manager.GetSession(sessionID)
+	if err != nil {
+		return err
+	}
+
+	return session.syncStaging()
+}
+
 func (manager *PoolSessionManager) GetCacheManager() *irodsfs_common_cache.MemoryCacheManager {
 	return manager.cacheManager
 }
@@ -720,7 +731,7 @@ func (session *PoolSession) invalidateMetadataCache() error {
 	defer session.mutex.Unlock()
 
 	if session.releasing || session.fs == nil {
-		return errors.Errorf("session %q is not available", session.id)
+		return errors.Wrapf(errSessionUnavailable, "session %q", session.id)
 	}
 
 	// go-irodsclient groups the filesystem's entry, directory, ACL, and AVU
@@ -729,6 +740,25 @@ func (session *PoolSession) invalidateMetadataCache() error {
 	session.fs.ClearCache()
 	if session.logger != nil {
 		session.logger.Info("Invalidated the session metadata cache")
+	}
+	return nil
+}
+
+func (session *PoolSession) syncStaging() error {
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	if session.releasing || session.fsClient == nil {
+		return errors.Wrapf(errSessionUnavailable, "session %q", session.id)
+	}
+
+	session.lastAccessTime = time.Now()
+	if err := session.fsClient.Sync(); err != nil {
+		return errors.Wrap(err, "failed to sync session staging data")
+	}
+
+	if session.logger != nil {
+		session.logger.Info("Synced the session staging data")
 	}
 	return nil
 }

@@ -8,7 +8,7 @@ A shared middleware server that pools iRODS connections, caches data blocks in m
 - **Block cache** — 4MB blocks cached in memory (Ristretto) with configurable capacity and TTL, shared across all sessions.
 - **Local staging** — writes are stored on local disk immediately and synced to iRODS in the background.
 - **Session recovery** — active-session lifecycle metadata is persisted without credentials so crashes and failed releases can be detected and recovered later.
-- **Monitoring** — built-in HTTP dashboard (`/monitor`), Prometheus metrics (`/metrics`), and a read-only REST API (`/api`) on a single port.
+- **Monitoring** — built-in HTTP dashboard (`/monitor`), Prometheus metrics (`/metrics`), and an administrative REST API (`/api`) on a single port.
 - **Resource checks** — warns on startup and in the dashboard when memory or disk is insufficient.
 
 ## Build
@@ -63,6 +63,7 @@ Run as daemon:
 | 12021 | `/api/sysinfo` | Server, memory cache, staging, and I/O metrics (JSON) |
 | 12021 | `/api/sessions` | List active sessions with full monitoring details (JSON) |
 | 12021 | `/api/sessions/{sessionID}` | Get active session details (JSON) |
+| 12021 | `POST /api/sessions/{sessionID}/metadata-cache/invalidate` | Invalidate an active session's filesystem metadata cache |
 | 12021 | `/api/recovery-sessions` | List interrupted, recovering, or release-failed sessions (JSON) |
 | 12021 | `/api/recovery-sessions/{sessionID}` | Get persisted recovery metadata for one session (JSON) |
 

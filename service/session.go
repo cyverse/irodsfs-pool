@@ -624,6 +624,15 @@ func (manager *PoolSessionManager) GetSession(sessionID string) (*PoolSession, e
 	return nil, commons.NewSessionNotFoundError(sessionID)
 }
 
+func (manager *PoolSessionManager) InvalidateSessionMetadataCache(sessionID string) error {
+	session, err := manager.GetSession(sessionID)
+	if err != nil {
+		return err
+	}
+
+	return session.invalidateMetadataCache()
+}
+
 func (manager *PoolSessionManager) GetCacheManager() *irodsfs_common_cache.MemoryCacheManager {
 	return manager.cacheManager
 }
@@ -677,13 +686,18 @@ type connInfo struct {
 	description string
 }
 
+type sessionFileSystem interface {
+	ClearCache()
+	Release()
+}
+
 // PoolSession represents a shared session for the same account
 type PoolSession struct {
 	id           string
 	accountKey   string
 	irodsAccount *irodsclient_types.IRODSAccount
 
-	fs       *irodsclient_fs.FileSystem
+	fs       sessionFileSystem
 	fsClient irodsfs_common_irods.IRODSFSClient
 
 	connections     map[string]connInfo // connID -> client info
@@ -699,6 +713,24 @@ type PoolSession struct {
 	sessionLogFile io.WriteCloser
 
 	mutex sync.RWMutex
+}
+
+func (session *PoolSession) invalidateMetadataCache() error {
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	if session.releasing || session.fs == nil {
+		return errors.Errorf("session %q is not available", session.id)
+	}
+
+	// go-irodsclient groups the filesystem's entry, directory, ACL, and AVU
+	// caches behind ClearCache. The pool's shared data block cache is separate
+	// and is not affected by this call.
+	session.fs.ClearCache()
+	if session.logger != nil {
+		session.logger.Info("Invalidated the session metadata cache")
+	}
+	return nil
 }
 
 func (session *PoolSession) release() error {

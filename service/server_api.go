@@ -122,6 +122,11 @@ type apiErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type MetadataCacheInvalidationResult struct {
+	SessionID string `json:"session_id"`
+	Success   bool   `json:"success"`
+}
+
 func NewRESTAPIHandler(poolServer *PoolServer, config *commons.Config) *RESTAPIHandler {
 	return newRESTAPIHandler(poolServer, config, time.Now())
 }
@@ -137,6 +142,7 @@ func (h *RESTAPIHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sysinfo", h.getSystemInfo)
 	mux.HandleFunc("GET /api/sessions", h.listSessions)
 	mux.HandleFunc("GET /api/sessions/{sessionID}", h.getSession)
+	mux.HandleFunc("POST /api/sessions/{sessionID}/metadata-cache/invalidate", h.invalidateSessionMetadataCache)
 	mux.HandleFunc("GET /api/recovery-sessions", h.listFailedSessions)
 	mux.HandleFunc("GET /api/recovery-sessions/{sessionID}", h.getFailedSession)
 	mux.HandleFunc("POST /api/recovery-sessions/{sessionID}/recover", h.recoverSession)
@@ -277,6 +283,30 @@ func (h *RESTAPIHandler) getSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, snapshotSessionInfo(session))
+}
+
+func (h *RESTAPIHandler) invalidateSessionMetadataCache(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("sessionID"))
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, apiErrorResponse{Error: "session ID is required"})
+		return
+	}
+
+	err := h.poolServer.GetSessionManager().InvalidateSessionMetadataCache(sessionID)
+	if err != nil {
+		if commons.IsSessionNotFoundError(err) {
+			writeJSON(w, http.StatusNotFound, apiErrorResponse{Error: "session not found"})
+			return
+		}
+
+		writeJSON(w, http.StatusConflict, apiErrorResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, MetadataCacheInvalidationResult{
+		SessionID: sessionID,
+		Success:   true,
+	})
 }
 
 func (h *RESTAPIHandler) listFailedSessions(w http.ResponseWriter, _ *http.Request) {

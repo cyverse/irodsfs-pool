@@ -27,6 +27,16 @@ func newRESTAPITestHandler(sessions ...*PoolSession) http.Handler {
 	return mux
 }
 
+type fakeSessionFileSystem struct {
+	clearCacheCalls int
+}
+
+func (fs *fakeSessionFileSystem) ClearCache() {
+	fs.clearCacheCalls++
+}
+
+func (fs *fakeSessionFileSystem) Release() {}
+
 func TestRESTAPIGetSystemInfo(t *testing.T) {
 	config := commons.NewDefaultConfig()
 	config.ServiceEndpoint = "tcp://127.0.0.1:12020"
@@ -207,6 +217,62 @@ func TestRESTAPIGetSessionNotFound(t *testing.T) {
 	}
 }
 
+func TestRESTAPIInvalidateSessionMetadataCache(t *testing.T) {
+	fs := &fakeSessionFileSystem{}
+	handler := newRESTAPITestHandler(&PoolSession{
+		id: "session-1",
+		fs: fs,
+	})
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/sessions/session-1/metadata-cache/invalidate", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if fs.clearCacheCalls != 1 {
+		t.Fatalf("ClearCache calls = %d, want 1", fs.clearCacheCalls)
+	}
+
+	var result MetadataCacheInvalidationResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.SessionID != "session-1" || !result.Success {
+		t.Fatalf("unexpected invalidation result: %#v", result)
+	}
+}
+
+func TestRESTAPIInvalidateSessionMetadataCacheNotFound(t *testing.T) {
+	handler := newRESTAPITestHandler()
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/sessions/missing/metadata-cache/invalidate", nil))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
+	}
+}
+
+func TestRESTAPIInvalidateSessionMetadataCacheWhileReleasing(t *testing.T) {
+	fs := &fakeSessionFileSystem{}
+	handler := newRESTAPITestHandler(&PoolSession{
+		id:        "session-1",
+		fs:        fs,
+		releasing: true,
+	})
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/sessions/session-1/metadata-cache/invalidate", nil))
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusConflict)
+	}
+	if fs.clearCacheCalls != 0 {
+		t.Fatalf("ClearCache calls = %d, want 0", fs.clearCacheCalls)
+	}
+}
+
 func TestRESTAPIFailedSessions(t *testing.T) {
 	manager := newFailedSessionStoreTestManager(t.TempDir())
 	manager.handleSessionReleaseResult(newFailedSessionStoreTestSession("session-1"), errors.New("sync failed"))
@@ -265,7 +331,6 @@ func TestRESTAPIFailedSessions(t *testing.T) {
 		}
 	}
 }
-
 
 func TestRESTAPIRejectsUnsupportedMethod(t *testing.T) {
 	handler := newRESTAPITestHandler()

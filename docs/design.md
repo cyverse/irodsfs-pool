@@ -125,7 +125,7 @@ Read prefetch memory is limited when many files are open:
 
 ## HTTP Monitoring and API Service
 
-A single HTTP server (default port 12021) exposes monitoring, metrics, and a read-only REST API:
+A single HTTP server (default port 12021) exposes monitoring, metrics, and an administrative REST API:
 
 | Path | Purpose |
 |------|---------|
@@ -134,6 +134,7 @@ A single HTTP server (default port 12021) exposes monitoring, metrics, and a rea
 | `/api/sysinfo` | JSON server, memory cache, staging, and I/O metrics information |
 | `/api/sessions` | JSON list of active sessions with clients, staged files, and open file handles |
 | `/api/sessions/{sessionID}` | JSON details for one active session, including clients, staged files, and open file handles |
+| `POST /api/sessions/{sessionID}/metadata-cache/invalidate` | Invalidate an active session's filesystem metadata cache without clearing the shared data block cache |
 | `/api/recovery-sessions` | JSON list of interrupted, recovering, or release-failed sessions |
 | `/api/recovery-sessions/{sessionID}` | JSON persisted recovery metadata for one session |
 

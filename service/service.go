@@ -67,7 +67,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 
 	poolServer, err := NewPoolServer(poolServerConfig)
 	if err != nil {
-		poolErr := errors.Wrapf(err, "failed to create a new pool server")
+		poolErr := errors.Wrap(err, "failed to create a new pool server")
 		logger.Error(poolErr)
 		return nil, err
 	}
@@ -157,8 +157,9 @@ func (svc *PoolService) Start() error {
 		svc.logger.Infof("Listening tcp socket: %q", endpoint)
 		listener = tcpListener
 	default:
-		svc.logger.Errorf("unknown protocol %q", scheme)
-		return errors.Errorf("unknown protocol %q", scheme)
+		err = errors.Newf("unknown protocol %q", scheme)
+		svc.logger.Error(err)
+		return err
 	}
 
 	go func() {
@@ -180,7 +181,7 @@ func (svc *PoolService) Start() error {
 	go func() {
 		err = svc.grpcServer.Serve(listener)
 		if err != nil {
-			grpcServerErr := errors.Wrapf(err, "failed to serve")
+			grpcServerErr := errors.Wrap(err, "failed to serve")
 			svc.logger.Error(grpcServerErr)
 		}
 	}()
@@ -198,7 +199,7 @@ func (svc *PoolService) Start() error {
 		svc.monitoringServer = &http.Server{Addr: addr, Handler: mux}
 
 		go func() {
-			svc.logger.Infof("Starting monitoring service at %s (endpoints: /monitor, /metrics, /api/sysinfo, /api/sessions, /api/recovery-sessions)", addr)
+			svc.logger.Infof("Starting monitoring service at %s (endpoints: /healthz, /readyz, /monitor, /metrics, /api/sysinfo, /api/sessions, /api/recovery-sessions)", addr)
 			if err := svc.monitoringServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				svc.logger.WithError(err).Error("monitoring service error")
 			}

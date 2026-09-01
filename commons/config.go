@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
 	"gopkg.in/natefinch/lumberjack.v2"
-	yaml "gopkg.in/yaml.v2"
+	yaml "gopkg.in/yaml.v3"
 
 	"github.com/cockroachdb/errors"
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
@@ -73,7 +72,7 @@ func NewDefaultConfig() *Config {
 		MaxMetadataCacheSizePerSession:        MaxMetadataCacheSizePerSessionDefault,
 		MaxMetadataCacheBufferItemsPerSession: MaxMetadataCacheBufferItemsPerSessionDefault,
 		MetadataCacheTTL:                      irodsclient_types.Duration(MetadataCacheTTLDefault),
-		StagingRootPath:                       path.Join(DataRootPathDefault, StagingRootPathDefault),
+		StagingRootPath:                       filepath.Join(DataRootPathDefault, StagingRootPathDefault),
 		MaxStagingDataSize:                    MaxStagingDataSizeDefault,
 		MaxCacheFileSize:                      MaxCacheFileSizeDefault,
 		StagingDataGracePeriod:                irodsclient_types.Duration(StagingDataGracePeriodDefault),
@@ -115,7 +114,7 @@ func NewConfigFromFile(config *Config, filePath string) (*Config, error) {
 	case FormatYAML:
 		return NewConfigFromYAMLFile(config, filePath)
 	default:
-		return nil, errors.Newf("unknown file format")
+		return nil, errors.New("unknown file format")
 	}
 }
 
@@ -168,7 +167,7 @@ func NewConfigFromYAML(config *Config, yamlBytes []byte) (*Config, error) {
 
 	err := yaml.Unmarshal(yamlBytes, &cfg)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to unmarshal yaml into config")
+		return nil, errors.Wrap(err, "failed to unmarshal yaml into config")
 	}
 
 	return config, nil
@@ -183,7 +182,7 @@ func NewConfigFromJSON(config *Config, jsonBytes []byte) (*Config, error) {
 
 	err := json.Unmarshal(jsonBytes, &cfg)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to unmarshal json into config")
+		return nil, errors.Wrap(err, "failed to unmarshal json into config")
 	}
 
 	return config, nil
@@ -201,7 +200,7 @@ func (config *Config) GetLogRootPath() string {
 
 // GetLogFilePath returns the service log file path.
 func (config *Config) GetLogFilePath() string {
-	return path.Join(config.GetLogRootPath(), "irodsfs-pool.log")
+	return filepath.Join(config.GetLogRootPath(), "irodsfs-pool.log")
 }
 
 func (config *Config) GetServiceEndpoint() string {
@@ -213,7 +212,7 @@ func (config *Config) GetServiceEndpoint() string {
 }
 
 func (config *Config) GetDataStagingRootPath() string {
-	return path.Join(config.DataRootPath, "staging")
+	return filepath.Join(config.DataRootPath, "staging")
 }
 
 func (config *Config) GetDataRootPath() string {
@@ -230,7 +229,7 @@ func (config *Config) GetRecoveryEncryptionKey() ([]byte, error) {
 		return nil, errors.Wrap(err, "recovery encryption key must be valid base64")
 	}
 	if len(key) != 32 {
-		return nil, errors.Errorf("recovery encryption key must decode to exactly 32 bytes, got %d", len(key))
+		return nil, errors.Newf("recovery encryption key must decode to exactly 32 bytes, got %d", len(key))
 	}
 	return key, nil
 }
@@ -272,7 +271,7 @@ func (config *Config) MakeWorkDirs() error {
 // makeDir makes a dir for use
 func (config *Config) makeDir(path string) error {
 	if len(path) == 0 {
-		return errors.Errorf("failed to create a dir with empty path")
+		return errors.New("failed to create a dir with empty path")
 	}
 
 	dirInfo, err := os.Stat(path)
@@ -291,12 +290,12 @@ func (config *Config) makeDir(path string) error {
 	}
 
 	if !dirInfo.IsDir() {
-		return errors.Errorf("a file %q exist, not a directory", path)
+		return errors.Newf("a file %q exist, not a directory", path)
 	}
 
 	dirPerm := dirInfo.Mode().Perm()
 	if dirPerm&0200 != 0200 {
-		return errors.Errorf("a dir %q exist, but does not have the write permission", path)
+		return errors.Newf("a dir %q exist, but does not have the write permission", path)
 	}
 
 	return nil
@@ -334,7 +333,7 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 	} else {
 		unixSocketDirPerm := unixSocketDirInfo.Mode().Perm()
 		if unixSocketDirPerm&0200 != 0200 {
-			return errors.Errorf("unix socket directory %q must have write permission", parentDir)
+			return errors.Newf("unix socket directory %q must have write permission", parentDir)
 		}
 		// ok - fall
 	}
@@ -349,12 +348,25 @@ func (config *Config) Validate() error {
 		return err
 	}
 
+	paths := map[string]string{
+		"data_root_path":    config.DataRootPath,
+		"pid_file":          config.PIDFile,
+		"log_root_path":     config.LogRootPath,
+		"staging_root_path": config.StagingRootPath,
+	}
+
+	for name, path := range paths {
+		if !filepath.IsAbs(path) {
+			return errors.Newf("%s %q must be an absolute path", name, path)
+		}
+	}
+
 	if len(config.DataRootPath) == 0 {
-		return errors.Errorf("data root dir must be given")
+		return errors.New("data root dir must be given")
 	}
 
 	if len(config.PIDFile) == 0 {
-		return errors.Errorf("pid file path must be given")
+		return errors.New("pid file path must be given")
 	}
 
 	if _, err := config.GetRecoveryEncryptionKey(); err != nil {

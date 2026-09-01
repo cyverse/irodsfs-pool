@@ -64,11 +64,11 @@ func newStartCommand(d *godaemonizer.Daemon) *cobra.Command {
 
 			config, err := loadConfig(command)
 			if err != nil {
-				return fmt.Errorf("process command flags: %w", err)
+				return errors.Wrap(err, "process command flags")
 			}
 			logWriter, err := config.GetLogWriter(true)
 			if err != nil {
-				return fmt.Errorf("get parent log writer: %w", err)
+				return errors.Wrap(err, "get parent log writer")
 			}
 			if logWriter != nil {
 				defer logWriter.Close()
@@ -76,7 +76,7 @@ func newStartCommand(d *godaemonizer.Daemon) *cobra.Command {
 			}
 
 			if err := d.Daemonize(context.Background(), config, nil); err != nil {
-				return fmt.Errorf("daemonize irodsfs-pool: %w", err)
+				return errors.Wrap(err, "daemonize irodsfs-pool")
 			}
 
 			fmt.Fprintf(command.OutOrStdout(), "irodsfs-pool started (pid file: %s)\n", config.PIDFile)
@@ -89,13 +89,13 @@ func runDaemonChild(command *cobra.Command, d *godaemonizer.Daemon) error {
 	var config commons.Config
 	ready, err := d.WaitForParent(&config)
 	if err != nil {
-		return fmt.Errorf("receive daemon startup parameters: %w", err)
+		return errors.Wrap(err, "receive daemon startup parameters")
 	}
 
 	logWriter, err := config.GetLogWriter(false)
 	if err != nil {
 		ready(err)
-		return fmt.Errorf("get daemon log writer: %w", err)
+		return errors.Wrap(err, "get daemon log writer")
 	}
 	if logWriter != nil {
 		defer logWriter.Close()
@@ -113,15 +113,15 @@ func newRunCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			config, err := loadConfig(command)
 			if err != nil {
-				return fmt.Errorf("process command flags: %w", err)
+				return errors.Wrap(err, "process command flags")
 			}
 			if err := configureForegroundPaths(config); err != nil {
-				return fmt.Errorf("configure foreground paths: %w", err)
+				return errors.Wrap(err, "configure foreground paths")
 			}
 
 			logWriter, err := config.GetLogWriter(true)
 			if err != nil {
-				return fmt.Errorf("get foreground log writer: %w", err)
+				return errors.Wrap(err, "get foreground log writer")
 			}
 			if logWriter != nil {
 				defer logWriter.Close()
@@ -140,7 +140,7 @@ func loadConfig(command *cobra.Command) (*commons.Config, error) {
 func configureForegroundPaths(config *commons.Config) error {
 	workingDirectory, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("get current working directory: %w", err)
+		return errors.Wrap(err, "get current working directory")
 	}
 
 	oldDataRootPath := config.DataRootPath
@@ -163,7 +163,7 @@ func newStopCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			config, err := cmd_commons.ProcessCommonFlags(command)
 			if err != nil {
-				return fmt.Errorf("process command flags: %w", err)
+				return errors.Wrap(err, "process command flags")
 			}
 
 			pid, err := cmd_commons.ReadPID(config.PIDFile)
@@ -171,7 +171,7 @@ func newStopCommand() *cobra.Command {
 				return err
 			}
 			if !cmd_commons.ProcessRunning(pid) {
-				return fmt.Errorf("irodsfs-pool is not running (stale pid %d)", pid)
+				return errors.Newf("irodsfs-pool is not running (stale pid %d)", pid)
 			}
 			if err := cmd_commons.SignalPID(pid, syscall.SIGTERM); err != nil {
 				return err
@@ -182,7 +182,7 @@ func newStopCommand() *cobra.Command {
 			defer ticker.Stop()
 			for cmd_commons.ProcessRunning(pid) {
 				if time.Now().After(deadline) {
-					return fmt.Errorf("timed out waiting for irodsfs-pool process %d to stop", pid)
+					return errors.Newf("timed out waiting for irodsfs-pool process %d to stop", pid)
 				}
 				select {
 				case <-command.Context().Done():
@@ -207,7 +207,7 @@ func newStatusCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			config, err := cmd_commons.ProcessCommonFlags(command)
 			if err != nil {
-				return fmt.Errorf("process command flags: %w", err)
+				return errors.Wrap(err, "process command flags")
 			}
 
 			pid, err := cmd_commons.ReadPID(config.PIDFile)
@@ -215,7 +215,7 @@ func newStatusCommand() *cobra.Command {
 				return err
 			}
 			if !cmd_commons.ProcessRunning(pid) {
-				return fmt.Errorf("irodsfs-pool is not running (stale pid %d)", pid)
+				return errors.Newf("irodsfs-pool is not running (stale pid %d)", pid)
 			}
 
 			fmt.Fprintf(command.OutOrStdout(), "irodsfs-pool is running (pid %d)\n", pid)
@@ -314,26 +314,26 @@ func run(config *commons.Config) (error, func()) {
 	logger.Infof("iRODS FUSE Pool Service version - %q, commit - %q", versionInfo.ServiceVersion, versionInfo.GitCommit)
 
 	if err := config.MakeWorkDirs(); err != nil {
-		mkdirErr := errors.Wrapf(err, "make work dir error")
+		mkdirErr := errors.Wrap(err, "make work dir error")
 		logger.Error(mkdirErr)
-		return err, nil
+		return mkdirErr, nil
 	}
 
 	if err := config.Validate(); err != nil {
-		configErr := errors.Wrapf(err, "invalid configuration")
+		configErr := errors.Wrap(err, "invalid configuration")
 		logger.Error(configErr)
-		return err, nil
+		return configErr, nil
 	}
 
 	svc, err := service.NewPoolService(config)
 	if err != nil {
-		serviceErr := errors.Wrapf(err, "failed to create the service")
+		serviceErr := errors.Wrap(err, "failed to create the service")
 		logger.Error(serviceErr)
 		return serviceErr, nil
 	}
 
 	if err := svc.Start(); err != nil {
-		serviceErr := errors.Wrapf(err, "failed to start the service")
+		serviceErr := errors.Wrap(err, "failed to start the service")
 		logger.Error(serviceErr)
 		svc.Release()
 		return serviceErr, nil

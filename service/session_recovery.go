@@ -38,14 +38,14 @@ func (manager *PoolSessionManager) RecoverSession(sessionID string) (*RecoveryRe
 		return nil, errors.Wrap(err, "failed to read session from store")
 	}
 	if info == nil {
-		return nil, errors.Errorf("session %q not found in recovery store", sessionID)
+		return nil, errors.Newf("session %q not found in recovery store", sessionID)
 	}
 	switch info.Status {
 	case FailedSessionStatusActive, FailedSessionStatusRecovering:
-		return nil, errors.Errorf("session %q cannot be recovered while in status %q", sessionID, info.Status)
+		return nil, errors.Newf("session %q cannot be recovered while in status %q", sessionID, info.Status)
 	}
 	if info.EncryptedAccount == nil {
-		return nil, errors.Errorf("session %q has no encrypted credentials; manual recovery required", sessionID)
+		return nil, errors.Newf("session %q has no encrypted credentials; manual recovery required", sessionID)
 	}
 
 	// Mark as recovering so concurrent calls see the right state.
@@ -184,11 +184,11 @@ func (manager *PoolSessionManager) DiscardSessionStaging(sessionID string) (*Dis
 		return nil, errors.Wrap(err, "failed to read session from store")
 	}
 	if info == nil {
-		return nil, errors.Errorf("session %q not found in recovery store", sessionID)
+		return nil, errors.Newf("session %q not found in recovery store", sessionID)
 	}
 	switch info.Status {
 	case FailedSessionStatusActive, FailedSessionStatusRecovering:
-		return nil, errors.Errorf("session %q cannot be discarded while in status %q", sessionID, info.Status)
+		return nil, errors.Newf("session %q cannot be discarded while in status %q", sessionID, info.Status)
 	}
 
 	// Remove local staging directory if it exists.

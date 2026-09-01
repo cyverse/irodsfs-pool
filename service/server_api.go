@@ -123,6 +123,10 @@ type apiErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type HealthStatus struct {
+	Status string `json:"status"`
+}
+
 type MetadataCacheInvalidationResult struct {
 	SessionID string `json:"session_id"`
 	Success   bool   `json:"success"`
@@ -145,6 +149,8 @@ func newRESTAPIHandler(poolServer *PoolServer, config *commons.Config, startTime
 }
 
 func (h *RESTAPIHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /healthz", h.getHealth)
+	mux.HandleFunc("GET /readyz", h.getReadiness)
 	mux.HandleFunc("GET /api/sysinfo", h.getSystemInfo)
 	mux.HandleFunc("GET /api/sessions", h.listSessions)
 	mux.HandleFunc("GET /api/sessions/{sessionID}", h.getSession)
@@ -154,6 +160,25 @@ func (h *RESTAPIHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/recovery-sessions/{sessionID}", h.getFailedSession)
 	mux.HandleFunc("POST /api/recovery-sessions/{sessionID}/recover", h.recoverSession)
 	mux.HandleFunc("POST /api/recovery-sessions/{sessionID}/discard", h.discardSessionStaging)
+}
+
+func (h *RESTAPIHandler) getHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, HealthStatus{Status: "ok"})
+}
+
+func (h *RESTAPIHandler) getReadiness(w http.ResponseWriter, _ *http.Request) {
+	if h.poolServer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, HealthStatus{Status: "not_ready"})
+		return
+	}
+
+	sessionManager := h.poolServer.GetSessionManager()
+	if sessionManager == nil || sessionManager.GetCacheManager() == nil {
+		writeJSON(w, http.StatusServiceUnavailable, HealthStatus{Status: "not_ready"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, HealthStatus{Status: "ready"})
 }
 
 func (h *RESTAPIHandler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {

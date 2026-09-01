@@ -31,7 +31,7 @@ type recoveryAccountCipher struct {
 
 func newRecoveryAccountCipher(key []byte) (*recoveryAccountCipher, error) {
 	if len(key) != 32 {
-		return nil, errors.Errorf("recovery encryption key must be exactly 32 bytes, got %d", len(key))
+		return nil, errors.Newf("recovery encryption key must be exactly 32 bytes, got %d", len(key))
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -69,17 +69,17 @@ func (c *recoveryAccountCipher) Encrypt(account *irodsclient_types.IRODSAccount,
 
 func (c *recoveryAccountCipher) Decrypt(encrypted EncryptedIRODSAccount, sessionID string, accountKey string) (*irodsclient_types.IRODSAccount, error) {
 	if encrypted.Version != recoveryAccountEncryptionVersion {
-		return nil, errors.Errorf("unsupported recovery account encryption version %d", encrypted.Version)
+		return nil, errors.Newf("unsupported recovery account encryption version %d", encrypted.Version)
 	}
 	if encrypted.Algorithm != recoveryAccountEncryptionAlgorithm {
-		return nil, errors.Errorf("unsupported recovery account encryption algorithm %q", encrypted.Algorithm)
+		return nil, errors.Newf("unsupported recovery account encryption algorithm %q", encrypted.Algorithm)
 	}
 	nonce, err := base64.StdEncoding.DecodeString(encrypted.Nonce)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to decode recovery account nonce")
 	}
 	if len(nonce) != c.aead.NonceSize() {
-		return nil, errors.Errorf("invalid recovery account nonce size %d", len(nonce))
+		return nil, errors.Newf("invalid recovery account nonce size %d", len(nonce))
 	}
 	ciphertext, err := base64.StdEncoding.DecodeString(encrypted.Ciphertext)
 	if err != nil {

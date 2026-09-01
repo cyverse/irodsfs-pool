@@ -2,13 +2,13 @@ package client
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	"google.golang.org/grpc"
@@ -176,7 +176,7 @@ func TestPoolServiceFileHandleConcurrentReadAt(t *testing.T) {
 			for i, value := range buffer {
 				expected := byte((offset + int64(i)) % 251)
 				if value != expected {
-					errs <- fmt.Errorf("data mismatch at offset %d: got %d, want %d", offset+int64(i), value, expected)
+					errs <- errors.Newf("data mismatch at offset %d: got %d, want %d", offset+int64(i), value, expected)
 					return
 				}
 			}

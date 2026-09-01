@@ -227,7 +227,7 @@ func (client *PoolServiceClient) Connect() error {
 	defer irodsfs_common_util.StackTraceFromPanic(client.logger)
 
 	if client.connected {
-		return errors.Errorf("already connected to %q", client.address)
+		return errors.Newf("already connected to %q", client.address)
 	}
 
 	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(client.address)
@@ -655,8 +655,9 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 
 	response, ok := res.(*api.ListResponse)
 	if !ok {
-		session.logger.Error("failed to convert interface to ListResponse")
-		return nil, errors.Errorf("failed to convert interface to ListResponse")
+		err = errors.New("failed to convert interface to ListResponse")
+		session.logger.Error(err)
+		return nil, err
 	}
 
 	for _, entry := range response.Entries {
@@ -730,8 +731,9 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 
 	response, ok := res.(*api.StatResponse)
 	if !ok {
-		session.logger.Error("failed to convert interface to StatResponse")
-		return nil, errors.Errorf("failed to convert interface to StatResponse")
+		err = errors.New("failed to convert interface to StatResponse")
+		session.logger.Error(err)
+		return nil, err
 	}
 
 	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
@@ -1013,8 +1015,9 @@ func (session *PoolServiceSession) CreateFile(path string, mode string) (irodsfs
 
 	response, ok := res.(*api.CreateFileResponse)
 	if !ok {
-		session.logger.Error("failed to convert interface to CreateFileResponse")
-		return nil, errors.Errorf("failed to convert interface to CreateFileResponse")
+		err = errors.New("failed to convert interface to CreateFileResponse")
+		session.logger.Error(err)
+		return nil, err
 	}
 
 	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
@@ -1088,8 +1091,9 @@ func (session *PoolServiceSession) OpenFile(path string, mode string) (irodsfs_c
 
 	response, ok := res.(*api.OpenFileResponse)
 	if !ok {
-		session.logger.Error("failed to convert interface to OpenFileResponse")
-		return nil, errors.Errorf("failed to convert interface to OpenFileResponse")
+		err = errors.New("failed to convert interface to OpenFileResponse")
+		session.logger.Error(err)
+		return nil, err
 	}
 
 	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
@@ -1175,8 +1179,9 @@ func (session *PoolServiceSession) CreateFileBulk(path string, mode string) (iro
 
 	response, ok := res.(*api.CreateFileBulkResponse)
 	if !ok {
-		session.logger.Error("failed to convert interface to CreateFileBulkResponse")
-		return nil, errors.Errorf("failed to convert interface to CreateFileBulkResponse")
+		err = errors.New("failed to convert interface to CreateFileBulkResponse")
+		session.logger.Error(err)
+		return nil, err
 	}
 
 	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
@@ -1249,8 +1254,9 @@ func (session *PoolServiceSession) OpenFileBulk(path string, mode string) (irods
 
 	response, ok := res.(*api.OpenFileBulkResponse)
 	if !ok {
-		session.logger.Error("failed to convert interface to OpenFileBulkResponse")
-		return nil, errors.Errorf("failed to convert interface to OpenFileBulkResponse")
+		err = errors.New("failed to convert interface to OpenFileBulkResponse")
+		session.logger.Error(err)
+		return nil, err
 	}
 
 	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
@@ -2013,8 +2019,9 @@ func (handle *PoolServiceFileHandle) readFromServer(buffer []byte, offset int64)
 
 		response, ok := res.(*api.ReadAtResponse)
 		if !ok {
-			handle.logger.Error("failed to convert interface to ReadAtResponse")
-			return 0, errors.Errorf("failed to convert interface to ReadAtResponse")
+			err = errors.New("failed to convert interface to ReadAtResponse")
+			handle.logger.Error(err)
+			return 0, err
 		}
 
 		if len(response.Data) > 0 {

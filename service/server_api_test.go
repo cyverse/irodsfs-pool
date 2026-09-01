@@ -11,6 +11,7 @@ import (
 
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
+	irodsfs_common_cache "github.com/cyverse/irodsfs-common/irods/cache"
 	"github.com/cyverse/irodsfs-pool/commons"
 )
 
@@ -42,6 +43,21 @@ type fakeSyncIRODSFSClient struct {
 	irodsfs_common_irods.IRODSFSClient
 	syncCalls int
 	syncErr   error
+}
+
+func newRESTAPITestCacheManager(t *testing.T) *irodsfs_common_cache.MemoryCacheManager {
+	t.Helper()
+	cacheManager, err := irodsfs_common_cache.NewMemoryCacheManager(&irodsfs_common_cache.MemoryCacheConfig{
+		NumCounters: 1000,
+		MaxCost:     1024 * 1024,
+		BufferItems: 64,
+		TTL:         time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewMemoryCacheManager: %v", err)
+	}
+	t.Cleanup(cacheManager.Release)
+	return cacheManager
 }
 
 func (client *fakeSyncIRODSFSClient) Sync() error {
@@ -103,6 +119,74 @@ func TestRESTAPIGetSystemInfo(t *testing.T) {
 	}
 	if info.IOMetrics.RequestFailures != 4 || info.IOMetrics.ConnectionFailures != 5 {
 		t.Fatalf("unexpected failure metrics: %#v", info.IOMetrics)
+	}
+}
+
+func TestRESTAPIHealth(t *testing.T) {
+	mux := http.NewServeMux()
+	NewRESTAPIHandler(nil, nil).RegisterRoutes(mux)
+
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var status HealthStatus
+	if err := json.Unmarshal(recorder.Body.Bytes(), &status); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if status.Status != "ok" {
+		t.Fatalf("health status = %q, want %q", status.Status, "ok")
+	}
+}
+
+func TestRESTAPIReadiness(t *testing.T) {
+	tests := []struct {
+		name       string
+		poolServer *PoolServer
+		wantCode   int
+		wantStatus string
+	}{
+		{
+			name:       "ready",
+			poolServer: &PoolServer{sessionManager: &PoolSessionManager{cacheManager: newRESTAPITestCacheManager(t)}},
+			wantCode:   http.StatusOK,
+			wantStatus: "ready",
+		},
+		{
+			name:       "missing pool server",
+			poolServer: nil,
+			wantCode:   http.StatusServiceUnavailable,
+			wantStatus: "not_ready",
+		},
+		{
+			name:       "missing session manager",
+			poolServer: &PoolServer{},
+			wantCode:   http.StatusServiceUnavailable,
+			wantStatus: "not_ready",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			NewRESTAPIHandler(tt.poolServer, nil).RegisterRoutes(mux)
+
+			recorder := httptest.NewRecorder()
+			mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+
+			if recorder.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d", recorder.Code, tt.wantCode)
+			}
+			var status HealthStatus
+			if err := json.Unmarshal(recorder.Body.Bytes(), &status); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if status.Status != tt.wantStatus {
+				t.Fatalf("readiness status = %q, want %q", status.Status, tt.wantStatus)
+			}
+		})
 	}
 }
 

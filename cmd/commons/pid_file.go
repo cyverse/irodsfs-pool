@@ -1,13 +1,14 @@
 package commons
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/cockroachdb/errors"
 )
 
 // PIDFile holds an exclusive lock on a process ID file.
@@ -24,38 +25,38 @@ func AcquirePIDFile(path string) (*PIDFile, error) {
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return nil, fmt.Errorf("create pid directory for %q: %w", path, err)
+		return nil, errors.Wrapf(err, "create pid directory for %q", path)
 	}
 
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("open pid file %q: %w", path, err)
+		return nil, errors.Wrapf(err, "open pid file %q", path)
 	}
 
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = file.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, fmt.Errorf("irodsfs-pool is already running (pid file: %s)", path)
+			return nil, errors.Newf("irodsfs-pool is already running (pid file: %s)", path)
 		}
-		return nil, fmt.Errorf("lock pid file %q: %w", path, err)
+		return nil, errors.Wrapf(err, "lock pid file %q", path)
 	}
 
 	pid := os.Getpid()
 	if err := file.Truncate(0); err != nil {
 		_ = releaseFile(file)
-		return nil, fmt.Errorf("truncate pid file %q: %w", path, err)
+		return nil, errors.Wrapf(err, "truncate pid file %q", path)
 	}
 	if _, err := file.Seek(0, 0); err != nil {
 		_ = releaseFile(file)
-		return nil, fmt.Errorf("seek pid file %q: %w", path, err)
+		return nil, errors.Wrapf(err, "seek pid file %q", path)
 	}
 	if _, err := fmt.Fprintf(file, "%d\n", pid); err != nil {
 		_ = releaseFile(file)
-		return nil, fmt.Errorf("write pid file %q: %w", path, err)
+		return nil, errors.Wrapf(err, "write pid file %q", path)
 	}
 	if err := file.Sync(); err != nil {
 		_ = releaseFile(file)
-		return nil, fmt.Errorf("sync pid file %q: %w", path, err)
+		return nil, errors.Wrapf(err, "sync pid file %q", path)
 	}
 
 	return &PIDFile{
@@ -96,14 +97,14 @@ func ReadPID(path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return 0, fmt.Errorf("irodsfs-pool is not running: pid file %q does not exist", path)
+			return 0, errors.Newf("irodsfs-pool is not running: pid file %q does not exist", path)
 		}
-		return 0, fmt.Errorf("read pid file %q: %w", path, err)
+		return 0, errors.Wrapf(err, "read pid file %q", path)
 	}
 
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil || pid <= 1 {
-		return 0, fmt.Errorf("pid file %q contains an invalid pid", path)
+		return 0, errors.Newf("pid file %q contains an invalid pid", path)
 	}
 	return pid, nil
 }
@@ -124,14 +125,14 @@ func ProcessRunning(pid int) bool {
 func SignalPID(pid int, signal syscall.Signal) error {
 	process, err := os.FindProcess(pid)
 	if err != nil {
-		return fmt.Errorf("find process %d: %w", pid, err)
+		return errors.Wrapf(err, "find process %d", pid)
 	}
 
 	if err := process.Signal(signal); err != nil {
 		if errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH) {
-			return fmt.Errorf("irodsfs-pool is not running (stale pid %d)", pid)
+			return errors.Newf("irodsfs-pool is not running (stale pid %d)", pid)
 		}
-		return fmt.Errorf("signal process %d: %w", pid, err)
+		return errors.Wrapf(err, "signal process %d", pid)
 	}
 	return nil
 }

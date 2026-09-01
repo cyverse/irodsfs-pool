@@ -26,5 +26,3 @@ const (
 
 	ManagementServicePortDefault int = 12021
 )
-
-const ()

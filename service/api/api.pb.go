@@ -9,6 +9,7 @@ package api
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -57,139 +58,44 @@ func (*Empty) Descriptor() ([]byte, []int) {
 	return file_service_api_api_proto_rawDescGZIP(), []int{0}
 }
 
-type SSLConfiguration struct {
-	state                   protoimpl.MessageState `protogen:"open.v1"`
-	CaCertificateFile       string                 `protobuf:"bytes,1,opt,name=ca_certificate_file,json=caCertificateFile,proto3" json:"ca_certificate_file,omitempty"`
-	CaCertificatePath       string                 `protobuf:"bytes,2,opt,name=ca_certificate_path,json=caCertificatePath,proto3" json:"ca_certificate_path,omitempty"`
-	EncryptionKeySize       int32                  `protobuf:"varint,3,opt,name=encryption_key_size,json=encryptionKeySize,proto3" json:"encryption_key_size,omitempty"`
-	EncryptionAlgorithm     string                 `protobuf:"bytes,4,opt,name=encryption_algorithm,json=encryptionAlgorithm,proto3" json:"encryption_algorithm,omitempty"`
-	EncryptionSaltSize      int32                  `protobuf:"varint,5,opt,name=encryption_salt_size,json=encryptionSaltSize,proto3" json:"encryption_salt_size,omitempty"`
-	EncryptionNumHashRounds int32                  `protobuf:"varint,6,opt,name=encryption_num_hash_rounds,json=encryptionNumHashRounds,proto3" json:"encryption_num_hash_rounds,omitempty"`
-	VerifyServer            string                 `protobuf:"bytes,7,opt,name=verify_server,json=verifyServer,proto3" json:"verify_server,omitempty"`
-	DhParamsFile            string                 `protobuf:"bytes,8,opt,name=dh_params_file,json=dhParamsFile,proto3" json:"dh_params_file,omitempty"`
-	ServerName              string                 `protobuf:"bytes,9,opt,name=server_name,json=serverName,proto3" json:"server_name,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
-}
-
-func (x *SSLConfiguration) Reset() {
-	*x = SSLConfiguration{}
-	mi := &file_service_api_api_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SSLConfiguration) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SSLConfiguration) ProtoMessage() {}
-
-func (x *SSLConfiguration) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SSLConfiguration.ProtoReflect.Descriptor instead.
-func (*SSLConfiguration) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *SSLConfiguration) GetCaCertificateFile() string {
-	if x != nil {
-		return x.CaCertificateFile
-	}
-	return ""
-}
-
-func (x *SSLConfiguration) GetCaCertificatePath() string {
-	if x != nil {
-		return x.CaCertificatePath
-	}
-	return ""
-}
-
-func (x *SSLConfiguration) GetEncryptionKeySize() int32 {
-	if x != nil {
-		return x.EncryptionKeySize
-	}
-	return 0
-}
-
-func (x *SSLConfiguration) GetEncryptionAlgorithm() string {
-	if x != nil {
-		return x.EncryptionAlgorithm
-	}
-	return ""
-}
-
-func (x *SSLConfiguration) GetEncryptionSaltSize() int32 {
-	if x != nil {
-		return x.EncryptionSaltSize
-	}
-	return 0
-}
-
-func (x *SSLConfiguration) GetEncryptionNumHashRounds() int32 {
-	if x != nil {
-		return x.EncryptionNumHashRounds
-	}
-	return 0
-}
-
-func (x *SSLConfiguration) GetVerifyServer() string {
-	if x != nil {
-		return x.VerifyServer
-	}
-	return ""
-}
-
-func (x *SSLConfiguration) GetDhParamsFile() string {
-	if x != nil {
-		return x.DhParamsFile
-	}
-	return ""
-}
-
-func (x *SSLConfiguration) GetServerName() string {
-	if x != nil {
-		return x.ServerName
-	}
-	return ""
-}
-
 type Account struct {
-	state                   protoimpl.MessageState `protogen:"open.v1"`
-	AuthenticationScheme    string                 `protobuf:"bytes,1,opt,name=authentication_scheme,json=authenticationScheme,proto3" json:"authentication_scheme,omitempty"`
-	ClientServerNegotiation bool                   `protobuf:"varint,2,opt,name=client_server_negotiation,json=clientServerNegotiation,proto3" json:"client_server_negotiation,omitempty"`
-	CsNegotiationPolicy     string                 `protobuf:"bytes,3,opt,name=cs_negotiation_policy,json=csNegotiationPolicy,proto3" json:"cs_negotiation_policy,omitempty"`
-	Host                    string                 `protobuf:"bytes,4,opt,name=host,proto3" json:"host,omitempty"`
-	Port                    int32                  `protobuf:"varint,5,opt,name=port,proto3" json:"port,omitempty"`
-	ClientUser              string                 `protobuf:"bytes,6,opt,name=client_user,json=clientUser,proto3" json:"client_user,omitempty"`
-	ClientZone              string                 `protobuf:"bytes,7,opt,name=client_zone,json=clientZone,proto3" json:"client_zone,omitempty"`
-	ProxyUser               string                 `protobuf:"bytes,8,opt,name=proxy_user,json=proxyUser,proto3" json:"proxy_user,omitempty"`
-	ProxyZone               string                 `protobuf:"bytes,9,opt,name=proxy_zone,json=proxyZone,proto3" json:"proxy_zone,omitempty"`
-	Password                string                 `protobuf:"bytes,10,opt,name=password,proto3" json:"password,omitempty"`
-	Ticket                  string                 `protobuf:"bytes,11,opt,name=ticket,proto3" json:"ticket,omitempty"`
-	DefaultResource         string                 `protobuf:"bytes,12,opt,name=default_resource,json=defaultResource,proto3" json:"default_resource,omitempty"`
-	DefaultHashScheme       string                 `protobuf:"bytes,13,opt,name=default_hash_scheme,json=defaultHashScheme,proto3" json:"default_hash_scheme,omitempty"`
-	PamTtl                  int32                  `protobuf:"varint,14,opt,name=pam_ttl,json=pamTtl,proto3" json:"pam_ttl,omitempty"`
-	PamToken                string                 `protobuf:"bytes,15,opt,name=pam_token,json=pamToken,proto3" json:"pam_token,omitempty"`
-	SslConfiguration        *SSLConfiguration      `protobuf:"bytes,16,opt,name=ssl_configuration,json=sslConfiguration,proto3" json:"ssl_configuration,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                        protoimpl.MessageState `protogen:"open.v1"`
+	IrodsAuthenticationScheme    *string                `protobuf:"bytes,1,opt,name=irods_authentication_scheme,json=irodsAuthenticationScheme,proto3,oneof" json:"irods_authentication_scheme,omitempty"`
+	IrodsClientServerNegotiation *bool                  `protobuf:"varint,2,opt,name=irods_client_server_negotiation,json=irodsClientServerNegotiation,proto3,oneof" json:"irods_client_server_negotiation,omitempty"`
+	IrodsClientServerPolicy      *string                `protobuf:"bytes,3,opt,name=irods_client_server_policy,json=irodsClientServerPolicy,proto3,oneof" json:"irods_client_server_policy,omitempty"`
+	IrodsHost                    string                 `protobuf:"bytes,4,opt,name=irods_host,json=irodsHost,proto3" json:"irods_host,omitempty"`
+	IrodsPort                    int32                  `protobuf:"varint,5,opt,name=irods_port,json=irodsPort,proto3" json:"irods_port,omitempty"`
+	IrodsZoneName                string                 `protobuf:"bytes,6,opt,name=irods_zone_name,json=irodsZoneName,proto3" json:"irods_zone_name,omitempty"`
+	IrodsClientZoneName          *string                `protobuf:"bytes,7,opt,name=irods_client_zone_name,json=irodsClientZoneName,proto3,oneof" json:"irods_client_zone_name,omitempty"`
+	IrodsUserName                string                 `protobuf:"bytes,8,opt,name=irods_user_name,json=irodsUserName,proto3" json:"irods_user_name,omitempty"`
+	IrodsClientUserName          *string                `protobuf:"bytes,9,opt,name=irods_client_user_name,json=irodsClientUserName,proto3,oneof" json:"irods_client_user_name,omitempty"`
+	IrodsDefaultResource         *string                `protobuf:"bytes,10,opt,name=irods_default_resource,json=irodsDefaultResource,proto3,oneof" json:"irods_default_resource,omitempty"`
+	IrodsCwd                     *string                `protobuf:"bytes,11,opt,name=irods_cwd,json=irodsCwd,proto3,oneof" json:"irods_cwd,omitempty"`
+	IrodsHome                    *string                `protobuf:"bytes,12,opt,name=irods_home,json=irodsHome,proto3,oneof" json:"irods_home,omitempty"`
+	IrodsDefaultHashScheme       *string                `protobuf:"bytes,13,opt,name=irods_default_hash_scheme,json=irodsDefaultHashScheme,proto3,oneof" json:"irods_default_hash_scheme,omitempty"`
+	IrodsMatchHashPolicy         *string                `protobuf:"bytes,14,opt,name=irods_match_hash_policy,json=irodsMatchHashPolicy,proto3,oneof" json:"irods_match_hash_policy,omitempty"`
+	IrodsEncryptionAlgorithm     *string                `protobuf:"bytes,15,opt,name=irods_encryption_algorithm,json=irodsEncryptionAlgorithm,proto3,oneof" json:"irods_encryption_algorithm,omitempty"`
+	IrodsEncryptionKeySize       *int32                 `protobuf:"varint,16,opt,name=irods_encryption_key_size,json=irodsEncryptionKeySize,proto3,oneof" json:"irods_encryption_key_size,omitempty"`
+	IrodsEncryptionSaltSize      *int32                 `protobuf:"varint,17,opt,name=irods_encryption_salt_size,json=irodsEncryptionSaltSize,proto3,oneof" json:"irods_encryption_salt_size,omitempty"`
+	IrodsEncryptionNumHashRounds *int32                 `protobuf:"varint,18,opt,name=irods_encryption_num_hash_rounds,json=irodsEncryptionNumHashRounds,proto3,oneof" json:"irods_encryption_num_hash_rounds,omitempty"`
+	IrodsSslCaCertificateFile    *string                `protobuf:"bytes,19,opt,name=irods_ssl_ca_certificate_file,json=irodsSslCaCertificateFile,proto3,oneof" json:"irods_ssl_ca_certificate_file,omitempty"`
+	IrodsSslCaCertificatePath    *string                `protobuf:"bytes,20,opt,name=irods_ssl_ca_certificate_path,json=irodsSslCaCertificatePath,proto3,oneof" json:"irods_ssl_ca_certificate_path,omitempty"`
+	IrodsSslVerifyServer         *string                `protobuf:"bytes,21,opt,name=irods_ssl_verify_server,json=irodsSslVerifyServer,proto3,oneof" json:"irods_ssl_verify_server,omitempty"`
+	IrodsSslCertificateChainFile *string                `protobuf:"bytes,22,opt,name=irods_ssl_certificate_chain_file,json=irodsSslCertificateChainFile,proto3,oneof" json:"irods_ssl_certificate_chain_file,omitempty"`
+	IrodsSslCertificateKeyFile   *string                `protobuf:"bytes,23,opt,name=irods_ssl_certificate_key_file,json=irodsSslCertificateKeyFile,proto3,oneof" json:"irods_ssl_certificate_key_file,omitempty"`
+	IrodsSslDhParamsFile         *string                `protobuf:"bytes,24,opt,name=irods_ssl_dh_params_file,json=irodsSslDhParamsFile,proto3,oneof" json:"irods_ssl_dh_params_file,omitempty"`
+	IrodsUserPassword            *string                `protobuf:"bytes,25,opt,name=irods_user_password,json=irodsUserPassword,proto3,oneof" json:"irods_user_password,omitempty"`
+	IrodsTicket                  *string                `protobuf:"bytes,26,opt,name=irods_ticket,json=irodsTicket,proto3,oneof" json:"irods_ticket,omitempty"`
+	IrodsPamToken                *string                `protobuf:"bytes,27,opt,name=irods_pam_token,json=irodsPamToken,proto3,oneof" json:"irods_pam_token,omitempty"`
+	IrodsPamTtl                  *int32                 `protobuf:"varint,28,opt,name=irods_pam_ttl,json=irodsPamTtl,proto3,oneof" json:"irods_pam_ttl,omitempty"`
+	IrodsSslServerName           *string                `protobuf:"bytes,29,opt,name=irods_ssl_server_name,json=irodsSslServerName,proto3,oneof" json:"irods_ssl_server_name,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *Account) Reset() {
 	*x = Account{}
-	mi := &file_service_api_api_proto_msgTypes[2]
+	mi := &file_service_api_api_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -201,7 +107,7 @@ func (x *Account) String() string {
 func (*Account) ProtoMessage() {}
 
 func (x *Account) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[2]
+	mi := &file_service_api_api_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -214,119 +120,210 @@ func (x *Account) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Account.ProtoReflect.Descriptor instead.
 func (*Account) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{2}
+	return file_service_api_api_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *Account) GetAuthenticationScheme() string {
-	if x != nil {
-		return x.AuthenticationScheme
+func (x *Account) GetIrodsAuthenticationScheme() string {
+	if x != nil && x.IrodsAuthenticationScheme != nil {
+		return *x.IrodsAuthenticationScheme
 	}
 	return ""
 }
 
-func (x *Account) GetClientServerNegotiation() bool {
-	if x != nil {
-		return x.ClientServerNegotiation
+func (x *Account) GetIrodsClientServerNegotiation() bool {
+	if x != nil && x.IrodsClientServerNegotiation != nil {
+		return *x.IrodsClientServerNegotiation
 	}
 	return false
 }
 
-func (x *Account) GetCsNegotiationPolicy() string {
-	if x != nil {
-		return x.CsNegotiationPolicy
+func (x *Account) GetIrodsClientServerPolicy() string {
+	if x != nil && x.IrodsClientServerPolicy != nil {
+		return *x.IrodsClientServerPolicy
 	}
 	return ""
 }
 
-func (x *Account) GetHost() string {
+func (x *Account) GetIrodsHost() string {
 	if x != nil {
-		return x.Host
+		return x.IrodsHost
 	}
 	return ""
 }
 
-func (x *Account) GetPort() int32 {
+func (x *Account) GetIrodsPort() int32 {
 	if x != nil {
-		return x.Port
+		return x.IrodsPort
 	}
 	return 0
 }
 
-func (x *Account) GetClientUser() string {
+func (x *Account) GetIrodsZoneName() string {
 	if x != nil {
-		return x.ClientUser
+		return x.IrodsZoneName
 	}
 	return ""
 }
 
-func (x *Account) GetClientZone() string {
-	if x != nil {
-		return x.ClientZone
+func (x *Account) GetIrodsClientZoneName() string {
+	if x != nil && x.IrodsClientZoneName != nil {
+		return *x.IrodsClientZoneName
 	}
 	return ""
 }
 
-func (x *Account) GetProxyUser() string {
+func (x *Account) GetIrodsUserName() string {
 	if x != nil {
-		return x.ProxyUser
+		return x.IrodsUserName
 	}
 	return ""
 }
 
-func (x *Account) GetProxyZone() string {
-	if x != nil {
-		return x.ProxyZone
+func (x *Account) GetIrodsClientUserName() string {
+	if x != nil && x.IrodsClientUserName != nil {
+		return *x.IrodsClientUserName
 	}
 	return ""
 }
 
-func (x *Account) GetPassword() string {
-	if x != nil {
-		return x.Password
+func (x *Account) GetIrodsDefaultResource() string {
+	if x != nil && x.IrodsDefaultResource != nil {
+		return *x.IrodsDefaultResource
 	}
 	return ""
 }
 
-func (x *Account) GetTicket() string {
-	if x != nil {
-		return x.Ticket
+func (x *Account) GetIrodsCwd() string {
+	if x != nil && x.IrodsCwd != nil {
+		return *x.IrodsCwd
 	}
 	return ""
 }
 
-func (x *Account) GetDefaultResource() string {
-	if x != nil {
-		return x.DefaultResource
+func (x *Account) GetIrodsHome() string {
+	if x != nil && x.IrodsHome != nil {
+		return *x.IrodsHome
 	}
 	return ""
 }
 
-func (x *Account) GetDefaultHashScheme() string {
-	if x != nil {
-		return x.DefaultHashScheme
+func (x *Account) GetIrodsDefaultHashScheme() string {
+	if x != nil && x.IrodsDefaultHashScheme != nil {
+		return *x.IrodsDefaultHashScheme
 	}
 	return ""
 }
 
-func (x *Account) GetPamTtl() int32 {
-	if x != nil {
-		return x.PamTtl
+func (x *Account) GetIrodsMatchHashPolicy() string {
+	if x != nil && x.IrodsMatchHashPolicy != nil {
+		return *x.IrodsMatchHashPolicy
+	}
+	return ""
+}
+
+func (x *Account) GetIrodsEncryptionAlgorithm() string {
+	if x != nil && x.IrodsEncryptionAlgorithm != nil {
+		return *x.IrodsEncryptionAlgorithm
+	}
+	return ""
+}
+
+func (x *Account) GetIrodsEncryptionKeySize() int32 {
+	if x != nil && x.IrodsEncryptionKeySize != nil {
+		return *x.IrodsEncryptionKeySize
 	}
 	return 0
 }
 
-func (x *Account) GetPamToken() string {
-	if x != nil {
-		return x.PamToken
+func (x *Account) GetIrodsEncryptionSaltSize() int32 {
+	if x != nil && x.IrodsEncryptionSaltSize != nil {
+		return *x.IrodsEncryptionSaltSize
+	}
+	return 0
+}
+
+func (x *Account) GetIrodsEncryptionNumHashRounds() int32 {
+	if x != nil && x.IrodsEncryptionNumHashRounds != nil {
+		return *x.IrodsEncryptionNumHashRounds
+	}
+	return 0
+}
+
+func (x *Account) GetIrodsSslCaCertificateFile() string {
+	if x != nil && x.IrodsSslCaCertificateFile != nil {
+		return *x.IrodsSslCaCertificateFile
 	}
 	return ""
 }
 
-func (x *Account) GetSslConfiguration() *SSLConfiguration {
-	if x != nil {
-		return x.SslConfiguration
+func (x *Account) GetIrodsSslCaCertificatePath() string {
+	if x != nil && x.IrodsSslCaCertificatePath != nil {
+		return *x.IrodsSslCaCertificatePath
 	}
-	return nil
+	return ""
+}
+
+func (x *Account) GetIrodsSslVerifyServer() string {
+	if x != nil && x.IrodsSslVerifyServer != nil {
+		return *x.IrodsSslVerifyServer
+	}
+	return ""
+}
+
+func (x *Account) GetIrodsSslCertificateChainFile() string {
+	if x != nil && x.IrodsSslCertificateChainFile != nil {
+		return *x.IrodsSslCertificateChainFile
+	}
+	return ""
+}
+
+func (x *Account) GetIrodsSslCertificateKeyFile() string {
+	if x != nil && x.IrodsSslCertificateKeyFile != nil {
+		return *x.IrodsSslCertificateKeyFile
+	}
+	return ""
+}
+
+func (x *Account) GetIrodsSslDhParamsFile() string {
+	if x != nil && x.IrodsSslDhParamsFile != nil {
+		return *x.IrodsSslDhParamsFile
+	}
+	return ""
+}
+
+func (x *Account) GetIrodsUserPassword() string {
+	if x != nil && x.IrodsUserPassword != nil {
+		return *x.IrodsUserPassword
+	}
+	return ""
+}
+
+func (x *Account) GetIrodsTicket() string {
+	if x != nil && x.IrodsTicket != nil {
+		return *x.IrodsTicket
+	}
+	return ""
+}
+
+func (x *Account) GetIrodsPamToken() string {
+	if x != nil && x.IrodsPamToken != nil {
+		return *x.IrodsPamToken
+	}
+	return ""
+}
+
+func (x *Account) GetIrodsPamTtl() int32 {
+	if x != nil && x.IrodsPamTtl != nil {
+		return *x.IrodsPamTtl
+	}
+	return 0
+}
+
+func (x *Account) GetIrodsSslServerName() string {
+	if x != nil && x.IrodsSslServerName != nil {
+		return *x.IrodsSslServerName
+	}
+	return ""
 }
 
 type Entry struct {
@@ -338,9 +335,9 @@ type Entry struct {
 	Owner             string                 `protobuf:"bytes,5,opt,name=owner,proto3" json:"owner,omitempty"`
 	Size              int64                  `protobuf:"varint,6,opt,name=size,proto3" json:"size,omitempty"`
 	DataType          string                 `protobuf:"bytes,7,opt,name=data_type,json=dataType,proto3" json:"data_type,omitempty"`
-	CreateTime        string                 `protobuf:"bytes,8,opt,name=create_time,json=createTime,proto3" json:"create_time,omitempty"`
-	ModifyTime        string                 `protobuf:"bytes,9,opt,name=modify_time,json=modifyTime,proto3" json:"modify_time,omitempty"`
-	AccessTime        string                 `protobuf:"bytes,10,opt,name=access_time,json=accessTime,proto3" json:"access_time,omitempty"`
+	CreateTime        *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=create_time,json=createTime,proto3" json:"create_time,omitempty"`
+	ModifyTime        *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=modify_time,json=modifyTime,proto3" json:"modify_time,omitempty"`
+	AccessTime        *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=access_time,json=accessTime,proto3" json:"access_time,omitempty"`
 	ChecksumAlgorithm string                 `protobuf:"bytes,11,opt,name=checksum_algorithm,json=checksumAlgorithm,proto3" json:"checksum_algorithm,omitempty"`
 	Checksum          []byte                 `protobuf:"bytes,12,opt,name=checksum,proto3" json:"checksum,omitempty"`
 	unknownFields     protoimpl.UnknownFields
@@ -349,7 +346,7 @@ type Entry struct {
 
 func (x *Entry) Reset() {
 	*x = Entry{}
-	mi := &file_service_api_api_proto_msgTypes[3]
+	mi := &file_service_api_api_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -361,7 +358,7 @@ func (x *Entry) String() string {
 func (*Entry) ProtoMessage() {}
 
 func (x *Entry) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[3]
+	mi := &file_service_api_api_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -374,7 +371,7 @@ func (x *Entry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Entry.ProtoReflect.Descriptor instead.
 func (*Entry) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{3}
+	return file_service_api_api_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Entry) GetId() int64 {
@@ -426,25 +423,25 @@ func (x *Entry) GetDataType() string {
 	return ""
 }
 
-func (x *Entry) GetCreateTime() string {
+func (x *Entry) GetCreateTime() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CreateTime
 	}
-	return ""
+	return nil
 }
 
-func (x *Entry) GetModifyTime() string {
+func (x *Entry) GetModifyTime() *timestamppb.Timestamp {
 	if x != nil {
 		return x.ModifyTime
 	}
-	return ""
+	return nil
 }
 
-func (x *Entry) GetAccessTime() string {
+func (x *Entry) GetAccessTime() *timestamppb.Timestamp {
 	if x != nil {
 		return x.AccessTime
 	}
-	return ""
+	return nil
 }
 
 func (x *Entry) GetChecksumAlgorithm() string {
@@ -472,7 +469,7 @@ type LoginRequest struct {
 
 func (x *LoginRequest) Reset() {
 	*x = LoginRequest{}
-	mi := &file_service_api_api_proto_msgTypes[4]
+	mi := &file_service_api_api_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -484,7 +481,7 @@ func (x *LoginRequest) String() string {
 func (*LoginRequest) ProtoMessage() {}
 
 func (x *LoginRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[4]
+	mi := &file_service_api_api_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -497,7 +494,7 @@ func (x *LoginRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoginRequest.ProtoReflect.Descriptor instead.
 func (*LoginRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{4}
+	return file_service_api_api_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *LoginRequest) GetAccount() *Account {
@@ -530,7 +527,7 @@ type LoginResponse struct {
 
 func (x *LoginResponse) Reset() {
 	*x = LoginResponse{}
-	mi := &file_service_api_api_proto_msgTypes[5]
+	mi := &file_service_api_api_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -542,7 +539,7 @@ func (x *LoginResponse) String() string {
 func (*LoginResponse) ProtoMessage() {}
 
 func (x *LoginResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[5]
+	mi := &file_service_api_api_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -555,7 +552,7 @@ func (x *LoginResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoginResponse.ProtoReflect.Descriptor instead.
 func (*LoginResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{5}
+	return file_service_api_api_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *LoginResponse) GetSessionId() string {
@@ -574,7 +571,7 @@ type LogoutRequest struct {
 
 func (x *LogoutRequest) Reset() {
 	*x = LogoutRequest{}
-	mi := &file_service_api_api_proto_msgTypes[6]
+	mi := &file_service_api_api_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -586,7 +583,7 @@ func (x *LogoutRequest) String() string {
 func (*LogoutRequest) ProtoMessage() {}
 
 func (x *LogoutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[6]
+	mi := &file_service_api_api_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -599,7 +596,7 @@ func (x *LogoutRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogoutRequest.ProtoReflect.Descriptor instead.
 func (*LogoutRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{6}
+	return file_service_api_api_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *LogoutRequest) GetSessionId() string {
@@ -618,7 +615,7 @@ type KeepAliveRequest struct {
 
 func (x *KeepAliveRequest) Reset() {
 	*x = KeepAliveRequest{}
-	mi := &file_service_api_api_proto_msgTypes[7]
+	mi := &file_service_api_api_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -630,7 +627,7 @@ func (x *KeepAliveRequest) String() string {
 func (*KeepAliveRequest) ProtoMessage() {}
 
 func (x *KeepAliveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[7]
+	mi := &file_service_api_api_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -643,7 +640,7 @@ func (x *KeepAliveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeepAliveRequest.ProtoReflect.Descriptor instead.
 func (*KeepAliveRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{7}
+	return file_service_api_api_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *KeepAliveRequest) GetSessionId() string {
@@ -663,7 +660,7 @@ type ListRequest struct {
 
 func (x *ListRequest) Reset() {
 	*x = ListRequest{}
-	mi := &file_service_api_api_proto_msgTypes[8]
+	mi := &file_service_api_api_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -675,7 +672,7 @@ func (x *ListRequest) String() string {
 func (*ListRequest) ProtoMessage() {}
 
 func (x *ListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[8]
+	mi := &file_service_api_api_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -688,7 +685,7 @@ func (x *ListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRequest.ProtoReflect.Descriptor instead.
 func (*ListRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{8}
+	return file_service_api_api_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListRequest) GetSessionId() string {
@@ -714,7 +711,7 @@ type ListResponse struct {
 
 func (x *ListResponse) Reset() {
 	*x = ListResponse{}
-	mi := &file_service_api_api_proto_msgTypes[9]
+	mi := &file_service_api_api_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -726,7 +723,7 @@ func (x *ListResponse) String() string {
 func (*ListResponse) ProtoMessage() {}
 
 func (x *ListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[9]
+	mi := &file_service_api_api_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -739,7 +736,7 @@ func (x *ListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListResponse.ProtoReflect.Descriptor instead.
 func (*ListResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{9}
+	return file_service_api_api_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListResponse) GetEntries() []*Entry {
@@ -759,7 +756,7 @@ type StatRequest struct {
 
 func (x *StatRequest) Reset() {
 	*x = StatRequest{}
-	mi := &file_service_api_api_proto_msgTypes[10]
+	mi := &file_service_api_api_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -771,7 +768,7 @@ func (x *StatRequest) String() string {
 func (*StatRequest) ProtoMessage() {}
 
 func (x *StatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[10]
+	mi := &file_service_api_api_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -784,7 +781,7 @@ func (x *StatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatRequest.ProtoReflect.Descriptor instead.
 func (*StatRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{10}
+	return file_service_api_api_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *StatRequest) GetSessionId() string {
@@ -810,7 +807,7 @@ type StatResponse struct {
 
 func (x *StatResponse) Reset() {
 	*x = StatResponse{}
-	mi := &file_service_api_api_proto_msgTypes[11]
+	mi := &file_service_api_api_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -822,7 +819,7 @@ func (x *StatResponse) String() string {
 func (*StatResponse) ProtoMessage() {}
 
 func (x *StatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[11]
+	mi := &file_service_api_api_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -835,7 +832,7 @@ func (x *StatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatResponse.ProtoReflect.Descriptor instead.
 func (*StatResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{11}
+	return file_service_api_api_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *StatResponse) GetEntry() *Entry {
@@ -855,7 +852,7 @@ type ExistsDirRequest struct {
 
 func (x *ExistsDirRequest) Reset() {
 	*x = ExistsDirRequest{}
-	mi := &file_service_api_api_proto_msgTypes[12]
+	mi := &file_service_api_api_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -867,7 +864,7 @@ func (x *ExistsDirRequest) String() string {
 func (*ExistsDirRequest) ProtoMessage() {}
 
 func (x *ExistsDirRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[12]
+	mi := &file_service_api_api_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -880,7 +877,7 @@ func (x *ExistsDirRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExistsDirRequest.ProtoReflect.Descriptor instead.
 func (*ExistsDirRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{12}
+	return file_service_api_api_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ExistsDirRequest) GetSessionId() string {
@@ -906,7 +903,7 @@ type ExistsDirResponse struct {
 
 func (x *ExistsDirResponse) Reset() {
 	*x = ExistsDirResponse{}
-	mi := &file_service_api_api_proto_msgTypes[13]
+	mi := &file_service_api_api_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -918,7 +915,7 @@ func (x *ExistsDirResponse) String() string {
 func (*ExistsDirResponse) ProtoMessage() {}
 
 func (x *ExistsDirResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[13]
+	mi := &file_service_api_api_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -931,7 +928,7 @@ func (x *ExistsDirResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExistsDirResponse.ProtoReflect.Descriptor instead.
 func (*ExistsDirResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{13}
+	return file_service_api_api_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ExistsDirResponse) GetExist() bool {
@@ -951,7 +948,7 @@ type ExistsFileRequest struct {
 
 func (x *ExistsFileRequest) Reset() {
 	*x = ExistsFileRequest{}
-	mi := &file_service_api_api_proto_msgTypes[14]
+	mi := &file_service_api_api_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -963,7 +960,7 @@ func (x *ExistsFileRequest) String() string {
 func (*ExistsFileRequest) ProtoMessage() {}
 
 func (x *ExistsFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[14]
+	mi := &file_service_api_api_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -976,7 +973,7 @@ func (x *ExistsFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExistsFileRequest.ProtoReflect.Descriptor instead.
 func (*ExistsFileRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{14}
+	return file_service_api_api_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ExistsFileRequest) GetSessionId() string {
@@ -1002,7 +999,7 @@ type ExistsFileResponse struct {
 
 func (x *ExistsFileResponse) Reset() {
 	*x = ExistsFileResponse{}
-	mi := &file_service_api_api_proto_msgTypes[15]
+	mi := &file_service_api_api_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1014,7 +1011,7 @@ func (x *ExistsFileResponse) String() string {
 func (*ExistsFileResponse) ProtoMessage() {}
 
 func (x *ExistsFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[15]
+	mi := &file_service_api_api_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1027,7 +1024,7 @@ func (x *ExistsFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExistsFileResponse.ProtoReflect.Descriptor instead.
 func (*ExistsFileResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{15}
+	return file_service_api_api_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ExistsFileResponse) GetExist() bool {
@@ -1048,7 +1045,7 @@ type RemoveFileRequest struct {
 
 func (x *RemoveFileRequest) Reset() {
 	*x = RemoveFileRequest{}
-	mi := &file_service_api_api_proto_msgTypes[16]
+	mi := &file_service_api_api_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1060,7 +1057,7 @@ func (x *RemoveFileRequest) String() string {
 func (*RemoveFileRequest) ProtoMessage() {}
 
 func (x *RemoveFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[16]
+	mi := &file_service_api_api_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1073,7 +1070,7 @@ func (x *RemoveFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveFileRequest.ProtoReflect.Descriptor instead.
 func (*RemoveFileRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{16}
+	return file_service_api_api_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *RemoveFileRequest) GetSessionId() string {
@@ -1109,7 +1106,7 @@ type RemoveDirRequest struct {
 
 func (x *RemoveDirRequest) Reset() {
 	*x = RemoveDirRequest{}
-	mi := &file_service_api_api_proto_msgTypes[17]
+	mi := &file_service_api_api_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1121,7 +1118,7 @@ func (x *RemoveDirRequest) String() string {
 func (*RemoveDirRequest) ProtoMessage() {}
 
 func (x *RemoveDirRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[17]
+	mi := &file_service_api_api_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1134,7 +1131,7 @@ func (x *RemoveDirRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveDirRequest.ProtoReflect.Descriptor instead.
 func (*RemoveDirRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{17}
+	return file_service_api_api_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RemoveDirRequest) GetSessionId() string {
@@ -1176,7 +1173,7 @@ type MakeDirRequest struct {
 
 func (x *MakeDirRequest) Reset() {
 	*x = MakeDirRequest{}
-	mi := &file_service_api_api_proto_msgTypes[18]
+	mi := &file_service_api_api_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1188,7 +1185,7 @@ func (x *MakeDirRequest) String() string {
 func (*MakeDirRequest) ProtoMessage() {}
 
 func (x *MakeDirRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[18]
+	mi := &file_service_api_api_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1201,7 +1198,7 @@ func (x *MakeDirRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MakeDirRequest.ProtoReflect.Descriptor instead.
 func (*MakeDirRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{18}
+	return file_service_api_api_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *MakeDirRequest) GetSessionId() string {
@@ -1236,7 +1233,7 @@ type RenameDirToDirRequest struct {
 
 func (x *RenameDirToDirRequest) Reset() {
 	*x = RenameDirToDirRequest{}
-	mi := &file_service_api_api_proto_msgTypes[19]
+	mi := &file_service_api_api_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1248,7 +1245,7 @@ func (x *RenameDirToDirRequest) String() string {
 func (*RenameDirToDirRequest) ProtoMessage() {}
 
 func (x *RenameDirToDirRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[19]
+	mi := &file_service_api_api_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1261,7 +1258,7 @@ func (x *RenameDirToDirRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenameDirToDirRequest.ProtoReflect.Descriptor instead.
 func (*RenameDirToDirRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{19}
+	return file_service_api_api_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RenameDirToDirRequest) GetSessionId() string {
@@ -1296,7 +1293,7 @@ type RenameFileToFileRequest struct {
 
 func (x *RenameFileToFileRequest) Reset() {
 	*x = RenameFileToFileRequest{}
-	mi := &file_service_api_api_proto_msgTypes[20]
+	mi := &file_service_api_api_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1308,7 +1305,7 @@ func (x *RenameFileToFileRequest) String() string {
 func (*RenameFileToFileRequest) ProtoMessage() {}
 
 func (x *RenameFileToFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[20]
+	mi := &file_service_api_api_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1321,7 +1318,7 @@ func (x *RenameFileToFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenameFileToFileRequest.ProtoReflect.Descriptor instead.
 func (*RenameFileToFileRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{20}
+	return file_service_api_api_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RenameFileToFileRequest) GetSessionId() string {
@@ -1356,7 +1353,7 @@ type CreateFileRequest struct {
 
 func (x *CreateFileRequest) Reset() {
 	*x = CreateFileRequest{}
-	mi := &file_service_api_api_proto_msgTypes[21]
+	mi := &file_service_api_api_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1368,7 +1365,7 @@ func (x *CreateFileRequest) String() string {
 func (*CreateFileRequest) ProtoMessage() {}
 
 func (x *CreateFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[21]
+	mi := &file_service_api_api_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1381,7 +1378,7 @@ func (x *CreateFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateFileRequest.ProtoReflect.Descriptor instead.
 func (*CreateFileRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{21}
+	return file_service_api_api_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *CreateFileRequest) GetSessionId() string {
@@ -1415,7 +1412,7 @@ type CreateFileResponse struct {
 
 func (x *CreateFileResponse) Reset() {
 	*x = CreateFileResponse{}
-	mi := &file_service_api_api_proto_msgTypes[22]
+	mi := &file_service_api_api_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1427,7 +1424,7 @@ func (x *CreateFileResponse) String() string {
 func (*CreateFileResponse) ProtoMessage() {}
 
 func (x *CreateFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[22]
+	mi := &file_service_api_api_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1440,7 +1437,7 @@ func (x *CreateFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateFileResponse.ProtoReflect.Descriptor instead.
 func (*CreateFileResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{22}
+	return file_service_api_api_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CreateFileResponse) GetFileHandleId() string {
@@ -1468,7 +1465,7 @@ type OpenFileRequest struct {
 
 func (x *OpenFileRequest) Reset() {
 	*x = OpenFileRequest{}
-	mi := &file_service_api_api_proto_msgTypes[23]
+	mi := &file_service_api_api_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1480,7 +1477,7 @@ func (x *OpenFileRequest) String() string {
 func (*OpenFileRequest) ProtoMessage() {}
 
 func (x *OpenFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[23]
+	mi := &file_service_api_api_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1493,7 +1490,7 @@ func (x *OpenFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenFileRequest.ProtoReflect.Descriptor instead.
 func (*OpenFileRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{23}
+	return file_service_api_api_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *OpenFileRequest) GetSessionId() string {
@@ -1527,7 +1524,7 @@ type OpenFileResponse struct {
 
 func (x *OpenFileResponse) Reset() {
 	*x = OpenFileResponse{}
-	mi := &file_service_api_api_proto_msgTypes[24]
+	mi := &file_service_api_api_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1539,7 +1536,7 @@ func (x *OpenFileResponse) String() string {
 func (*OpenFileResponse) ProtoMessage() {}
 
 func (x *OpenFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[24]
+	mi := &file_service_api_api_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1552,7 +1549,7 @@ func (x *OpenFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenFileResponse.ProtoReflect.Descriptor instead.
 func (*OpenFileResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{24}
+	return file_service_api_api_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *OpenFileResponse) GetFileHandleId() string {
@@ -1580,7 +1577,7 @@ type CreateFileBulkRequest struct {
 
 func (x *CreateFileBulkRequest) Reset() {
 	*x = CreateFileBulkRequest{}
-	mi := &file_service_api_api_proto_msgTypes[25]
+	mi := &file_service_api_api_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1592,7 +1589,7 @@ func (x *CreateFileBulkRequest) String() string {
 func (*CreateFileBulkRequest) ProtoMessage() {}
 
 func (x *CreateFileBulkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[25]
+	mi := &file_service_api_api_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1605,7 +1602,7 @@ func (x *CreateFileBulkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateFileBulkRequest.ProtoReflect.Descriptor instead.
 func (*CreateFileBulkRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{25}
+	return file_service_api_api_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CreateFileBulkRequest) GetSessionId() string {
@@ -1639,7 +1636,7 @@ type CreateFileBulkResponse struct {
 
 func (x *CreateFileBulkResponse) Reset() {
 	*x = CreateFileBulkResponse{}
-	mi := &file_service_api_api_proto_msgTypes[26]
+	mi := &file_service_api_api_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1651,7 +1648,7 @@ func (x *CreateFileBulkResponse) String() string {
 func (*CreateFileBulkResponse) ProtoMessage() {}
 
 func (x *CreateFileBulkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[26]
+	mi := &file_service_api_api_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1664,7 +1661,7 @@ func (x *CreateFileBulkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateFileBulkResponse.ProtoReflect.Descriptor instead.
 func (*CreateFileBulkResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{26}
+	return file_service_api_api_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CreateFileBulkResponse) GetFileHandleId() string {
@@ -1692,7 +1689,7 @@ type OpenFileBulkRequest struct {
 
 func (x *OpenFileBulkRequest) Reset() {
 	*x = OpenFileBulkRequest{}
-	mi := &file_service_api_api_proto_msgTypes[27]
+	mi := &file_service_api_api_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1704,7 +1701,7 @@ func (x *OpenFileBulkRequest) String() string {
 func (*OpenFileBulkRequest) ProtoMessage() {}
 
 func (x *OpenFileBulkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[27]
+	mi := &file_service_api_api_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1717,7 +1714,7 @@ func (x *OpenFileBulkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenFileBulkRequest.ProtoReflect.Descriptor instead.
 func (*OpenFileBulkRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{27}
+	return file_service_api_api_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *OpenFileBulkRequest) GetSessionId() string {
@@ -1751,7 +1748,7 @@ type OpenFileBulkResponse struct {
 
 func (x *OpenFileBulkResponse) Reset() {
 	*x = OpenFileBulkResponse{}
-	mi := &file_service_api_api_proto_msgTypes[28]
+	mi := &file_service_api_api_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1763,7 +1760,7 @@ func (x *OpenFileBulkResponse) String() string {
 func (*OpenFileBulkResponse) ProtoMessage() {}
 
 func (x *OpenFileBulkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[28]
+	mi := &file_service_api_api_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1776,7 +1773,7 @@ func (x *OpenFileBulkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenFileBulkResponse.ProtoReflect.Descriptor instead.
 func (*OpenFileBulkResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{28}
+	return file_service_api_api_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *OpenFileBulkResponse) GetFileHandleId() string {
@@ -1804,7 +1801,7 @@ type TruncateFileRequest struct {
 
 func (x *TruncateFileRequest) Reset() {
 	*x = TruncateFileRequest{}
-	mi := &file_service_api_api_proto_msgTypes[29]
+	mi := &file_service_api_api_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1816,7 +1813,7 @@ func (x *TruncateFileRequest) String() string {
 func (*TruncateFileRequest) ProtoMessage() {}
 
 func (x *TruncateFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[29]
+	mi := &file_service_api_api_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1829,7 +1826,7 @@ func (x *TruncateFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TruncateFileRequest.ProtoReflect.Descriptor instead.
 func (*TruncateFileRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{29}
+	return file_service_api_api_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *TruncateFileRequest) GetSessionId() string {
@@ -1865,7 +1862,7 @@ type ReadAtRequest struct {
 
 func (x *ReadAtRequest) Reset() {
 	*x = ReadAtRequest{}
-	mi := &file_service_api_api_proto_msgTypes[30]
+	mi := &file_service_api_api_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1877,7 +1874,7 @@ func (x *ReadAtRequest) String() string {
 func (*ReadAtRequest) ProtoMessage() {}
 
 func (x *ReadAtRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[30]
+	mi := &file_service_api_api_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1890,7 +1887,7 @@ func (x *ReadAtRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadAtRequest.ProtoReflect.Descriptor instead.
 func (*ReadAtRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{30}
+	return file_service_api_api_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ReadAtRequest) GetSessionId() string {
@@ -1930,7 +1927,7 @@ type ReadAtResponse struct {
 
 func (x *ReadAtResponse) Reset() {
 	*x = ReadAtResponse{}
-	mi := &file_service_api_api_proto_msgTypes[31]
+	mi := &file_service_api_api_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1942,7 +1939,7 @@ func (x *ReadAtResponse) String() string {
 func (*ReadAtResponse) ProtoMessage() {}
 
 func (x *ReadAtResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[31]
+	mi := &file_service_api_api_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1955,7 +1952,7 @@ func (x *ReadAtResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadAtResponse.ProtoReflect.Descriptor instead.
 func (*ReadAtResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{31}
+	return file_service_api_api_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ReadAtResponse) GetData() []byte {
@@ -1977,7 +1974,7 @@ type WriteAtRequest struct {
 
 func (x *WriteAtRequest) Reset() {
 	*x = WriteAtRequest{}
-	mi := &file_service_api_api_proto_msgTypes[32]
+	mi := &file_service_api_api_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1989,7 +1986,7 @@ func (x *WriteAtRequest) String() string {
 func (*WriteAtRequest) ProtoMessage() {}
 
 func (x *WriteAtRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[32]
+	mi := &file_service_api_api_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2002,7 +1999,7 @@ func (x *WriteAtRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteAtRequest.ProtoReflect.Descriptor instead.
 func (*WriteAtRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{32}
+	return file_service_api_api_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *WriteAtRequest) GetSessionId() string {
@@ -2042,7 +2039,7 @@ type WriteAtResponse struct {
 
 func (x *WriteAtResponse) Reset() {
 	*x = WriteAtResponse{}
-	mi := &file_service_api_api_proto_msgTypes[33]
+	mi := &file_service_api_api_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2054,7 +2051,7 @@ func (x *WriteAtResponse) String() string {
 func (*WriteAtResponse) ProtoMessage() {}
 
 func (x *WriteAtResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[33]
+	mi := &file_service_api_api_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2067,7 +2064,7 @@ func (x *WriteAtResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteAtResponse.ProtoReflect.Descriptor instead.
 func (*WriteAtResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{33}
+	return file_service_api_api_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *WriteAtResponse) GetLength() int32 {
@@ -2088,7 +2085,7 @@ type GetAvailableRequest struct {
 
 func (x *GetAvailableRequest) Reset() {
 	*x = GetAvailableRequest{}
-	mi := &file_service_api_api_proto_msgTypes[34]
+	mi := &file_service_api_api_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2100,7 +2097,7 @@ func (x *GetAvailableRequest) String() string {
 func (*GetAvailableRequest) ProtoMessage() {}
 
 func (x *GetAvailableRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[34]
+	mi := &file_service_api_api_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2113,7 +2110,7 @@ func (x *GetAvailableRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAvailableRequest.ProtoReflect.Descriptor instead.
 func (*GetAvailableRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{34}
+	return file_service_api_api_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *GetAvailableRequest) GetSessionId() string {
@@ -2146,7 +2143,7 @@ type GetAvailableResponse struct {
 
 func (x *GetAvailableResponse) Reset() {
 	*x = GetAvailableResponse{}
-	mi := &file_service_api_api_proto_msgTypes[35]
+	mi := &file_service_api_api_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2158,7 +2155,7 @@ func (x *GetAvailableResponse) String() string {
 func (*GetAvailableResponse) ProtoMessage() {}
 
 func (x *GetAvailableResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[35]
+	mi := &file_service_api_api_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2171,7 +2168,7 @@ func (x *GetAvailableResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAvailableResponse.ProtoReflect.Descriptor instead.
 func (*GetAvailableResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{35}
+	return file_service_api_api_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *GetAvailableResponse) GetAvailable() int64 {
@@ -2193,7 +2190,7 @@ type ReadStreamRequest struct {
 
 func (x *ReadStreamRequest) Reset() {
 	*x = ReadStreamRequest{}
-	mi := &file_service_api_api_proto_msgTypes[36]
+	mi := &file_service_api_api_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2205,7 +2202,7 @@ func (x *ReadStreamRequest) String() string {
 func (*ReadStreamRequest) ProtoMessage() {}
 
 func (x *ReadStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[36]
+	mi := &file_service_api_api_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2218,7 +2215,7 @@ func (x *ReadStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadStreamRequest.ProtoReflect.Descriptor instead.
 func (*ReadStreamRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{36}
+	return file_service_api_api_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ReadStreamRequest) GetSessionId() string {
@@ -2259,7 +2256,7 @@ type ReadStreamResponse struct {
 
 func (x *ReadStreamResponse) Reset() {
 	*x = ReadStreamResponse{}
-	mi := &file_service_api_api_proto_msgTypes[37]
+	mi := &file_service_api_api_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2271,7 +2268,7 @@ func (x *ReadStreamResponse) String() string {
 func (*ReadStreamResponse) ProtoMessage() {}
 
 func (x *ReadStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[37]
+	mi := &file_service_api_api_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2284,7 +2281,7 @@ func (x *ReadStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadStreamResponse.ProtoReflect.Descriptor instead.
 func (*ReadStreamResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{37}
+	return file_service_api_api_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ReadStreamResponse) GetData() []byte {
@@ -2314,7 +2311,7 @@ type ReadStreamParallelRequest struct {
 
 func (x *ReadStreamParallelRequest) Reset() {
 	*x = ReadStreamParallelRequest{}
-	mi := &file_service_api_api_proto_msgTypes[38]
+	mi := &file_service_api_api_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2326,7 +2323,7 @@ func (x *ReadStreamParallelRequest) String() string {
 func (*ReadStreamParallelRequest) ProtoMessage() {}
 
 func (x *ReadStreamParallelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[38]
+	mi := &file_service_api_api_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2339,7 +2336,7 @@ func (x *ReadStreamParallelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadStreamParallelRequest.ProtoReflect.Descriptor instead.
 func (*ReadStreamParallelRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{38}
+	return file_service_api_api_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ReadStreamParallelRequest) GetSessionId() string {
@@ -2387,7 +2384,7 @@ type ReadStreamParallelResponse struct {
 
 func (x *ReadStreamParallelResponse) Reset() {
 	*x = ReadStreamParallelResponse{}
-	mi := &file_service_api_api_proto_msgTypes[39]
+	mi := &file_service_api_api_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2399,7 +2396,7 @@ func (x *ReadStreamParallelResponse) String() string {
 func (*ReadStreamParallelResponse) ProtoMessage() {}
 
 func (x *ReadStreamParallelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[39]
+	mi := &file_service_api_api_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2412,7 +2409,7 @@ func (x *ReadStreamParallelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadStreamParallelResponse.ProtoReflect.Descriptor instead.
 func (*ReadStreamParallelResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{39}
+	return file_service_api_api_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ReadStreamParallelResponse) GetData() []byte {
@@ -2439,7 +2436,7 @@ type WriteStreamHeader struct {
 
 func (x *WriteStreamHeader) Reset() {
 	*x = WriteStreamHeader{}
-	mi := &file_service_api_api_proto_msgTypes[40]
+	mi := &file_service_api_api_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2451,7 +2448,7 @@ func (x *WriteStreamHeader) String() string {
 func (*WriteStreamHeader) ProtoMessage() {}
 
 func (x *WriteStreamHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[40]
+	mi := &file_service_api_api_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2464,7 +2461,7 @@ func (x *WriteStreamHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteStreamHeader.ProtoReflect.Descriptor instead.
 func (*WriteStreamHeader) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{40}
+	return file_service_api_api_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *WriteStreamHeader) GetSessionId() string {
@@ -2491,7 +2488,7 @@ type WriteStreamBlock struct {
 
 func (x *WriteStreamBlock) Reset() {
 	*x = WriteStreamBlock{}
-	mi := &file_service_api_api_proto_msgTypes[41]
+	mi := &file_service_api_api_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2503,7 +2500,7 @@ func (x *WriteStreamBlock) String() string {
 func (*WriteStreamBlock) ProtoMessage() {}
 
 func (x *WriteStreamBlock) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[41]
+	mi := &file_service_api_api_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2516,7 +2513,7 @@ func (x *WriteStreamBlock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteStreamBlock.ProtoReflect.Descriptor instead.
 func (*WriteStreamBlock) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{41}
+	return file_service_api_api_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *WriteStreamBlock) GetOffset() int64 {
@@ -2546,7 +2543,7 @@ type WriteStreamRequest struct {
 
 func (x *WriteStreamRequest) Reset() {
 	*x = WriteStreamRequest{}
-	mi := &file_service_api_api_proto_msgTypes[42]
+	mi := &file_service_api_api_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2558,7 +2555,7 @@ func (x *WriteStreamRequest) String() string {
 func (*WriteStreamRequest) ProtoMessage() {}
 
 func (x *WriteStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[42]
+	mi := &file_service_api_api_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2571,7 +2568,7 @@ func (x *WriteStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteStreamRequest.ProtoReflect.Descriptor instead.
 func (*WriteStreamRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{42}
+	return file_service_api_api_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *WriteStreamRequest) GetPayload() isWriteStreamRequest_Payload {
@@ -2624,7 +2621,7 @@ type WriteStreamResponse struct {
 
 func (x *WriteStreamResponse) Reset() {
 	*x = WriteStreamResponse{}
-	mi := &file_service_api_api_proto_msgTypes[43]
+	mi := &file_service_api_api_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2636,7 +2633,7 @@ func (x *WriteStreamResponse) String() string {
 func (*WriteStreamResponse) ProtoMessage() {}
 
 func (x *WriteStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[43]
+	mi := &file_service_api_api_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2649,7 +2646,7 @@ func (x *WriteStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteStreamResponse.ProtoReflect.Descriptor instead.
 func (*WriteStreamResponse) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{43}
+	return file_service_api_api_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *WriteStreamResponse) GetWritten() int64 {
@@ -2670,7 +2667,7 @@ type TruncateRequest struct {
 
 func (x *TruncateRequest) Reset() {
 	*x = TruncateRequest{}
-	mi := &file_service_api_api_proto_msgTypes[44]
+	mi := &file_service_api_api_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2682,7 +2679,7 @@ func (x *TruncateRequest) String() string {
 func (*TruncateRequest) ProtoMessage() {}
 
 func (x *TruncateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[44]
+	mi := &file_service_api_api_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2695,7 +2692,7 @@ func (x *TruncateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TruncateRequest.ProtoReflect.Descriptor instead.
 func (*TruncateRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{44}
+	return file_service_api_api_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *TruncateRequest) GetSessionId() string {
@@ -2729,7 +2726,7 @@ type FlushRequest struct {
 
 func (x *FlushRequest) Reset() {
 	*x = FlushRequest{}
-	mi := &file_service_api_api_proto_msgTypes[45]
+	mi := &file_service_api_api_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2741,7 +2738,7 @@ func (x *FlushRequest) String() string {
 func (*FlushRequest) ProtoMessage() {}
 
 func (x *FlushRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[45]
+	mi := &file_service_api_api_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2754,7 +2751,7 @@ func (x *FlushRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlushRequest.ProtoReflect.Descriptor instead.
 func (*FlushRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{45}
+	return file_service_api_api_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *FlushRequest) GetSessionId() string {
@@ -2781,7 +2778,7 @@ type CloseRequest struct {
 
 func (x *CloseRequest) Reset() {
 	*x = CloseRequest{}
-	mi := &file_service_api_api_proto_msgTypes[46]
+	mi := &file_service_api_api_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2793,7 +2790,7 @@ func (x *CloseRequest) String() string {
 func (*CloseRequest) ProtoMessage() {}
 
 func (x *CloseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[46]
+	mi := &file_service_api_api_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2806,7 +2803,7 @@ func (x *CloseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseRequest.ProtoReflect.Descriptor instead.
 func (*CloseRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{46}
+	return file_service_api_api_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *CloseRequest) GetSessionId() string {
@@ -2834,7 +2831,7 @@ type CacheFileRequest struct {
 
 func (x *CacheFileRequest) Reset() {
 	*x = CacheFileRequest{}
-	mi := &file_service_api_api_proto_msgTypes[47]
+	mi := &file_service_api_api_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2846,7 +2843,7 @@ func (x *CacheFileRequest) String() string {
 func (*CacheFileRequest) ProtoMessage() {}
 
 func (x *CacheFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[47]
+	mi := &file_service_api_api_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2859,7 +2856,7 @@ func (x *CacheFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CacheFileRequest.ProtoReflect.Descriptor instead.
 func (*CacheFileRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{47}
+	return file_service_api_api_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *CacheFileRequest) GetSessionId() string {
@@ -2892,7 +2889,7 @@ type SyncRequest struct {
 
 func (x *SyncRequest) Reset() {
 	*x = SyncRequest{}
-	mi := &file_service_api_api_proto_msgTypes[48]
+	mi := &file_service_api_api_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2904,7 +2901,7 @@ func (x *SyncRequest) String() string {
 func (*SyncRequest) ProtoMessage() {}
 
 func (x *SyncRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_api_api_proto_msgTypes[48]
+	mi := &file_service_api_api_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2917,7 +2914,7 @@ func (x *SyncRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncRequest.ProtoReflect.Descriptor instead.
 func (*SyncRequest) Descriptor() ([]byte, []int) {
-	return file_service_api_api_proto_rawDescGZIP(), []int{48}
+	return file_service_api_api_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *SyncRequest) GetSessionId() string {
@@ -2931,41 +2928,69 @@ var File_service_api_api_proto protoreflect.FileDescriptor
 
 const file_service_api_api_proto_rawDesc = "" +
 	"\n" +
-	"\x15service/api/api.proto\x12\x03api\"\a\n" +
-	"\x05Empty\"\xb0\x03\n" +
-	"\x10SSLConfiguration\x12.\n" +
-	"\x13ca_certificate_file\x18\x01 \x01(\tR\x11caCertificateFile\x12.\n" +
-	"\x13ca_certificate_path\x18\x02 \x01(\tR\x11caCertificatePath\x12.\n" +
-	"\x13encryption_key_size\x18\x03 \x01(\x05R\x11encryptionKeySize\x121\n" +
-	"\x14encryption_algorithm\x18\x04 \x01(\tR\x13encryptionAlgorithm\x120\n" +
-	"\x14encryption_salt_size\x18\x05 \x01(\x05R\x12encryptionSaltSize\x12;\n" +
-	"\x1aencryption_num_hash_rounds\x18\x06 \x01(\x05R\x17encryptionNumHashRounds\x12#\n" +
-	"\rverify_server\x18\a \x01(\tR\fverifyServer\x12$\n" +
-	"\x0edh_params_file\x18\b \x01(\tR\fdhParamsFile\x12\x1f\n" +
-	"\vserver_name\x18\t \x01(\tR\n" +
-	"serverName\"\xdf\x04\n" +
-	"\aAccount\x123\n" +
-	"\x15authentication_scheme\x18\x01 \x01(\tR\x14authenticationScheme\x12:\n" +
-	"\x19client_server_negotiation\x18\x02 \x01(\bR\x17clientServerNegotiation\x122\n" +
-	"\x15cs_negotiation_policy\x18\x03 \x01(\tR\x13csNegotiationPolicy\x12\x12\n" +
-	"\x04host\x18\x04 \x01(\tR\x04host\x12\x12\n" +
-	"\x04port\x18\x05 \x01(\x05R\x04port\x12\x1f\n" +
-	"\vclient_user\x18\x06 \x01(\tR\n" +
-	"clientUser\x12\x1f\n" +
-	"\vclient_zone\x18\a \x01(\tR\n" +
-	"clientZone\x12\x1d\n" +
+	"\x15service/api/api.proto\x12\x03api\x1a\x1fgoogle/protobuf/timestamp.proto\"\a\n" +
+	"\x05Empty\"\xaf\x12\n" +
+	"\aAccount\x12C\n" +
+	"\x1birods_authentication_scheme\x18\x01 \x01(\tH\x00R\x19irodsAuthenticationScheme\x88\x01\x01\x12J\n" +
+	"\x1firods_client_server_negotiation\x18\x02 \x01(\bH\x01R\x1cirodsClientServerNegotiation\x88\x01\x01\x12@\n" +
+	"\x1airods_client_server_policy\x18\x03 \x01(\tH\x02R\x17irodsClientServerPolicy\x88\x01\x01\x12\x1d\n" +
 	"\n" +
-	"proxy_user\x18\b \x01(\tR\tproxyUser\x12\x1d\n" +
+	"irods_host\x18\x04 \x01(\tR\tirodsHost\x12\x1d\n" +
 	"\n" +
-	"proxy_zone\x18\t \x01(\tR\tproxyZone\x12\x1a\n" +
-	"\bpassword\x18\n" +
-	" \x01(\tR\bpassword\x12\x16\n" +
-	"\x06ticket\x18\v \x01(\tR\x06ticket\x12)\n" +
-	"\x10default_resource\x18\f \x01(\tR\x0fdefaultResource\x12.\n" +
-	"\x13default_hash_scheme\x18\r \x01(\tR\x11defaultHashScheme\x12\x17\n" +
-	"\apam_ttl\x18\x0e \x01(\x05R\x06pamTtl\x12\x1b\n" +
-	"\tpam_token\x18\x0f \x01(\tR\bpamToken\x12B\n" +
-	"\x11ssl_configuration\x18\x10 \x01(\v2\x15.api.SSLConfigurationR\x10sslConfiguration\"\xc8\x02\n" +
+	"irods_port\x18\x05 \x01(\x05R\tirodsPort\x12&\n" +
+	"\x0firods_zone_name\x18\x06 \x01(\tR\rirodsZoneName\x128\n" +
+	"\x16irods_client_zone_name\x18\a \x01(\tH\x03R\x13irodsClientZoneName\x88\x01\x01\x12&\n" +
+	"\x0firods_user_name\x18\b \x01(\tR\rirodsUserName\x128\n" +
+	"\x16irods_client_user_name\x18\t \x01(\tH\x04R\x13irodsClientUserName\x88\x01\x01\x129\n" +
+	"\x16irods_default_resource\x18\n" +
+	" \x01(\tH\x05R\x14irodsDefaultResource\x88\x01\x01\x12 \n" +
+	"\tirods_cwd\x18\v \x01(\tH\x06R\birodsCwd\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"irods_home\x18\f \x01(\tH\aR\tirodsHome\x88\x01\x01\x12>\n" +
+	"\x19irods_default_hash_scheme\x18\r \x01(\tH\bR\x16irodsDefaultHashScheme\x88\x01\x01\x12:\n" +
+	"\x17irods_match_hash_policy\x18\x0e \x01(\tH\tR\x14irodsMatchHashPolicy\x88\x01\x01\x12A\n" +
+	"\x1airods_encryption_algorithm\x18\x0f \x01(\tH\n" +
+	"R\x18irodsEncryptionAlgorithm\x88\x01\x01\x12>\n" +
+	"\x19irods_encryption_key_size\x18\x10 \x01(\x05H\vR\x16irodsEncryptionKeySize\x88\x01\x01\x12@\n" +
+	"\x1airods_encryption_salt_size\x18\x11 \x01(\x05H\fR\x17irodsEncryptionSaltSize\x88\x01\x01\x12K\n" +
+	" irods_encryption_num_hash_rounds\x18\x12 \x01(\x05H\rR\x1cirodsEncryptionNumHashRounds\x88\x01\x01\x12E\n" +
+	"\x1dirods_ssl_ca_certificate_file\x18\x13 \x01(\tH\x0eR\x19irodsSslCaCertificateFile\x88\x01\x01\x12E\n" +
+	"\x1dirods_ssl_ca_certificate_path\x18\x14 \x01(\tH\x0fR\x19irodsSslCaCertificatePath\x88\x01\x01\x12:\n" +
+	"\x17irods_ssl_verify_server\x18\x15 \x01(\tH\x10R\x14irodsSslVerifyServer\x88\x01\x01\x12K\n" +
+	" irods_ssl_certificate_chain_file\x18\x16 \x01(\tH\x11R\x1cirodsSslCertificateChainFile\x88\x01\x01\x12G\n" +
+	"\x1eirods_ssl_certificate_key_file\x18\x17 \x01(\tH\x12R\x1airodsSslCertificateKeyFile\x88\x01\x01\x12;\n" +
+	"\x18irods_ssl_dh_params_file\x18\x18 \x01(\tH\x13R\x14irodsSslDhParamsFile\x88\x01\x01\x123\n" +
+	"\x13irods_user_password\x18\x19 \x01(\tH\x14R\x11irodsUserPassword\x88\x01\x01\x12&\n" +
+	"\firods_ticket\x18\x1a \x01(\tH\x15R\virodsTicket\x88\x01\x01\x12+\n" +
+	"\x0firods_pam_token\x18\x1b \x01(\tH\x16R\rirodsPamToken\x88\x01\x01\x12'\n" +
+	"\rirods_pam_ttl\x18\x1c \x01(\x05H\x17R\virodsPamTtl\x88\x01\x01\x126\n" +
+	"\x15irods_ssl_server_name\x18\x1d \x01(\tH\x18R\x12irodsSslServerName\x88\x01\x01B\x1e\n" +
+	"\x1c_irods_authentication_schemeB\"\n" +
+	" _irods_client_server_negotiationB\x1d\n" +
+	"\x1b_irods_client_server_policyB\x19\n" +
+	"\x17_irods_client_zone_nameB\x19\n" +
+	"\x17_irods_client_user_nameB\x19\n" +
+	"\x17_irods_default_resourceB\f\n" +
+	"\n" +
+	"_irods_cwdB\r\n" +
+	"\v_irods_homeB\x1c\n" +
+	"\x1a_irods_default_hash_schemeB\x1a\n" +
+	"\x18_irods_match_hash_policyB\x1d\n" +
+	"\x1b_irods_encryption_algorithmB\x1c\n" +
+	"\x1a_irods_encryption_key_sizeB\x1d\n" +
+	"\x1b_irods_encryption_salt_sizeB#\n" +
+	"!_irods_encryption_num_hash_roundsB \n" +
+	"\x1e_irods_ssl_ca_certificate_fileB \n" +
+	"\x1e_irods_ssl_ca_certificate_pathB\x1a\n" +
+	"\x18_irods_ssl_verify_serverB#\n" +
+	"!_irods_ssl_certificate_chain_fileB!\n" +
+	"\x1f_irods_ssl_certificate_key_fileB\x1b\n" +
+	"\x19_irods_ssl_dh_params_fileB\x16\n" +
+	"\x14_irods_user_passwordB\x0f\n" +
+	"\r_irods_ticketB\x12\n" +
+	"\x10_irods_pam_tokenB\x10\n" +
+	"\x0e_irods_pam_ttlB\x18\n" +
+	"\x16_irods_ssl_server_name\"\x9c\x03\n" +
 	"\x05Entry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
@@ -2973,13 +2998,13 @@ const file_service_api_api_proto_rawDesc = "" +
 	"\x04path\x18\x04 \x01(\tR\x04path\x12\x14\n" +
 	"\x05owner\x18\x05 \x01(\tR\x05owner\x12\x12\n" +
 	"\x04size\x18\x06 \x01(\x03R\x04size\x12\x1b\n" +
-	"\tdata_type\x18\a \x01(\tR\bdataType\x12\x1f\n" +
-	"\vcreate_time\x18\b \x01(\tR\n" +
-	"createTime\x12\x1f\n" +
-	"\vmodify_time\x18\t \x01(\tR\n" +
-	"modifyTime\x12\x1f\n" +
+	"\tdata_type\x18\a \x01(\tR\bdataType\x12;\n" +
+	"\vcreate_time\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"createTime\x12;\n" +
+	"\vmodify_time\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"modifyTime\x12;\n" +
 	"\vaccess_time\x18\n" +
-	" \x01(\tR\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"accessTime\x12-\n" +
 	"\x12checksum_algorithm\x18\v \x01(\tR\x11checksumAlgorithm\x12\x1a\n" +
 	"\bchecksum\x18\f \x01(\fR\bchecksum\"\x83\x01\n" +
@@ -3221,7 +3246,7 @@ const file_service_api_api_proto_rawDesc = "" +
 	"\tCacheFile\x12\x15.api.CacheFileRequest\x1a\n" +
 	".api.Empty\"\x00\x12&\n" +
 	"\x04Sync\x12\x10.api.SyncRequest\x1a\n" +
-	".api.Empty\"\x00B\x06Z\x04/apib\x06proto3"
+	".api.Empty\"\x00B1Z/github.com/cyverse/irodsfs-pool/service/api;apib\x06proto3"
 
 var (
 	file_service_api_api_proto_rawDescOnce sync.Once
@@ -3235,130 +3260,132 @@ func file_service_api_api_proto_rawDescGZIP() []byte {
 	return file_service_api_api_proto_rawDescData
 }
 
-var file_service_api_api_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
+var file_service_api_api_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 var file_service_api_api_proto_goTypes = []any{
 	(*Empty)(nil),                      // 0: api.Empty
-	(*SSLConfiguration)(nil),           // 1: api.SSLConfiguration
-	(*Account)(nil),                    // 2: api.Account
-	(*Entry)(nil),                      // 3: api.Entry
-	(*LoginRequest)(nil),               // 4: api.LoginRequest
-	(*LoginResponse)(nil),              // 5: api.LoginResponse
-	(*LogoutRequest)(nil),              // 6: api.LogoutRequest
-	(*KeepAliveRequest)(nil),           // 7: api.KeepAliveRequest
-	(*ListRequest)(nil),                // 8: api.ListRequest
-	(*ListResponse)(nil),               // 9: api.ListResponse
-	(*StatRequest)(nil),                // 10: api.StatRequest
-	(*StatResponse)(nil),               // 11: api.StatResponse
-	(*ExistsDirRequest)(nil),           // 12: api.ExistsDirRequest
-	(*ExistsDirResponse)(nil),          // 13: api.ExistsDirResponse
-	(*ExistsFileRequest)(nil),          // 14: api.ExistsFileRequest
-	(*ExistsFileResponse)(nil),         // 15: api.ExistsFileResponse
-	(*RemoveFileRequest)(nil),          // 16: api.RemoveFileRequest
-	(*RemoveDirRequest)(nil),           // 17: api.RemoveDirRequest
-	(*MakeDirRequest)(nil),             // 18: api.MakeDirRequest
-	(*RenameDirToDirRequest)(nil),      // 19: api.RenameDirToDirRequest
-	(*RenameFileToFileRequest)(nil),    // 20: api.RenameFileToFileRequest
-	(*CreateFileRequest)(nil),          // 21: api.CreateFileRequest
-	(*CreateFileResponse)(nil),         // 22: api.CreateFileResponse
-	(*OpenFileRequest)(nil),            // 23: api.OpenFileRequest
-	(*OpenFileResponse)(nil),           // 24: api.OpenFileResponse
-	(*CreateFileBulkRequest)(nil),      // 25: api.CreateFileBulkRequest
-	(*CreateFileBulkResponse)(nil),     // 26: api.CreateFileBulkResponse
-	(*OpenFileBulkRequest)(nil),        // 27: api.OpenFileBulkRequest
-	(*OpenFileBulkResponse)(nil),       // 28: api.OpenFileBulkResponse
-	(*TruncateFileRequest)(nil),        // 29: api.TruncateFileRequest
-	(*ReadAtRequest)(nil),              // 30: api.ReadAtRequest
-	(*ReadAtResponse)(nil),             // 31: api.ReadAtResponse
-	(*WriteAtRequest)(nil),             // 32: api.WriteAtRequest
-	(*WriteAtResponse)(nil),            // 33: api.WriteAtResponse
-	(*GetAvailableRequest)(nil),        // 34: api.GetAvailableRequest
-	(*GetAvailableResponse)(nil),       // 35: api.GetAvailableResponse
-	(*ReadStreamRequest)(nil),          // 36: api.ReadStreamRequest
-	(*ReadStreamResponse)(nil),         // 37: api.ReadStreamResponse
-	(*ReadStreamParallelRequest)(nil),  // 38: api.ReadStreamParallelRequest
-	(*ReadStreamParallelResponse)(nil), // 39: api.ReadStreamParallelResponse
-	(*WriteStreamHeader)(nil),          // 40: api.WriteStreamHeader
-	(*WriteStreamBlock)(nil),           // 41: api.WriteStreamBlock
-	(*WriteStreamRequest)(nil),         // 42: api.WriteStreamRequest
-	(*WriteStreamResponse)(nil),        // 43: api.WriteStreamResponse
-	(*TruncateRequest)(nil),            // 44: api.TruncateRequest
-	(*FlushRequest)(nil),               // 45: api.FlushRequest
-	(*CloseRequest)(nil),               // 46: api.CloseRequest
-	(*CacheFileRequest)(nil),           // 47: api.CacheFileRequest
-	(*SyncRequest)(nil),                // 48: api.SyncRequest
+	(*Account)(nil),                    // 1: api.Account
+	(*Entry)(nil),                      // 2: api.Entry
+	(*LoginRequest)(nil),               // 3: api.LoginRequest
+	(*LoginResponse)(nil),              // 4: api.LoginResponse
+	(*LogoutRequest)(nil),              // 5: api.LogoutRequest
+	(*KeepAliveRequest)(nil),           // 6: api.KeepAliveRequest
+	(*ListRequest)(nil),                // 7: api.ListRequest
+	(*ListResponse)(nil),               // 8: api.ListResponse
+	(*StatRequest)(nil),                // 9: api.StatRequest
+	(*StatResponse)(nil),               // 10: api.StatResponse
+	(*ExistsDirRequest)(nil),           // 11: api.ExistsDirRequest
+	(*ExistsDirResponse)(nil),          // 12: api.ExistsDirResponse
+	(*ExistsFileRequest)(nil),          // 13: api.ExistsFileRequest
+	(*ExistsFileResponse)(nil),         // 14: api.ExistsFileResponse
+	(*RemoveFileRequest)(nil),          // 15: api.RemoveFileRequest
+	(*RemoveDirRequest)(nil),           // 16: api.RemoveDirRequest
+	(*MakeDirRequest)(nil),             // 17: api.MakeDirRequest
+	(*RenameDirToDirRequest)(nil),      // 18: api.RenameDirToDirRequest
+	(*RenameFileToFileRequest)(nil),    // 19: api.RenameFileToFileRequest
+	(*CreateFileRequest)(nil),          // 20: api.CreateFileRequest
+	(*CreateFileResponse)(nil),         // 21: api.CreateFileResponse
+	(*OpenFileRequest)(nil),            // 22: api.OpenFileRequest
+	(*OpenFileResponse)(nil),           // 23: api.OpenFileResponse
+	(*CreateFileBulkRequest)(nil),      // 24: api.CreateFileBulkRequest
+	(*CreateFileBulkResponse)(nil),     // 25: api.CreateFileBulkResponse
+	(*OpenFileBulkRequest)(nil),        // 26: api.OpenFileBulkRequest
+	(*OpenFileBulkResponse)(nil),       // 27: api.OpenFileBulkResponse
+	(*TruncateFileRequest)(nil),        // 28: api.TruncateFileRequest
+	(*ReadAtRequest)(nil),              // 29: api.ReadAtRequest
+	(*ReadAtResponse)(nil),             // 30: api.ReadAtResponse
+	(*WriteAtRequest)(nil),             // 31: api.WriteAtRequest
+	(*WriteAtResponse)(nil),            // 32: api.WriteAtResponse
+	(*GetAvailableRequest)(nil),        // 33: api.GetAvailableRequest
+	(*GetAvailableResponse)(nil),       // 34: api.GetAvailableResponse
+	(*ReadStreamRequest)(nil),          // 35: api.ReadStreamRequest
+	(*ReadStreamResponse)(nil),         // 36: api.ReadStreamResponse
+	(*ReadStreamParallelRequest)(nil),  // 37: api.ReadStreamParallelRequest
+	(*ReadStreamParallelResponse)(nil), // 38: api.ReadStreamParallelResponse
+	(*WriteStreamHeader)(nil),          // 39: api.WriteStreamHeader
+	(*WriteStreamBlock)(nil),           // 40: api.WriteStreamBlock
+	(*WriteStreamRequest)(nil),         // 41: api.WriteStreamRequest
+	(*WriteStreamResponse)(nil),        // 42: api.WriteStreamResponse
+	(*TruncateRequest)(nil),            // 43: api.TruncateRequest
+	(*FlushRequest)(nil),               // 44: api.FlushRequest
+	(*CloseRequest)(nil),               // 45: api.CloseRequest
+	(*CacheFileRequest)(nil),           // 46: api.CacheFileRequest
+	(*SyncRequest)(nil),                // 47: api.SyncRequest
+	(*timestamppb.Timestamp)(nil),      // 48: google.protobuf.Timestamp
 }
 var file_service_api_api_proto_depIdxs = []int32{
-	1,  // 0: api.Account.ssl_configuration:type_name -> api.SSLConfiguration
-	2,  // 1: api.LoginRequest.account:type_name -> api.Account
-	3,  // 2: api.ListResponse.entries:type_name -> api.Entry
-	3,  // 3: api.StatResponse.entry:type_name -> api.Entry
-	3,  // 4: api.CreateFileResponse.entry:type_name -> api.Entry
-	3,  // 5: api.OpenFileResponse.entry:type_name -> api.Entry
-	3,  // 6: api.CreateFileBulkResponse.entry:type_name -> api.Entry
-	3,  // 7: api.OpenFileBulkResponse.entry:type_name -> api.Entry
-	40, // 8: api.WriteStreamRequest.header:type_name -> api.WriteStreamHeader
-	41, // 9: api.WriteStreamRequest.block:type_name -> api.WriteStreamBlock
-	4,  // 10: api.PoolAPI.Login:input_type -> api.LoginRequest
-	6,  // 11: api.PoolAPI.Logout:input_type -> api.LogoutRequest
-	7,  // 12: api.PoolAPI.KeepAlive:input_type -> api.KeepAliveRequest
-	8,  // 13: api.PoolAPI.List:input_type -> api.ListRequest
-	10, // 14: api.PoolAPI.Stat:input_type -> api.StatRequest
-	12, // 15: api.PoolAPI.ExistsDir:input_type -> api.ExistsDirRequest
-	14, // 16: api.PoolAPI.ExistsFile:input_type -> api.ExistsFileRequest
-	16, // 17: api.PoolAPI.RemoveFile:input_type -> api.RemoveFileRequest
-	17, // 18: api.PoolAPI.RemoveDir:input_type -> api.RemoveDirRequest
-	18, // 19: api.PoolAPI.MakeDir:input_type -> api.MakeDirRequest
-	19, // 20: api.PoolAPI.RenameDirToDir:input_type -> api.RenameDirToDirRequest
-	20, // 21: api.PoolAPI.RenameFileToFile:input_type -> api.RenameFileToFileRequest
-	21, // 22: api.PoolAPI.CreateFile:input_type -> api.CreateFileRequest
-	23, // 23: api.PoolAPI.OpenFile:input_type -> api.OpenFileRequest
-	25, // 24: api.PoolAPI.CreateFileBulk:input_type -> api.CreateFileBulkRequest
-	27, // 25: api.PoolAPI.OpenFileBulk:input_type -> api.OpenFileBulkRequest
-	29, // 26: api.PoolAPI.TruncateFile:input_type -> api.TruncateFileRequest
-	30, // 27: api.PoolAPI.ReadAt:input_type -> api.ReadAtRequest
-	32, // 28: api.PoolAPI.WriteAt:input_type -> api.WriteAtRequest
-	34, // 29: api.PoolAPI.GetAvailable:input_type -> api.GetAvailableRequest
-	44, // 30: api.PoolAPI.Truncate:input_type -> api.TruncateRequest
-	45, // 31: api.PoolAPI.Flush:input_type -> api.FlushRequest
-	46, // 32: api.PoolAPI.Close:input_type -> api.CloseRequest
-	36, // 33: api.PoolAPI.ReadStream:input_type -> api.ReadStreamRequest
-	38, // 34: api.PoolAPI.ReadStreamParallel:input_type -> api.ReadStreamParallelRequest
-	42, // 35: api.PoolAPI.WriteStream:input_type -> api.WriteStreamRequest
-	47, // 36: api.PoolAPI.CacheFile:input_type -> api.CacheFileRequest
-	48, // 37: api.PoolAPI.Sync:input_type -> api.SyncRequest
-	5,  // 38: api.PoolAPI.Login:output_type -> api.LoginResponse
-	0,  // 39: api.PoolAPI.Logout:output_type -> api.Empty
-	0,  // 40: api.PoolAPI.KeepAlive:output_type -> api.Empty
-	9,  // 41: api.PoolAPI.List:output_type -> api.ListResponse
-	11, // 42: api.PoolAPI.Stat:output_type -> api.StatResponse
-	13, // 43: api.PoolAPI.ExistsDir:output_type -> api.ExistsDirResponse
-	15, // 44: api.PoolAPI.ExistsFile:output_type -> api.ExistsFileResponse
-	0,  // 45: api.PoolAPI.RemoveFile:output_type -> api.Empty
-	0,  // 46: api.PoolAPI.RemoveDir:output_type -> api.Empty
-	0,  // 47: api.PoolAPI.MakeDir:output_type -> api.Empty
-	0,  // 48: api.PoolAPI.RenameDirToDir:output_type -> api.Empty
-	0,  // 49: api.PoolAPI.RenameFileToFile:output_type -> api.Empty
-	22, // 50: api.PoolAPI.CreateFile:output_type -> api.CreateFileResponse
-	24, // 51: api.PoolAPI.OpenFile:output_type -> api.OpenFileResponse
-	26, // 52: api.PoolAPI.CreateFileBulk:output_type -> api.CreateFileBulkResponse
-	28, // 53: api.PoolAPI.OpenFileBulk:output_type -> api.OpenFileBulkResponse
-	0,  // 54: api.PoolAPI.TruncateFile:output_type -> api.Empty
-	31, // 55: api.PoolAPI.ReadAt:output_type -> api.ReadAtResponse
-	33, // 56: api.PoolAPI.WriteAt:output_type -> api.WriteAtResponse
-	35, // 57: api.PoolAPI.GetAvailable:output_type -> api.GetAvailableResponse
-	0,  // 58: api.PoolAPI.Truncate:output_type -> api.Empty
-	0,  // 59: api.PoolAPI.Flush:output_type -> api.Empty
-	0,  // 60: api.PoolAPI.Close:output_type -> api.Empty
-	37, // 61: api.PoolAPI.ReadStream:output_type -> api.ReadStreamResponse
-	39, // 62: api.PoolAPI.ReadStreamParallel:output_type -> api.ReadStreamParallelResponse
-	43, // 63: api.PoolAPI.WriteStream:output_type -> api.WriteStreamResponse
-	0,  // 64: api.PoolAPI.CacheFile:output_type -> api.Empty
-	0,  // 65: api.PoolAPI.Sync:output_type -> api.Empty
-	38, // [38:66] is the sub-list for method output_type
-	10, // [10:38] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	48, // 0: api.Entry.create_time:type_name -> google.protobuf.Timestamp
+	48, // 1: api.Entry.modify_time:type_name -> google.protobuf.Timestamp
+	48, // 2: api.Entry.access_time:type_name -> google.protobuf.Timestamp
+	1,  // 3: api.LoginRequest.account:type_name -> api.Account
+	2,  // 4: api.ListResponse.entries:type_name -> api.Entry
+	2,  // 5: api.StatResponse.entry:type_name -> api.Entry
+	2,  // 6: api.CreateFileResponse.entry:type_name -> api.Entry
+	2,  // 7: api.OpenFileResponse.entry:type_name -> api.Entry
+	2,  // 8: api.CreateFileBulkResponse.entry:type_name -> api.Entry
+	2,  // 9: api.OpenFileBulkResponse.entry:type_name -> api.Entry
+	39, // 10: api.WriteStreamRequest.header:type_name -> api.WriteStreamHeader
+	40, // 11: api.WriteStreamRequest.block:type_name -> api.WriteStreamBlock
+	3,  // 12: api.PoolAPI.Login:input_type -> api.LoginRequest
+	5,  // 13: api.PoolAPI.Logout:input_type -> api.LogoutRequest
+	6,  // 14: api.PoolAPI.KeepAlive:input_type -> api.KeepAliveRequest
+	7,  // 15: api.PoolAPI.List:input_type -> api.ListRequest
+	9,  // 16: api.PoolAPI.Stat:input_type -> api.StatRequest
+	11, // 17: api.PoolAPI.ExistsDir:input_type -> api.ExistsDirRequest
+	13, // 18: api.PoolAPI.ExistsFile:input_type -> api.ExistsFileRequest
+	15, // 19: api.PoolAPI.RemoveFile:input_type -> api.RemoveFileRequest
+	16, // 20: api.PoolAPI.RemoveDir:input_type -> api.RemoveDirRequest
+	17, // 21: api.PoolAPI.MakeDir:input_type -> api.MakeDirRequest
+	18, // 22: api.PoolAPI.RenameDirToDir:input_type -> api.RenameDirToDirRequest
+	19, // 23: api.PoolAPI.RenameFileToFile:input_type -> api.RenameFileToFileRequest
+	20, // 24: api.PoolAPI.CreateFile:input_type -> api.CreateFileRequest
+	22, // 25: api.PoolAPI.OpenFile:input_type -> api.OpenFileRequest
+	24, // 26: api.PoolAPI.CreateFileBulk:input_type -> api.CreateFileBulkRequest
+	26, // 27: api.PoolAPI.OpenFileBulk:input_type -> api.OpenFileBulkRequest
+	28, // 28: api.PoolAPI.TruncateFile:input_type -> api.TruncateFileRequest
+	29, // 29: api.PoolAPI.ReadAt:input_type -> api.ReadAtRequest
+	31, // 30: api.PoolAPI.WriteAt:input_type -> api.WriteAtRequest
+	33, // 31: api.PoolAPI.GetAvailable:input_type -> api.GetAvailableRequest
+	43, // 32: api.PoolAPI.Truncate:input_type -> api.TruncateRequest
+	44, // 33: api.PoolAPI.Flush:input_type -> api.FlushRequest
+	45, // 34: api.PoolAPI.Close:input_type -> api.CloseRequest
+	35, // 35: api.PoolAPI.ReadStream:input_type -> api.ReadStreamRequest
+	37, // 36: api.PoolAPI.ReadStreamParallel:input_type -> api.ReadStreamParallelRequest
+	41, // 37: api.PoolAPI.WriteStream:input_type -> api.WriteStreamRequest
+	46, // 38: api.PoolAPI.CacheFile:input_type -> api.CacheFileRequest
+	47, // 39: api.PoolAPI.Sync:input_type -> api.SyncRequest
+	4,  // 40: api.PoolAPI.Login:output_type -> api.LoginResponse
+	0,  // 41: api.PoolAPI.Logout:output_type -> api.Empty
+	0,  // 42: api.PoolAPI.KeepAlive:output_type -> api.Empty
+	8,  // 43: api.PoolAPI.List:output_type -> api.ListResponse
+	10, // 44: api.PoolAPI.Stat:output_type -> api.StatResponse
+	12, // 45: api.PoolAPI.ExistsDir:output_type -> api.ExistsDirResponse
+	14, // 46: api.PoolAPI.ExistsFile:output_type -> api.ExistsFileResponse
+	0,  // 47: api.PoolAPI.RemoveFile:output_type -> api.Empty
+	0,  // 48: api.PoolAPI.RemoveDir:output_type -> api.Empty
+	0,  // 49: api.PoolAPI.MakeDir:output_type -> api.Empty
+	0,  // 50: api.PoolAPI.RenameDirToDir:output_type -> api.Empty
+	0,  // 51: api.PoolAPI.RenameFileToFile:output_type -> api.Empty
+	21, // 52: api.PoolAPI.CreateFile:output_type -> api.CreateFileResponse
+	23, // 53: api.PoolAPI.OpenFile:output_type -> api.OpenFileResponse
+	25, // 54: api.PoolAPI.CreateFileBulk:output_type -> api.CreateFileBulkResponse
+	27, // 55: api.PoolAPI.OpenFileBulk:output_type -> api.OpenFileBulkResponse
+	0,  // 56: api.PoolAPI.TruncateFile:output_type -> api.Empty
+	30, // 57: api.PoolAPI.ReadAt:output_type -> api.ReadAtResponse
+	32, // 58: api.PoolAPI.WriteAt:output_type -> api.WriteAtResponse
+	34, // 59: api.PoolAPI.GetAvailable:output_type -> api.GetAvailableResponse
+	0,  // 60: api.PoolAPI.Truncate:output_type -> api.Empty
+	0,  // 61: api.PoolAPI.Flush:output_type -> api.Empty
+	0,  // 62: api.PoolAPI.Close:output_type -> api.Empty
+	36, // 63: api.PoolAPI.ReadStream:output_type -> api.ReadStreamResponse
+	38, // 64: api.PoolAPI.ReadStreamParallel:output_type -> api.ReadStreamParallelResponse
+	42, // 65: api.PoolAPI.WriteStream:output_type -> api.WriteStreamResponse
+	0,  // 66: api.PoolAPI.CacheFile:output_type -> api.Empty
+	0,  // 67: api.PoolAPI.Sync:output_type -> api.Empty
+	40, // [40:68] is the sub-list for method output_type
+	12, // [12:40] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_service_api_api_proto_init() }
@@ -3366,7 +3393,8 @@ func file_service_api_api_proto_init() {
 	if File_service_api_api_proto != nil {
 		return
 	}
-	file_service_api_api_proto_msgTypes[42].OneofWrappers = []any{
+	file_service_api_api_proto_msgTypes[1].OneofWrappers = []any{}
+	file_service_api_api_proto_msgTypes[41].OneofWrappers = []any{
 		(*WriteStreamRequest_Header)(nil),
 		(*WriteStreamRequest_Block)(nil),
 	}
@@ -3376,7 +3404,7 @@ func file_service_api_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_service_api_api_proto_rawDesc), len(file_service_api_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   49,
+			NumMessages:   48,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

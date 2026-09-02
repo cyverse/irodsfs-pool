@@ -1,41 +1,44 @@
 syntax = "proto3";
 
-option go_package = "/api";
+option go_package = "github.com/cyverse/irodsfs-pool/service/api;api";
 
 package api;
+
+import "google/protobuf/timestamp.proto";
 
 message Empty {
 }
 
-message SSLConfiguration{
-	string ca_certificate_file = 1;
-	string ca_certificate_path = 2;
-	int32 encryption_key_size = 3;
-	string encryption_algorithm = 4;
-	int32 encryption_salt_size = 5;
-	int32 encryption_num_hash_rounds = 6;
-	string verify_server = 7;
-	string dh_params_file = 8;
-	string server_name = 9;
-}
-
-message Account{
-	string authentication_scheme = 1;
-	bool client_server_negotiation = 2;
-	string cs_negotiation_policy = 3;
-	string host = 4;
-	int32 port = 5;
-	string client_user = 6;
-	string client_zone = 7;
-	string proxy_user = 8;
-	string proxy_zone = 9;
-	string password = 10;
-	string ticket = 11;
-	string default_resource = 12;
-	string default_hash_scheme = 13;
-	int32 pam_ttl = 14;
-	string pam_token = 15;
-	SSLConfiguration ssl_configuration = 16;
+message Account {
+  optional string irods_authentication_scheme = 1;
+  optional bool irods_client_server_negotiation = 2;
+  optional string irods_client_server_policy = 3;
+  string irods_host = 4;
+  int32 irods_port = 5;
+  string irods_zone_name = 6;
+  optional string irods_client_zone_name = 7;
+  string irods_user_name = 8;
+  optional string irods_client_user_name = 9;
+  optional string irods_default_resource = 10;
+  optional string irods_cwd = 11;
+  optional string irods_home = 12;
+  optional string irods_default_hash_scheme = 13;
+  optional string irods_match_hash_policy = 14;
+  optional string irods_encryption_algorithm = 15;
+  optional int32 irods_encryption_key_size = 16;
+  optional int32 irods_encryption_salt_size = 17;
+  optional int32 irods_encryption_num_hash_rounds = 18;
+  optional string irods_ssl_ca_certificate_file = 19;
+  optional string irods_ssl_ca_certificate_path = 20;
+  optional string irods_ssl_verify_server = 21;
+  optional string irods_ssl_certificate_chain_file = 22;
+  optional string irods_ssl_certificate_key_file = 23;
+  optional string irods_ssl_dh_params_file = 24;
+  optional string irods_user_password = 25;
+  optional string irods_ticket = 26;
+  optional string irods_pam_token = 27;
+  optional int32 irods_pam_ttl = 28;
+  optional string irods_ssl_server_name = 29;
 }
 
 message Entry {
@@ -46,9 +49,9 @@ message Entry {
 	string owner = 5;
 	int64 size = 6;
 	string data_type = 7;
-	string create_time = 8;
-	string modify_time = 9;
-	string access_time = 10;
+	google.protobuf.Timestamp create_time = 8;
+	google.protobuf.Timestamp modify_time = 9;
+	google.protobuf.Timestamp access_time = 10;
 	string checksum_algorithm = 11;
 	bytes checksum = 12;
 }

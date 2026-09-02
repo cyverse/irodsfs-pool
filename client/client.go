@@ -307,40 +307,8 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 	ctx, cancel := client.getContextWithDeadline()
 	defer cancel()
 
-	var sslConf *api.SSLConfiguration
-	if account.SSLConfiguration != nil {
-		sslConf = &api.SSLConfiguration{
-			CaCertificateFile:       account.SSLConfiguration.CACertificateFile,
-			CaCertificatePath:       account.SSLConfiguration.CACertificatePath,
-			EncryptionKeySize:       int32(account.SSLConfiguration.EncryptionKeySize),
-			EncryptionAlgorithm:     account.SSLConfiguration.EncryptionAlgorithm,
-			EncryptionSaltSize:      int32(account.SSLConfiguration.EncryptionSaltSize),
-			EncryptionNumHashRounds: int32(account.SSLConfiguration.EncryptionNumHashRounds),
-			VerifyServer:            string(account.SSLConfiguration.VerifyServer),
-			DhParamsFile:            account.SSLConfiguration.DHParamsFile,
-			ServerName:              account.SSLConfiguration.ServerName,
-		}
-	}
-
 	request := &api.LoginRequest{
-		Account: &api.Account{
-			AuthenticationScheme:    string(account.AuthenticationScheme),
-			ClientServerNegotiation: account.ClientServerNegotiation,
-			CsNegotiationPolicy:     string(account.CSNegotiationPolicy),
-			Host:                    account.Host,
-			Port:                    int32(account.Port),
-			ClientUser:              account.ClientUser,
-			ClientZone:              account.ClientZone,
-			ProxyUser:               account.ProxyUser,
-			ProxyZone:               account.ProxyZone,
-			Password:                account.Password,
-			Ticket:                  account.Ticket,
-			DefaultResource:         account.DefaultResource,
-			DefaultHashScheme:       account.DefaultHashScheme,
-			PamTtl:                  int32(account.PamTTL),
-			PamToken:                account.PAMToken,
-			SslConfiguration:        sslConf,
-		},
+		Account:         convertAccountFromIRODSToAPI(account),
 		ApplicationName: applicationName,
 		Description:     description,
 	}
@@ -435,40 +403,8 @@ func (session *PoolServiceSession) Relogin() error {
 	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	var sslConf *api.SSLConfiguration
-	if session.account.SSLConfiguration != nil {
-		sslConf = &api.SSLConfiguration{
-			CaCertificateFile:       session.account.SSLConfiguration.CACertificateFile,
-			CaCertificatePath:       session.account.SSLConfiguration.CACertificatePath,
-			EncryptionKeySize:       int32(session.account.SSLConfiguration.EncryptionKeySize),
-			EncryptionAlgorithm:     session.account.SSLConfiguration.EncryptionAlgorithm,
-			EncryptionSaltSize:      int32(session.account.SSLConfiguration.EncryptionSaltSize),
-			EncryptionNumHashRounds: int32(session.account.SSLConfiguration.EncryptionNumHashRounds),
-			VerifyServer:            string(session.account.SSLConfiguration.VerifyServer),
-			DhParamsFile:            session.account.SSLConfiguration.DHParamsFile,
-			ServerName:              session.account.SSLConfiguration.ServerName,
-		}
-	}
-
 	request := &api.LoginRequest{
-		Account: &api.Account{
-			AuthenticationScheme:    string(session.account.AuthenticationScheme),
-			ClientServerNegotiation: session.account.ClientServerNegotiation,
-			CsNegotiationPolicy:     string(session.account.CSNegotiationPolicy),
-			Host:                    session.account.Host,
-			Port:                    int32(session.account.Port),
-			ClientUser:              session.account.ClientUser,
-			ClientZone:              session.account.ClientZone,
-			ProxyUser:               session.account.ProxyUser,
-			ProxyZone:               session.account.ProxyZone,
-			Password:                session.account.Password,
-			Ticket:                  session.account.Ticket,
-			DefaultResource:         session.account.DefaultResource,
-			DefaultHashScheme:       session.account.DefaultHashScheme,
-			PamTtl:                  int32(session.account.PamTTL),
-			PamToken:                session.account.PAMToken,
-			SslConfiguration:        sslConf,
-		},
+		Account:         convertAccountFromIRODSToAPI(session.account),
 		ApplicationName: session.applicationName,
 	}
 
@@ -661,30 +597,10 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 	}
 
 	for _, entry := range response.Entries {
-		createTime, err := irodsfs_common_util.ParseTime(entry.CreateTime)
+		irodsEntry, err := convertEntryFromAPIToIRODS(entry)
 		if err != nil {
 			session.logger.Error(err)
 			return nil, err
-		}
-
-		modifyTime, err := irodsfs_common_util.ParseTime(entry.ModifyTime)
-		if err != nil {
-			session.logger.Error(err)
-			return nil, err
-		}
-
-		irodsEntry := &irodsclient_fs.Entry{
-			ID:                entry.Id,
-			Type:              irodsclient_fs.EntryType(entry.Type),
-			Name:              entry.Name,
-			Path:              entry.Path,
-			Owner:             entry.Owner,
-			Size:              entry.Size,
-			DataType:          entry.DataType,
-			CreateTime:        createTime,
-			ModifyTime:        modifyTime,
-			CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(entry.ChecksumAlgorithm),
-			CheckSum:          entry.Checksum,
 		}
 
 		irodsEntries = append(irodsEntries, irodsEntry)
@@ -736,30 +652,10 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 		return nil, err
 	}
 
-	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
+	irodsEntry, err := convertEntryFromAPIToIRODS(response.Entry)
 	if err != nil {
 		session.logger.Error(err)
 		return nil, err
-	}
-
-	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
-	if err != nil {
-		session.logger.Error(err)
-		return nil, err
-	}
-
-	irodsEntry := &irodsclient_fs.Entry{
-		ID:                response.Entry.Id,
-		Type:              irodsclient_fs.EntryType(response.Entry.Type),
-		Name:              response.Entry.Name,
-		Path:              response.Entry.Path,
-		Owner:             response.Entry.Owner,
-		Size:              response.Entry.Size,
-		DataType:          response.Entry.DataType,
-		CreateTime:        createTime,
-		ModifyTime:        modifyTime,
-		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
-		CheckSum:          response.Entry.Checksum,
 	}
 
 	// put to cache
@@ -1020,30 +916,10 @@ func (session *PoolServiceSession) CreateFile(path string, mode string) (irodsfs
 		return nil, err
 	}
 
-	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
+	irodsEntry, err := convertEntryFromAPIToIRODS(response.Entry)
 	if err != nil {
 		session.logger.Error(err)
 		return nil, err
-	}
-
-	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
-	if err != nil {
-		session.logger.Error(err)
-		return nil, err
-	}
-
-	irodsEntry := &irodsclient_fs.Entry{
-		ID:                response.Entry.Id,
-		Type:              irodsclient_fs.EntryType(response.Entry.Type),
-		Name:              response.Entry.Name,
-		Path:              response.Entry.Path,
-		Owner:             response.Entry.Owner,
-		Size:              response.Entry.Size,
-		DataType:          response.Entry.DataType,
-		CreateTime:        createTime,
-		ModifyTime:        modifyTime,
-		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
-		CheckSum:          response.Entry.Checksum,
 	}
 
 	// remove cache
@@ -1096,30 +972,10 @@ func (session *PoolServiceSession) OpenFile(path string, mode string) (irodsfs_c
 		return nil, err
 	}
 
-	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
+	irodsEntry, err := convertEntryFromAPIToIRODS(response.Entry)
 	if err != nil {
 		session.logger.Error(err)
 		return nil, err
-	}
-
-	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
-	if err != nil {
-		session.logger.Error(err)
-		return nil, err
-	}
-
-	irodsEntry := &irodsclient_fs.Entry{
-		ID:                response.Entry.Id,
-		Type:              irodsclient_fs.EntryType(response.Entry.Type),
-		Name:              response.Entry.Name,
-		Path:              response.Entry.Path,
-		Owner:             response.Entry.Owner,
-		Size:              response.Entry.Size,
-		DataType:          response.Entry.DataType,
-		CreateTime:        createTime,
-		ModifyTime:        modifyTime,
-		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
-		CheckSum:          response.Entry.Checksum,
 	}
 
 	handle := &PoolServiceFileHandle{
@@ -1184,30 +1040,10 @@ func (session *PoolServiceSession) CreateFileBulk(path string, mode string) (iro
 		return nil, err
 	}
 
-	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
+	irodsEntry, err := convertEntryFromAPIToIRODS(response.Entry)
 	if err != nil {
 		session.logger.Error(err)
 		return nil, err
-	}
-
-	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
-	if err != nil {
-		session.logger.Error(err)
-		return nil, err
-	}
-
-	irodsEntry := &irodsclient_fs.Entry{
-		ID:                response.Entry.Id,
-		Type:              irodsclient_fs.EntryType(response.Entry.Type),
-		Name:              response.Entry.Name,
-		Path:              response.Entry.Path,
-		Owner:             response.Entry.Owner,
-		Size:              response.Entry.Size,
-		DataType:          response.Entry.DataType,
-		CreateTime:        createTime,
-		ModifyTime:        modifyTime,
-		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
-		CheckSum:          response.Entry.Checksum,
 	}
 
 	// remove cache
@@ -1259,30 +1095,10 @@ func (session *PoolServiceSession) OpenFileBulk(path string, mode string) (irods
 		return nil, err
 	}
 
-	createTime, err := irodsfs_common_util.ParseTime(response.Entry.CreateTime)
+	irodsEntry, err := convertEntryFromAPIToIRODS(response.Entry)
 	if err != nil {
 		session.logger.Error(err)
 		return nil, err
-	}
-
-	modifyTime, err := irodsfs_common_util.ParseTime(response.Entry.ModifyTime)
-	if err != nil {
-		session.logger.Error(err)
-		return nil, err
-	}
-
-	irodsEntry := &irodsclient_fs.Entry{
-		ID:                response.Entry.Id,
-		Type:              irodsclient_fs.EntryType(response.Entry.Type),
-		Name:              response.Entry.Name,
-		Path:              response.Entry.Path,
-		Owner:             response.Entry.Owner,
-		Size:              response.Entry.Size,
-		DataType:          response.Entry.DataType,
-		CreateTime:        createTime,
-		ModifyTime:        modifyTime,
-		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
-		CheckSum:          response.Entry.Checksum,
 	}
 
 	handle := &PoolServiceFileHandle{

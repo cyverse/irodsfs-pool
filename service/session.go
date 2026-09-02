@@ -233,13 +233,13 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	sessionID := accountKey
 
 	// Create new session
-	manager.logger.Infof("Creating a new pool session for username %q", account.ClientUser)
+	manager.logger.Infof("Creating a new pool session for username %q", irodsAccount.ClientUser)
 
 	sessionLogger, sessionLogFile, err := newSessionLogger(manager.config.logRootPath, sessionID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create log file for session %q", sessionID)
 	}
-	sessionLogger.Infof("Creating a new pool session for username %q", account.ClientUser)
+	sessionLogger.Infof("Creating a new pool session for username %q", irodsAccount.ClientUser)
 
 	irodsClientLogger, err := newIrodsClientLogger(sessionLogFile)
 	if err != nil {

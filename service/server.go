@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type PoolServerConfig struct {
@@ -139,32 +140,32 @@ func (server *PoolServer) Login(ctx context.Context, request *api.LoginRequest) 
 	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
 	serverLogger := server.logger.WithFields(log.Fields{
-		"host":                 request.Account.Host,
-		"port":                 request.Account.Port,
-		"authenticationScheme": request.Account.AuthenticationScheme,
-		"proxyUser":            request.Account.ProxyUser,
-		"proxyZone":            request.Account.ProxyZone,
-		"clientUser":           request.Account.ClientUser,
-		"clientZone":           request.Account.ClientZone,
+		"host":                 request.Account.IrodsHost,
+		"port":                 request.Account.IrodsPort,
+		"authenticationScheme": request.Account.GetIrodsAuthenticationScheme(),
+		"proxyUser":            request.Account.IrodsUserName,
+		"proxyZone":            request.Account.IrodsZoneName,
+		"clientUser":           clientUserFromAPI(request.Account),
+		"clientZone":           clientZoneFromAPI(request.Account),
 	})
 	serverLogger.Infof("Login request")
 	defer serverLogger.Infof("Login response")
 
 	session, err := server.sessionManager.NewSession(request.Account, request.ApplicationName)
 	if err != nil {
-		sessionErr := errors.Wrapf(err, "Failed to create a new session for host %q, user %q", request.Account.Host, request.Account.ClientUser)
+		sessionErr := errors.Wrapf(err, "Failed to create a new session for host %q, user %q", request.Account.IrodsHost, clientUserFromAPI(request.Account))
 		server.logger.Error(sessionErr)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	sessionLogger := session.logger.WithFields(log.Fields{
-		"host":                 request.Account.Host,
-		"port":                 request.Account.Port,
-		"authenticationScheme": request.Account.AuthenticationScheme,
-		"proxyUser":            request.Account.ProxyUser,
-		"proxyZone":            request.Account.ProxyZone,
-		"clientUser":           request.Account.ClientUser,
-		"clientZone":           request.Account.ClientZone,
+		"host":                 request.Account.IrodsHost,
+		"port":                 request.Account.IrodsPort,
+		"authenticationScheme": request.Account.GetIrodsAuthenticationScheme(),
+		"proxyUser":            request.Account.IrodsUserName,
+		"proxyZone":            request.Account.IrodsZoneName,
+		"clientUser":           clientUserFromAPI(request.Account),
+		"clientZone":           clientZoneFromAPI(request.Account),
 	})
 
 	sessionLogger.Infof("Login request")
@@ -292,9 +293,9 @@ func (server *PoolServer) List(ctx context.Context, request *api.ListRequest) (*
 			Owner:             entry.Owner,
 			Size:              entry.Size,
 			DataType:          entry.DataType,
-			CreateTime:        irodsfs_common_util.TimeString(entry.CreateTime),
-			ModifyTime:        irodsfs_common_util.TimeString(entry.ModifyTime),
-			AccessTime:        irodsfs_common_util.TimeString(entry.AccessTime),
+			CreateTime:        timestamppb.New(entry.CreateTime),
+			ModifyTime:        timestamppb.New(entry.ModifyTime),
+			AccessTime:        timestamppb.New(entry.AccessTime),
 			ChecksumAlgorithm: string(entry.CheckSumAlgorithm),
 			Checksum:          entry.CheckSum,
 		}
@@ -338,9 +339,9 @@ func (server *PoolServer) Stat(ctx context.Context, request *api.StatRequest) (*
 		Owner:             entry.Owner,
 		Size:              entry.Size,
 		DataType:          entry.DataType,
-		CreateTime:        irodsfs_common_util.TimeString(entry.CreateTime),
-		ModifyTime:        irodsfs_common_util.TimeString(entry.ModifyTime),
-		AccessTime:        irodsfs_common_util.TimeString(entry.AccessTime),
+		CreateTime:        timestamppb.New(entry.CreateTime),
+		ModifyTime:        timestamppb.New(entry.ModifyTime),
+		AccessTime:        timestamppb.New(entry.AccessTime),
 		ChecksumAlgorithm: string(entry.CheckSumAlgorithm),
 		Checksum:          entry.CheckSum,
 	}
@@ -574,9 +575,9 @@ func (server *PoolServer) CreateFile(ctx context.Context, request *api.CreateFil
 		Owner:             fsEntry.Owner,
 		Size:              fsEntry.Size,
 		DataType:          fsEntry.DataType,
-		CreateTime:        irodsfs_common_util.TimeString(fsEntry.CreateTime),
-		ModifyTime:        irodsfs_common_util.TimeString(fsEntry.ModifyTime),
-		AccessTime:        irodsfs_common_util.TimeString(fsEntry.AccessTime),
+		CreateTime:        timestamppb.New(fsEntry.CreateTime),
+		ModifyTime:        timestamppb.New(fsEntry.ModifyTime),
+		AccessTime:        timestamppb.New(fsEntry.AccessTime),
 		ChecksumAlgorithm: string(fsEntry.CheckSumAlgorithm),
 		Checksum:          fsEntry.CheckSum,
 	}
@@ -629,9 +630,9 @@ func (server *PoolServer) OpenFile(ctx context.Context, request *api.OpenFileReq
 		Owner:             fsEntry.Owner,
 		Size:              fsEntry.Size,
 		DataType:          fsEntry.DataType,
-		CreateTime:        irodsfs_common_util.TimeString(fsEntry.CreateTime),
-		ModifyTime:        irodsfs_common_util.TimeString(fsEntry.ModifyTime),
-		AccessTime:        irodsfs_common_util.TimeString(fsEntry.AccessTime),
+		CreateTime:        timestamppb.New(fsEntry.CreateTime),
+		ModifyTime:        timestamppb.New(fsEntry.ModifyTime),
+		AccessTime:        timestamppb.New(fsEntry.AccessTime),
 		ChecksumAlgorithm: string(fsEntry.CheckSumAlgorithm),
 		Checksum:          fsEntry.CheckSum,
 	}
@@ -684,9 +685,9 @@ func (server *PoolServer) CreateFileBulk(ctx context.Context, request *api.Creat
 		Owner:             fsEntry.Owner,
 		Size:              fsEntry.Size,
 		DataType:          fsEntry.DataType,
-		CreateTime:        irodsfs_common_util.TimeString(fsEntry.CreateTime),
-		ModifyTime:        irodsfs_common_util.TimeString(fsEntry.ModifyTime),
-		AccessTime:        irodsfs_common_util.TimeString(fsEntry.AccessTime),
+		CreateTime:        timestamppb.New(fsEntry.CreateTime),
+		ModifyTime:        timestamppb.New(fsEntry.ModifyTime),
+		AccessTime:        timestamppb.New(fsEntry.AccessTime),
 		ChecksumAlgorithm: string(fsEntry.CheckSumAlgorithm),
 		Checksum:          fsEntry.CheckSum,
 	}
@@ -739,9 +740,9 @@ func (server *PoolServer) OpenFileBulk(ctx context.Context, request *api.OpenFil
 		Owner:             fsEntry.Owner,
 		Size:              fsEntry.Size,
 		DataType:          fsEntry.DataType,
-		CreateTime:        irodsfs_common_util.TimeString(fsEntry.CreateTime),
-		ModifyTime:        irodsfs_common_util.TimeString(fsEntry.ModifyTime),
-		AccessTime:        irodsfs_common_util.TimeString(fsEntry.AccessTime),
+		CreateTime:        timestamppb.New(fsEntry.CreateTime),
+		ModifyTime:        timestamppb.New(fsEntry.ModifyTime),
+		AccessTime:        timestamppb.New(fsEntry.AccessTime),
 		ChecksumAlgorithm: string(fsEntry.CheckSumAlgorithm),
 		Checksum:          fsEntry.CheckSum,
 	}

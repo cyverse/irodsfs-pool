@@ -78,6 +78,9 @@ type PoolServiceClient struct {
 	bgCancel   context.CancelFunc // cancels the running backgroundReconnect goroutine
 
 	logger *log.Entry
+
+	reconnectSequence uint64
+	mutex             sync.RWMutex
 }
 
 // PoolServiceSession is a service session
@@ -154,6 +157,7 @@ func waitForReady(ctx context.Context, conn *grpc.ClientConn) bool {
 // func so Disconnect() can stop the goroutine, then starts backgroundReconnect.
 func (client *PoolServiceClient) startBackgroundReconnect() {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
+	sequence := atomic.AddUint64(&client.reconnectSequence, 1)
 
 	client.bgCancelMu.Lock()
 	if client.bgCancel != nil {
@@ -162,52 +166,69 @@ func (client *PoolServiceClient) startBackgroundReconnect() {
 	client.bgCancel = bgCancel
 	client.bgCancelMu.Unlock()
 
-	go client.backgroundReconnect(bgCtx)
+	go client.backgroundReconnect(bgCtx, sequence)
 }
 
 // backgroundReconnect runs until ctx is cancelled (by Disconnect) or the
-// connection is re-established.  It uses exponential backoff capped at 1 min
-// and gives up after 1 hr.  While running, reconnectingFlag == 1 and every
+// connection is re-established. It uses exponential backoff capped at 1 min
+// and gives up after 1 hr. While running, reconnectingFlag == 1 and every
 // API call returns an error immediately.
-func (client *PoolServiceClient) backgroundReconnect(ctx context.Context) {
+func (client *PoolServiceClient) backgroundReconnect(parent context.Context, sequence uint64) {
 	defer func() {
-		atomic.StoreInt32(&client.reconnectingFlag, 0)
 		client.bgCancelMu.Lock()
-		client.bgCancel = nil
+		if atomic.LoadUint64(&client.reconnectSequence) == sequence {
+			atomic.StoreInt32(&client.reconnectingFlag, 0)
+			client.bgCancel = nil
+		}
 		client.bgCancelMu.Unlock()
 	}()
+	ctx, cancel := context.WithTimeout(parent, reconnectTimeout)
+	defer cancel()
 
 	interval := reconnectInitialInterval
-	deadline := time.Now().Add(reconnectTimeout)
+	for ctx.Err() == nil && client.isConnected() {
+		connection, apiClient, _, err := client.newConnection()
+		if err != nil {
+			client.logger.WithError(err).Warn("background reconnect failed to create connection")
+		} else {
+			connection.Connect()
+			waitContext, waitCancel := context.WithTimeout(ctx, interval)
+			ready := waitForReady(waitContext, connection)
+			waitCancel()
+			if !ready {
+				_ = connection.Close()
+			} else {
+				client.mutex.Lock()
+				if !client.connected || ctx.Err() != nil {
+					client.mutex.Unlock()
+					_ = connection.Close()
+					return
+				}
+				oldConnection := client.grpcConnection
+				client.grpcConnection = connection
+				client.apiClient = apiClient
+				client.mutex.Unlock()
 
-	for time.Now().Before(deadline) {
-		if ctx.Err() != nil {
-			client.logger.Info("backgroundReconnect: stopped by Disconnect")
-			return
+				if oldConnection != nil {
+					if closeErr := oldConnection.Close(); closeErr != nil {
+						client.logger.WithError(closeErr).Warn("failed to close replaced gRPC connection")
+					}
+				}
+				client.logger.Info("reconnected to pool service")
+				return
+			}
 		}
 
-		// Use disconnectConn (not Disconnect) to avoid cancelling bgCtx or
-		// resetting reconnectingFlag from within the reconnect loop itself.
-		client.disconnectConn()
-		if err := client.Connect(); err != nil {
-			client.logger.WithError(err).Warn("backgroundReconnect: failed to create connection")
-		} else {
-			conn := client.grpcConnection
-			conn.Connect()
-
-			remaining := time.Until(deadline)
-			waitDur := interval
-			if waitDur > remaining {
-				waitDur = remaining
-			}
-
-			waitCtx, cancel := context.WithTimeout(ctx, waitDur)
-			ready := waitForReady(waitCtx, conn)
-			cancel()
-
-			if ready {
-				client.logger.Info("Reconnected to pool service")
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			timer := time.NewTimer(interval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
 				return
+			case <-timer.C:
 			}
 		}
 
@@ -218,65 +239,87 @@ func (client *PoolServiceClient) backgroundReconnect(ctx context.Context) {
 			}
 		}
 	}
+	if parent.Err() == nil && client.isConnected() {
+		client.logger.Error("background reconnect timed out")
+	}
+}
 
-	client.logger.Error("Reconnect timed out after 1 hour, giving up")
+// newConnection creates a gRPC connection for the configured service endpoint.
+func (client *PoolServiceClient) newConnection() (*grpc.ClientConn, api.PoolAPIClient, string, error) {
+	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(client.address)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	client.logger.Infof("scheme: %s, endpoint: %s", scheme, endpoint)
+	if scheme != "unix" && scheme != "tcp" {
+		schemeErr := errors.Newf("unknown protocol %q", scheme)
+		client.logger.Error(schemeErr)
+		return nil, nil, "", schemeErr
+	}
+	client.logger.Infof("Connecting to %s endpoint: %q", scheme, endpoint)
+
+	dialer := &net.Dialer{}
+	grpcDialer := func(ctx context.Context, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, scheme, endpoint)
+	}
+	connection, err := grpc.NewClient(
+		"passthrough:///"+endpoint,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(grpcDialer),
+	)
+	if err != nil {
+		return nil, nil, "", errors.Wrapf(err, "failed to create gRPC client for %q", client.address)
+	}
+	return connection, api.NewPoolAPIClient(connection), scheme + "://" + endpoint, nil
 }
 
 // Connect connects to pool service
 func (client *PoolServiceClient) Connect() error {
 	defer irodsfs_common_util.StackTraceFromPanic(client.logger)
 
-	if client.connected {
-		return errors.Newf("already connected to %q", client.address)
-	}
-
-	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(client.address)
+	connection, apiClient, endpointDescription, err := client.newConnection()
 	if err != nil {
+		client.logger.WithError(err).Error("failed to create pool service connection")
 		return err
 	}
 
-	client.logger.Infof("scheme: %s, endpoint: %s", scheme, endpoint)
-
-	if scheme != "unix" && scheme != "tcp" {
-		schemeErr := errors.Newf("unknown protocol %q", scheme)
-		client.logger.Error(schemeErr)
-		return schemeErr
+	client.mutex.Lock()
+	if client.connected {
+		client.mutex.Unlock()
+		_ = connection.Close()
+		return errors.Newf("already connected to %q", client.address)
 	}
-
-	client.logger.Infof("Connecting to %s endpoint: %q", scheme, endpoint)
-
-	dialer := func(ctx context.Context, address string) (net.Conn, error) {
-		return net.Dial(scheme, address)
-	}
-
-	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(dialer))
-	if err != nil {
-		grpcErr := errors.Wrapf(err, "failed to dial to %q", client.address)
-		client.logger.Error(grpcErr)
-		return grpcErr
-	}
-
-	client.grpcConnection = conn
-	client.apiClient = api.NewPoolAPIClient(client.grpcConnection)
+	client.grpcConnection = connection
+	client.apiClient = apiClient
 	client.connected = true
+	client.mutex.Unlock()
+	client.logger.Infof("connected to pool service at %s", endpointDescription)
 	return nil
 }
 
 // disconnectConn tears down the gRPC connection without touching bgCancel or
-// reconnectingFlag.  Used internally by the reconnect paths so they don't
+// reconnectingFlag. Used internally by the reconnect paths so they don't
 // accidentally cancel themselves or reset the in-progress flag.
 func (client *PoolServiceClient) disconnectConn() {
+	client.mutex.Lock()
+	connection := client.grpcConnection
 	client.apiClient = nil
-	if client.grpcConnection != nil {
-		client.grpcConnection.Close()
-		client.grpcConnection = nil
-	}
+	client.grpcConnection = nil
 	client.connected = false
+	client.mutex.Unlock()
+
+	if connection != nil {
+		if err := connection.Close(); err != nil {
+			client.logger.WithError(err).Warn("failed to close gRPC connection")
+		}
+	}
 }
 
 // Disconnect disconnects connection from pool service
 func (client *PoolServiceClient) Disconnect() {
 	// Stop any running background reconnect goroutine.
+	atomic.AddUint64(&client.reconnectSequence, 1)
 	client.bgCancelMu.Lock()
 	if client.bgCancel != nil {
 		client.bgCancel()
@@ -288,8 +331,35 @@ func (client *PoolServiceClient) Disconnect() {
 	client.disconnectConn()
 }
 
+func (client *PoolServiceClient) getAPIClient() (api.PoolAPIClient, error) {
+	if atomic.LoadInt32(&client.reconnectingFlag) == 1 {
+		return nil, status.Error(codes.Unavailable, "pool service reconnect in progress; retry later")
+	}
+	client.mutex.RLock()
+	defer client.mutex.RUnlock()
+	if !client.connected || client.apiClient == nil {
+		return nil, errors.New("client is not connected")
+	}
+	return client.apiClient, nil
+}
+
+func (client *PoolServiceClient) getGRPCConnection() *grpc.ClientConn {
+	client.mutex.RLock()
+	defer client.mutex.RUnlock()
+	return client.grpcConnection
+}
+
+func (client *PoolServiceClient) isConnected() bool {
+	client.mutex.RLock()
+	defer client.mutex.RUnlock()
+	return client.connected
+}
+
 func (client *PoolServiceClient) getContextWithDeadline() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), client.operationTimeout)
+	if client.operationTimeout > 0 {
+		return context.WithTimeout(context.Background(), client.operationTimeout)
+	}
+	return context.WithCancel(context.Background())
 }
 
 func getLargeReadOption() grpc.CallOption {
@@ -313,7 +383,11 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 		Description:     description,
 	}
 
-	response, err := client.apiClient.Login(ctx, request)
+	apiClient, err := client.getAPIClient()
+	if err != nil {
+		return nil, err
+	}
+	response, err := apiClient.Login(ctx, request)
 	if err != nil {
 		client.logger.Error(err)
 		return nil, commons.StatusToError(err)
@@ -352,7 +426,10 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 						SessionId: session.id,
 					}
 
-					_, err := session.poolServiceClient.apiClient.KeepAlive(context.Background(), request)
+					apiClient, err := session.poolServiceClient.getAPIClient()
+					if err == nil {
+						_, err = apiClient.KeepAlive(context.Background(), request)
+					}
 					if err != nil {
 						session.mutex.Lock()
 						session.loggedIn = false
@@ -385,7 +462,11 @@ func (session *PoolServiceSession) Release() error {
 	session.loggedIn = false
 	session.mutex.Unlock()
 
-	_, err := session.poolServiceClient.apiClient.Logout(ctx, request)
+	apiClient, err := session.poolServiceClient.getAPIClient()
+	if err != nil {
+		return err
+	}
+	_, err = apiClient.Logout(ctx, request)
 	if err != nil {
 		session.logger.Error(err)
 		return err
@@ -408,7 +489,11 @@ func (session *PoolServiceSession) Relogin() error {
 		ApplicationName: session.applicationName,
 	}
 
-	response, err := session.poolServiceClient.apiClient.Login(ctx, request)
+	apiClient, err := session.poolServiceClient.getAPIClient()
+	if err != nil {
+		return err
+	}
+	response, err := apiClient.Login(ctx, request)
 	if err != nil {
 		session.logger.Error(err)
 		return commons.StatusToError(err)
@@ -486,7 +571,7 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 			// Use disconnectConn (not Disconnect) to preserve reconnectingFlag==1.
 			client.disconnectConn()
 			_ = client.Connect()
-			if conn := client.grpcConnection; conn != nil {
+			if conn := client.getGRPCConnection(); conn != nil {
 				conn.Connect()
 				waitCtx, cancel := context.WithTimeout(context.Background(), reconnectInitialInterval)
 				ready := waitForReady(waitCtx, conn)
@@ -580,7 +665,11 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 			Path:      path,
 		}
 
-		return session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.List(ctx, request, getLargeReadOption())
 	}
 
 	res, err := session.doWithRelogin(listFunc)
@@ -636,7 +725,11 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 			Path:      path,
 		}
 
-		return session.poolServiceClient.apiClient.Stat(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Stat(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(statFunc)
@@ -684,7 +777,11 @@ func (session *PoolServiceSession) ExistsDir(path string) bool {
 			Path:      path,
 		}
 
-		return session.poolServiceClient.apiClient.ExistsDir(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.ExistsDir(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(existsDirFunc)
@@ -722,7 +819,11 @@ func (session *PoolServiceSession) ExistsFile(path string) bool {
 			Path:      path,
 		}
 
-		return session.poolServiceClient.apiClient.ExistsFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.ExistsFile(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(existsFileFunc)
@@ -754,7 +855,11 @@ func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
 			Force:     force,
 		}
 
-		return session.poolServiceClient.apiClient.RemoveFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.RemoveFile(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(removeFileFunc)
@@ -784,7 +889,11 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 			Force:     force,
 		}
 
-		return session.poolServiceClient.apiClient.RemoveDir(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.RemoveDir(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(removeDirFunc)
@@ -813,7 +922,11 @@ func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
 			Recurse:   recurse,
 		}
 
-		return session.poolServiceClient.apiClient.MakeDir(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.MakeDir(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(makeDirFunc)
@@ -842,7 +955,11 @@ func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath strin
 			DestinationPath: destPath,
 		}
 
-		return session.poolServiceClient.apiClient.RenameDirToDir(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.RenameDirToDir(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(renameDirToDirFunc)
@@ -871,7 +988,11 @@ func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath str
 			DestinationPath: destPath,
 		}
 
-		return session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.RenameFileToFile(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(renameFileToFileFunc)
@@ -900,7 +1021,11 @@ func (session *PoolServiceSession) CreateFile(path string, mode string) (irodsfs
 			Mode:      mode,
 		}
 
-		return session.poolServiceClient.apiClient.CreateFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.CreateFile(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(createFileFunc)
@@ -956,7 +1081,11 @@ func (session *PoolServiceSession) OpenFile(path string, mode string) (irodsfs_c
 			Mode:      mode,
 		}
 
-		return session.poolServiceClient.apiClient.OpenFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.OpenFile(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(openFileFunc)
@@ -1024,7 +1153,11 @@ func (session *PoolServiceSession) CreateFileBulk(path string, mode string) (iro
 			Mode:      mode,
 		}
 
-		return session.poolServiceClient.apiClient.CreateFileBulk(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.CreateFileBulk(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(createFileBulkFunc)
@@ -1079,7 +1212,11 @@ func (session *PoolServiceSession) OpenFileBulk(path string, mode string) (irods
 			Mode:      mode,
 		}
 
-		return session.poolServiceClient.apiClient.OpenFileBulk(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.OpenFileBulk(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(openFileBulkFunc)
@@ -1141,7 +1278,11 @@ func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 			Size:      size,
 		}
 
-		return session.poolServiceClient.apiClient.TruncateFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.TruncateFile(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(truncateFileFunc)
@@ -1168,7 +1309,11 @@ func (session *PoolServiceSession) Sync() error {
 			SessionId: session.id,
 		}
 
-		return session.poolServiceClient.apiClient.Sync(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Sync(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(syncFunc)
@@ -1207,7 +1352,11 @@ func (session *PoolServiceSession) DownloadFile(irodsPath string, localPath stri
 		IrodsPath: irodsPath,
 	}
 
-	stream, err := session.poolServiceClient.apiClient.ReadStream(ctx, request, getLargeReadOption())
+	apiClient, err := session.poolServiceClient.getAPIClient()
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+	stream, err := apiClient.ReadStream(ctx, request, getLargeReadOption())
 	if err != nil {
 		return commons.StatusToError(err)
 	}
@@ -1263,7 +1412,11 @@ func (session *PoolServiceSession) DownloadFileWithCallback(irodsPath string, bl
 		NumBlocks: int32(numBlocks),
 	}
 
-	stream, err := session.poolServiceClient.apiClient.ReadStream(ctx, request, getLargeReadOption())
+	apiClient, err := session.poolServiceClient.getAPIClient()
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+	stream, err := apiClient.ReadStream(ctx, request, getLargeReadOption())
 	if err != nil {
 		return commons.StatusToError(err)
 	}
@@ -1308,7 +1461,11 @@ func (session *PoolServiceSession) DownloadFileParallelWithCallback(irodsPath st
 		TaskNum:   int32(taskNum),
 	}
 
-	stream, err := session.poolServiceClient.apiClient.ReadStreamParallel(ctx, request, getLargeReadOption())
+	apiClient, err := session.poolServiceClient.getAPIClient()
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+	stream, err := apiClient.ReadStreamParallel(ctx, request, getLargeReadOption())
 	if err != nil {
 		return commons.StatusToError(err)
 	}
@@ -1358,7 +1515,11 @@ func (session *PoolServiceSession) UploadFile(localPath string, irodsPath string
 	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	stream, err := session.poolServiceClient.apiClient.WriteStream(ctx, getLargeWriteOption())
+	apiClient, err := session.poolServiceClient.getAPIClient()
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+	stream, err := apiClient.WriteStream(ctx, getLargeWriteOption())
 	if err != nil {
 		return commons.StatusToError(err)
 	}
@@ -1435,7 +1596,11 @@ func (session *PoolServiceSession) CacheFile(irodsPath string, transferCallback 
 			IrodsPath: irodsPath,
 		}
 
-		return session.poolServiceClient.apiClient.CacheFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.CacheFile(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(cacheFileFunc)
@@ -1463,7 +1628,11 @@ func (session *PoolServiceSession) CacheFileAsync(irodsPath string) {
 			Async:     true,
 		}
 
-		return session.poolServiceClient.apiClient.CacheFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.CacheFile(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(cacheFileFunc)
@@ -1824,7 +1993,11 @@ func (handle *PoolServiceFileHandle) readFromServer(buffer []byte, offset int64)
 				Length:       int32(curLength),
 			}
 
-			return handle.poolServiceClient.apiClient.ReadAt(ctx, request, getLargeReadOption())
+			apiClient, err := handle.poolServiceClient.getAPIClient()
+			if err != nil {
+				return nil, err
+			}
+			return apiClient.ReadAt(ctx, request, getLargeReadOption())
 		}
 
 		res, err := handle.poolServiceSession.doWithRelogin(readAtFunc)
@@ -1868,7 +2041,11 @@ func (handle *PoolServiceFileHandle) GetAvailable(offset int64) int64 {
 		Offset:       offset,
 	}
 
-	response, err := handle.poolServiceClient.apiClient.GetAvailable(ctx, request)
+	apiClient, err := handle.poolServiceClient.getAPIClient()
+	if err != nil {
+		return -1
+	}
+	response, err := apiClient.GetAvailable(ctx, request)
 	if err != nil {
 		return -1
 	}
@@ -1964,7 +2141,11 @@ func (handle *PoolServiceFileHandle) sendToServer(data []byte, offset int64) (in
 				Data:         data[totalWriteLength : totalWriteLength+curLength],
 			}
 
-			return handle.poolServiceClient.apiClient.WriteAt(ctx, request, getLargeWriteOption())
+			apiClient, err := handle.poolServiceClient.getAPIClient()
+			if err != nil {
+				return nil, err
+			}
+			return apiClient.WriteAt(ctx, request, getLargeWriteOption())
 		}
 
 		_, err := handle.poolServiceSession.doWithRelogin(writeAtFunc)
@@ -2004,7 +2185,11 @@ func (handle *PoolServiceFileHandle) Truncate(size int64) error {
 			Size:         size,
 		}
 
-		return handle.poolServiceClient.apiClient.Truncate(ctx, request)
+		apiClient, err := handle.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Truncate(ctx, request)
 	}
 
 	_, err := handle.poolServiceSession.doWithRelogin(truncateFunc)
@@ -2036,7 +2221,11 @@ func (handle *PoolServiceFileHandle) Flush() error {
 			FileHandleId: handle.id,
 		}
 
-		return handle.poolServiceClient.apiClient.Flush(ctx, request)
+		apiClient, err := handle.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Flush(ctx, request)
 	}
 
 	_, err := handle.poolServiceSession.doWithRelogin(flushFunc)
@@ -2083,7 +2272,11 @@ func (handle *PoolServiceFileHandle) Close() error {
 			FileHandleId: handle.id,
 		}
 
-		return handle.poolServiceClient.apiClient.Close(ctx, request)
+		apiClient, err := handle.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Close(ctx, request)
 	}
 
 	_, err := handle.poolServiceSession.doWithRelogin(closeFunc)

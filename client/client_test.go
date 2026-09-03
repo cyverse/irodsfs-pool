@@ -32,6 +32,22 @@ type writeAtPoolAPIClient struct {
 	api.PoolAPIClient
 }
 
+func TestPoolServiceClientGetContextWithDeadline(t *testing.T) {
+	client := NewPoolServiceClient("tcp://test.invalid:12020", time.Second, false, nil)
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatal("positive operation timeout did not create a deadline")
+	}
+
+	client.operationTimeout = 0
+	ctx, cancel = client.getContextWithDeadline()
+	defer cancel()
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatal("zero operation timeout unexpectedly created a deadline")
+	}
+}
+
 func (client *writeAtPoolAPIClient) WriteAt(_ context.Context, request *api.WriteAtRequest, _ ...grpc.CallOption) (*api.WriteAtResponse, error) {
 	return &api.WriteAtResponse{Length: int32(len(request.Data))}, nil
 }
@@ -45,6 +61,7 @@ func TestPoolServiceFileHandleWriteAtPublishesSizeBeforeFlush(t *testing.T) {
 	poolClient := &PoolServiceClient{
 		operationTimeout: time.Minute,
 		apiClient:        &writeAtPoolAPIClient{},
+		connected:        true,
 		fsCache:          NewMetadataCache(time.Minute, time.Minute),
 	}
 	session := &PoolServiceSession{
@@ -135,6 +152,7 @@ func TestPoolServiceFileHandleConcurrentReadAt(t *testing.T) {
 	poolClient := &PoolServiceClient{
 		operationTimeout: time.Minute,
 		apiClient:        apiClient,
+		connected:        true,
 	}
 	session := &PoolServiceSession{
 		id:                "test-session",
@@ -206,6 +224,7 @@ func TestPoolServiceFileHandleReadAtAcrossPrefetchBoundary(t *testing.T) {
 	poolClient := &PoolServiceClient{
 		operationTimeout: time.Minute,
 		apiClient:        apiClient,
+		connected:        true,
 	}
 	session := &PoolServiceSession{
 		id:                "test-session",
@@ -246,6 +265,7 @@ func TestPoolServiceFileHandleDoesNotRestartReadyPrefetch(t *testing.T) {
 	poolClient := &PoolServiceClient{
 		operationTimeout: time.Minute,
 		apiClient:        apiClient,
+		connected:        true,
 	}
 	session := &PoolServiceSession{
 		id:                "test-session",
@@ -302,6 +322,7 @@ func TestPoolServiceFileHandleCachesAfterReadThreshold(t *testing.T) {
 	poolClient := &PoolServiceClient{
 		operationTimeout: time.Minute,
 		apiClient:        apiClient,
+		connected:        true,
 	}
 	session := &PoolServiceSession{
 		id:                "test-session",

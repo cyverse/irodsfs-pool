@@ -6,7 +6,7 @@ require (
 	github.com/cockroachdb/errors v1.12.0
 	github.com/cyverse/go-daemonizer v0.2.0
 	github.com/cyverse/go-irodsclient v0.21.2
-	github.com/cyverse/irodsfs-common v0.0.0-20260901221037-1e1575640683
+	github.com/cyverse/irodsfs-common v0.0.0-20260903162056-c120cdd9c8d5
 	github.com/dgraph-io/badger/v3 v3.2103.5
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/prometheus/client_golang v1.22.0

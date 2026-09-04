@@ -1,15 +1,19 @@
 package service
 
 import (
+	"context"
+	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"time"
 
-	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
+	"github.com/cockroachdb/errors"
+	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
 )
 
@@ -17,34 +21,54 @@ import (
 type PoolService struct {
 	config *commons.Config
 
-	poolServer  *PoolServer
-	grpcServer  *grpc.Server
-	statHandler *PoolServiceStatHandler
+	poolServer       *PoolServer
+	grpcServer       *grpc.Server
+	statHandler      *PoolServiceStatHandler
+	monitoringServer *http.Server
+	logger           *log.Entry
 
 	terminateChan chan bool
 }
 
 // NewPoolService creates a new pool service
 func NewPoolService(config *commons.Config) (*PoolService, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"function": "NewPoolService",
-	})
+	logger := log.WithFields(log.Fields{})
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(logger)
+
+	recoveryEncryptionKey, err := config.GetRecoveryEncryptionKey()
+	if err != nil {
+		return nil, err
+	}
 
 	poolServerConfig := &PoolServerConfig{
-		CacheSizeMax:         config.DataCacheSizeMax,
-		CacheRootPath:        config.GetDataCacheRootDirPath(),
-		CacheTimeoutSettings: config.CacheTimeoutSettings,
-		OperationTimeout:     config.OperationTimeout,
-		SessionTimeout:       config.SessionTimeout,
+		dataRootPath:                          config.DataRootPath,
+		recoveryEncryptionKey:                 recoveryEncryptionKey,
+		sessionTimeout:                        time.Duration(config.SessionTimeout),
+		sessionTimeoutCheckInterval:           time.Duration(config.SessionTimeoutCheckInterval),
+		dataBlockSize:                         config.DataBlockSize,
+		maxDataMemCacheSize:                   config.MaxDataMemCacheSize,
+		maxDataMemCacheBufferItems:            config.MaxDataMemCacheBufferItems,
+		dataMemCacheTTL:                       time.Duration(config.DataMemCacheTTL),
+		maxIOConnectionPerSession:             config.MaxIOConnectionPerSession,
+		metadataCacheTimeoutSettings:          config.MetadataCacheTimeoutSettings,
+		startNewTransaction:                   config.StartNewTransaction,
+		maxMetadataCacheEntriesPerSession:     config.MaxMetadataCacheEntriesPerSession,
+		maxMetadataCacheSizePerSession:        config.MaxMetadataCacheSizePerSession,
+		maxMetadataCacheBufferItemsPerSession: config.MaxMetadataCacheBufferItemsPerSession,
+		metadataCacheTTL:                      time.Duration(config.MetadataCacheTTL),
+		stagingRootPath:                       config.StagingRootPath,
+		maxStagingDataSize:                    config.MaxStagingDataSize,
+		maxCacheFileSize:                      config.MaxCacheFileSize,
+		stagingDataGracePeriod:                time.Duration(config.StagingDataGracePeriod),
+		sessionCloseGracePeriod:               time.Duration(config.SessionCloseGracePeriod),
+		logRootPath:                           config.GetLogRootPath(),
 	}
 
 	poolServer, err := NewPoolServer(poolServerConfig)
 	if err != nil {
-		poolErr := xerrors.Errorf("failed to create a new pool server: %w", err)
-		logger.Errorf("%+v", poolErr)
+		poolErr := errors.Wrap(err, "failed to create a new pool server")
+		logger.Error(poolErr)
 		return nil, err
 	}
 
@@ -62,6 +86,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		poolServer:  poolServer,
 		grpcServer:  grpcServer,
 		statHandler: statHandler,
+		logger:      logger,
 
 		terminateChan: make(chan bool),
 	}
@@ -71,16 +96,10 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 
 // Release releases the service
 func (svc *PoolService) Release() {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolService",
-		"function": "Release",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(svc.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Info("Releasing the iRODS FUSE Lite Pool service")
-	defer logger.Info("Released the iRODS FUSE Lite Pool service")
+	svc.logger.Info("Releasing the iRODS FUSE Pool service")
+	defer svc.logger.Info("Released the iRODS FUSE Pool service")
 
 	if svc.grpcServer != nil {
 		svc.grpcServer = nil
@@ -101,55 +120,50 @@ func (svc *PoolService) Release() {
 
 // Start starts the service
 func (svc *PoolService) Start() error {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolService",
-		"function": "Start",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(svc.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	svc.logger.Info("Starting the iRODS FUSE Pool service")
 
-	logger.Info("Starting the iRODS FUSE Lite Pool service")
+	svc.checkResourceAvailability()
 
 	var listener net.Listener
 	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(svc.config.GetServiceEndpoint())
 	if err != nil {
-		logger.Errorf("%+v", err)
+		svc.logger.Error(err)
 		return err
 	}
 
-	logger.Infof("scheme: %s, endpoint: %s", scheme, endpoint)
+	svc.logger.Infof("scheme: %s, endpoint: %s", scheme, endpoint)
 
 	switch scheme {
 	case "unix":
 		unixListener, err := net.Listen("unix", endpoint)
 		if err != nil {
-			listenErr := xerrors.Errorf("failed to listen to unix socket %q: %w", endpoint, err)
-			logger.Errorf("%+v", listenErr)
+			listenErr := errors.Wrapf(err, "failed to listen to unix socket %q", endpoint)
+			svc.logger.Error(listenErr)
 			return listenErr
 		}
 
-		logger.Infof("Listening unix socket: %q", endpoint)
+		svc.logger.Infof("Listening unix socket: %q", endpoint)
 		listener = unixListener
 	case "tcp":
 		tcpListener, err := net.Listen("tcp", endpoint)
 		if err != nil {
-			listenErr := xerrors.Errorf("failed to listen to tcp socket %q: %w", endpoint, err)
-			logger.Errorf("%+v", listenErr)
+			listenErr := errors.Wrapf(err, "failed to listen to tcp socket %q", endpoint)
+			svc.logger.Error(listenErr)
 			return listenErr
 		}
 
-		logger.Infof("Listening tcp socket: %q", endpoint)
+		svc.logger.Infof("Listening tcp socket: %q", endpoint)
 		listener = tcpListener
 	default:
-		logger.Errorf("unknown protocol %q", scheme)
-		return xerrors.Errorf("unknown protocol %q", scheme)
+		err = errors.Newf("unknown protocol %q", scheme)
+		svc.logger.Error(err)
+		return err
 	}
 
 	go func() {
-		tickerConnDisplay := time.NewTicker(1 * time.Minute)
-		tickerMetricsCollection := time.NewTicker(5 * time.Second)
-		defer tickerConnDisplay.Stop()
+		tickerMetricsCollection := time.NewTicker(10 * time.Second)
 		defer tickerMetricsCollection.Stop()
 
 		for {
@@ -157,9 +171,8 @@ func (svc *PoolService) Start() error {
 			case <-svc.terminateChan:
 				// terminate
 				return
-			case <-tickerConnDisplay.C:
-				svc.poolServer.PrintConnectionStat()
 			case <-tickerMetricsCollection.C:
+				svc.poolServer.PrintConnectionStat()
 				svc.poolServer.CollectPrometheusMetrics()
 			}
 		}
@@ -168,27 +181,72 @@ func (svc *PoolService) Start() error {
 	go func() {
 		err = svc.grpcServer.Serve(listener)
 		if err != nil {
-			grpcServerErr := xerrors.Errorf("failed to serve: %w", err)
-			logger.Errorf("%+v", grpcServerErr)
+			grpcServerErr := errors.Wrap(err, "failed to serve")
+			svc.logger.Error(grpcServerErr)
 		}
 	}()
+
+	if svc.config.ManagementServicePort > 0 {
+		startTime := time.Now()
+		monitoringHandler := newMonitoringHandler(svc.poolServer, svc.config, startTime)
+		apiHandler := newRESTAPIHandler(svc.poolServer, svc.config, startTime)
+		mux := http.NewServeMux()
+		mux.Handle("/monitor", monitoringHandler)
+		mux.Handle("/metrics", promhttp.Handler())
+		apiHandler.RegisterRoutes(mux)
+
+		addr := fmt.Sprintf(":%d", svc.config.ManagementServicePort)
+		svc.monitoringServer = &http.Server{Addr: addr, Handler: mux}
+
+		go func() {
+			svc.logger.Infof("Starting monitoring service at %s (endpoints: /healthz, /readyz, /monitor, /metrics, /api/sysinfo, /api/sessions, /api/recovery-sessions)", addr)
+			if err := svc.monitoringServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				svc.logger.WithError(err).Error("monitoring service error")
+			}
+		}()
+	}
 
 	return nil
 }
 
+func (svc *PoolService) checkResourceAvailability() {
+	// Check system memory vs configured cache size
+	sysTotal, sysAvail := getSystemMemoryInfo()
+	requiredMem := uint64(svc.config.MaxDataMemCacheSize)
+	if sysAvail > 0 && sysAvail < requiredMem {
+		svc.logger.Warnf("Insufficient system memory: available %s, but cache requires %s (total system RAM: %s)",
+			formatBytes(int64(sysAvail)), formatBytes(int64(requiredMem)), formatBytes(int64(sysTotal)))
+	}
+
+	// Check staging disk space
+	var stagingPath string
+	if len(svc.config.StagingRootPath) > 0 {
+		stagingPath = svc.config.StagingRootPath
+	} else {
+		stagingPath = svc.config.GetDataStagingRootPath()
+	}
+
+	_, diskFree := getDiskInfo(stagingPath)
+	requiredDisk := uint64(svc.config.MaxStagingDataSize)
+	if diskFree > 0 && diskFree < requiredDisk {
+		svc.logger.Warnf("Insufficient disk space for staging at %q: available %s, but staging requires %s",
+			stagingPath, formatBytes(int64(diskFree)), formatBytes(int64(requiredDisk)))
+	}
+}
+
 // Stop stops the service
 func (svc *PoolService) Stop() {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolService",
-		"function": "Stop",
-	})
+	svc.logger.Info("Stopping the iRODS FUSE Pool service")
 
-	logger.Info("Stopping the iRODS FUSE Lite Pool service")
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(svc.logger)
 
 	svc.terminateChan <- true
+
+	if svc.monitoringServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		svc.monitoringServer.Shutdown(ctx)
+	}
 
 	if svc.grpcServer != nil {
 		svc.grpcServer.Stop()

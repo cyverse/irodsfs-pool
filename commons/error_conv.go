@@ -8,7 +8,6 @@ import (
 
 	irodsclient_common "github.com/cyverse/go-irodsclient/irods/common"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
-	"golang.org/x/xerrors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -16,7 +15,6 @@ import (
 const (
 	errorTypeDelimiter             string = ";"
 	errorTypeSessionNotFound       string = "session_not_found"
-	errorTypeIRodsFSClientNotFound string = "fs_client_instance_not_found"
 	errorTypeFileHandleNotFound    string = "filehandle_not_found"
 	errorTypeConnectionConfigError string = "connection_config_error"
 	errorTypeConnectionError       string = "connection_error"
@@ -58,12 +56,6 @@ func ErrorToStatus(err error) error {
 			return status.Error(codes.Unauthenticated, addErrorTypeToMessage(errorTypeSessionNotFound, sessionNotFoundErr.SessionID, sessionNotFoundErr.Error()))
 		}
 		return status.Error(codes.Unauthenticated, addErrorTypeToMessage(errorTypeSessionNotFound, err.Error()))
-	} else if IsIRODSFSClientInstanceNotFoundError(err) {
-		var irodsFSClientInstanceNotFoundErr *IRODSFSClientInstanceNotFoundError
-		if errors.As(err, &irodsFSClientInstanceNotFoundErr) {
-			return status.Error(codes.Unauthenticated, addErrorTypeToMessage(errorTypeIRodsFSClientNotFound, irodsFSClientInstanceNotFoundErr.InstanceID, irodsFSClientInstanceNotFoundErr.Error()))
-		}
-		return status.Error(codes.Unauthenticated, addErrorTypeToMessage(errorTypeIRodsFSClientNotFound, err.Error()))
 	} else if IsFileHandleNotFoundError(err) {
 		var fileHandleNotFoundErr *FileHandleNotFoundError
 		if errors.As(err, &fileHandleNotFoundErr) {
@@ -73,7 +65,7 @@ func ErrorToStatus(err error) error {
 	} else if irodsclient_types.IsConnectionConfigError(err) {
 		var connectionConfigError *irodsclient_types.ConnectionConfigError
 		if errors.As(err, &connectionConfigError) {
-			return status.Error(codes.InvalidArgument, addErrorTypeToMessage(errorTypeConnectionConfigError, connectionConfigError.Config.Host, strconv.Itoa(connectionConfigError.Config.Port), connectionConfigError.Config.ClientZone, connectionConfigError.Config.ClientUser, connectionConfigError.Error()))
+			return status.Error(codes.InvalidArgument, addErrorTypeToMessage(errorTypeConnectionConfigError, connectionConfigError.Account.Host, strconv.Itoa(connectionConfigError.Account.Port), connectionConfigError.Account.ClientZone, connectionConfigError.Account.ClientUser, connectionConfigError.Error()))
 		}
 		return status.Error(codes.InvalidArgument, addErrorTypeToMessage(errorTypeConnectionConfigError, err.Error()))
 	} else if irodsclient_types.IsConnectionError(err) {
@@ -139,6 +131,15 @@ func StatusToError(err error) error {
 
 	st, _ := status.FromError(err)
 	if st != nil {
+		// Preserve transport errors before any message parsing so that
+		// isTransportError() in client code can still detect them via
+		// status.FromError().  Raw gRPC transport messages have no ";"
+		// delimiter so they fall through to errorTypeInternalError otherwise,
+		// which strips the gRPC status code.
+		if st.Code() == codes.Unavailable {
+			return err
+		}
+
 		errType, errContent, _ := extractErrorInfoFromMessage(st.Message())
 		switch errType {
 		case errorTypeSessionNotFound:
@@ -146,11 +147,6 @@ func StatusToError(err error) error {
 				return NewSessionNotFoundError(errContent[0])
 			}
 			return NewSessionNotFoundError("<unknown>")
-		case errorTypeIRodsFSClientNotFound:
-			if len(errContent) > 0 {
-				return NewIRODSFSClientInstanceNotFoundError(errContent[0])
-			}
-			return NewIRODSFSClientInstanceNotFoundError("<unknown>")
 		case errorTypeFileHandleNotFound:
 			if len(errContent) > 0 {
 				return NewFileHandleNotFoundError(errContent[0])
@@ -217,20 +213,23 @@ func StatusToError(err error) error {
 			}
 			return irodsclient_types.NewIRODSError(irodsclient_common.SYS_UNKNOWN_ERROR)
 		case errorTypeInternalError:
-			return xerrors.Errorf(st.Message())
+			return errors.New(st.Message())
 		default:
 			switch st.Code() {
 			case codes.NotFound:
-				irodsclient_types.NewFileNotFoundError("<unknown>")
+				return irodsclient_types.NewFileNotFoundError("<unknown>")
 			case codes.AlreadyExists:
 				return irodsclient_types.NewFileAlreadyExistError("<unknown>")
 			case codes.Unauthenticated:
 				account := irodsclient_types.IRODSAccount{}
 				return irodsclient_types.NewAuthError(&account)
 			case codes.Internal:
-				return xerrors.Errorf(st.Message())
+				return errors.New(st.Message())
+			case codes.Unavailable:
+				// Preserve as gRPC status so callers can detect transport errors.
+				return err
 			default:
-				return xerrors.Errorf(st.Message())
+				return errors.New(st.Message())
 			}
 		}
 	}
@@ -248,7 +247,7 @@ func IsReloginRequiredError(err error) bool {
 	if st != nil {
 		errType, _, _ := extractErrorInfoFromMessage(st.Message())
 		switch errType {
-		case errorTypeSessionNotFound, errorTypeIRodsFSClientNotFound, errorTypeConnectionError:
+		case errorTypeSessionNotFound, errorTypeConnectionError:
 			return true
 		case errorTypeFileHandleNotFound, errorTypeConnectionConfigError, errorTypeConnectionPoolFull, errorTypeAuthenticationError, errorTypeFileNotFound, errorTypeCollectionNotEmpty, errorTypeFileAlreadyExist, errorTypeTicketNotFound, errorTypeUserNotFound, errorTypeIRODSError:
 			return false

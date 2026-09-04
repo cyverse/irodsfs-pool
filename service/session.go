@@ -1,240 +1,621 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
-	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
+	irodsfs_common_cache "github.com/cyverse/irodsfs-common/irods/cache"
+	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
-	"github.com/rs/xid"
+	"github.com/dgraph-io/badger/v3"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/xerrors"
+
+	"github.com/cockroachdb/errors"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
+
+const (
+	sessionLogMaxSizeMB  = 10
+	sessionLogMaxBackups = 10
+	sessionLogMaxAgeDays = 30
+)
+
+var errSessionUnavailable = errors.New("session is not available")
 
 // PoolSessionManager manages PoolSession
 type PoolSessionManager struct {
-	config                       *PoolServerConfig
-	sessions                     map[string]*PoolSession // key: pool session id
-	irodsFsClientInstanceManager *IRODSFSClientInstanceManager
+	config       *PoolServerConfig
+	cacheManager *irodsfs_common_cache.MemoryCacheManager
+	sessions     map[string]*PoolSession // key: account key (hash)
+	connMap      map[string]string       // key: connection id -> session id
+	logger       *log.Entry
 
-	mutex         sync.RWMutex // mutex to access PoolSessionManager
+	failedSessionDBPath string
+	failedSessionDB     *badger.DB
+	failedSessionMutex  sync.Mutex
+	recoveryCipher      *recoveryAccountCipher
+
+	onBeforeSessionRelease func(session *PoolSession)
+
+	// pendingReleases holds a grace-period timer for sessions whose last
+	// connection was removed but have not yet been released.  Access is
+	// protected by mutex.
+	pendingReleases map[string]*time.Timer
+
+	mutex         sync.RWMutex
+	releaseWg     sync.WaitGroup // tracks in-progress async session releases
 	terminateChan chan bool
 }
 
-func NewPoolSessionManager(config *PoolServerConfig) *PoolSessionManager {
+func NewPoolSessionManager(config *PoolServerConfig) (*PoolSessionManager, error) {
+	if config == nil {
+		return nil, errors.New("config is required")
+	}
+
+	var myLogger *log.Entry
+	if config != nil && config.logger != nil {
+		myLogger = config.logger
+	} else {
+		// create new logger object
+		myLogger = log.StandardLogger().WithFields(log.Fields{})
+	}
+
+	cacheConfig := &irodsfs_common_cache.MemoryCacheConfig{
+		NumCounters: config.maxDataMemCacheSize / config.dataBlockSize * 10,
+		MaxCost:     config.maxDataMemCacheSize,
+		BufferItems: config.maxDataMemCacheBufferItems,
+		TTL:         config.dataMemCacheTTL,
+	}
+
+	cacheManager, err := irodsfs_common_cache.NewMemoryCacheManager(cacheConfig)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create memory cache manager")
+	}
+
 	manager := &PoolSessionManager{
-		config:                       config,
-		sessions:                     map[string]*PoolSession{},
-		irodsFsClientInstanceManager: NewIRODSFSClientInstanceManager(config),
+		config:       config,
+		cacheManager: cacheManager,
+		sessions:     map[string]*PoolSession{},
+		connMap:      map[string]string{},
+		logger:       myLogger,
+
+		pendingReleases: map[string]*time.Timer{},
 
 		mutex:         sync.RWMutex{},
 		terminateChan: make(chan bool),
 	}
+	recoveryCipher, err := newRecoveryAccountCipher(config.recoveryEncryptionKey)
+	if err != nil {
+		cacheManager.Release()
+		return nil, err
+	}
+	manager.recoveryCipher = recoveryCipher
 
-	// run a goroutine to release stale sessions
+	manager.failedSessionDBPath = filepath.Join(config.dataRootPath, failedSessionDBDirectoryName)
+	if err := manager.loadFailedSessionStore(); err != nil {
+		cacheManager.Release()
+		return nil, errors.Wrap(err, "failed to load failed session store")
+	}
+
+	checkInterval := manager.config.sessionTimeoutCheckInterval
+
 	go func() {
-		tickerReleaseStaleConnections := time.NewTicker(1 * time.Second)
-		defer tickerReleaseStaleConnections.Stop()
+		ticker := time.NewTicker(checkInterval)
+		defer ticker.Stop()
 
 		for {
 			select {
 			case <-manager.terminateChan:
-				// terminate
 				return
-			case <-tickerReleaseStaleConnections.C:
+			case <-ticker.C:
+				manager.checkpointActiveSessions()
 				manager.releaseStaleSessions()
 			}
 		}
 	}()
 
-	return manager
+	return manager, nil
 }
 
 func (manager *PoolSessionManager) Release() {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "Release",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(manager.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("Releasing the pool session manager")
-	defer logger.Infof("Released the pool session manager")
+	manager.logger.Info("Releasing the pool session manager")
+	defer manager.logger.Info("Released the pool session manager")
 
 	manager.terminateChan <- true
 
 	manager.mutex.Lock()
-	defer manager.mutex.Unlock()
+
+	// Stop all pending grace-period timers before releasing sessions.
+	for sessionID, t := range manager.pendingReleases {
+		t.Stop()
+		manager.logger.Infof("Cancelled pending grace-period release for session %q (manager releasing)", sessionID)
+	}
+	manager.pendingReleases = map[string]*time.Timer{}
 
 	wg := sync.WaitGroup{}
-
 	for _, session := range manager.sessions {
 		wg.Add(1)
-
-		// release the session first as it needs irodsfs client instance to close open file handles
 		go func(sess *PoolSession) {
 			defer wg.Done()
 
-			instanceID := sess.GetIRODSFSClientInstanceID()
-			sessionID := sess.GetID()
+			sess.mutex.Lock()
+			alreadyReleasing := sess.releasing
+			if !alreadyReleasing {
+				sess.releasing = true
+				sess.releaseDone = make(chan struct{})
+			}
+			sess.mutex.Unlock()
 
-			logger.Infof("Releasing the pool session for session id %q, client id %q", sessionID, sess.GetPoolClientID())
-			sess.release()
-			logger.Infof("Released the pool session for session id %q, client id %q", sessionID, sess.GetPoolClientID())
-
-			manager.irodsFsClientInstanceManager.RemovePoolSession(instanceID, sessionID)
-			logger.Infof("Removed the pool session for session id %q from client id %q", sessionID, sess.GetPoolClientID())
+			if !alreadyReleasing {
+				manager.releaseSessionResources(sess)
+				close(sess.releaseDone)
+			} else {
+				<-sess.releaseDone
+			}
 		}(session)
 	}
 
-	manager.sessions = map[string]*PoolSession{}
-
-	wg.Wait()
-
-	manager.irodsFsClientInstanceManager.Release()
-}
-
-func (manager *PoolSessionManager) NewSession(account *api.Account, clientID string, appName string) (*PoolSession, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "NewSession",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("Creating a new pool session for client id %q, username %q", clientID, account.ClientUser)
-
-	irodsAccount := convertAccountFromAPIToIRODS(account)
-
-	session := newPoolSession(clientID, irodsAccount)
-
-	// add the session to instance
-	instanceID, err := manager.irodsFsClientInstanceManager.AddPoolSession(irodsAccount, session, appName)
-	if err != nil {
-		logger.Errorf("Failed to create a new pool session for session id %q, client id %q, username %q: %+v", session.GetID(), session.GetPoolClientID(), irodsAccount.ClientUser, err)
-		return nil, err
+	if manager.cacheManager != nil {
+		manager.cacheManager.Release()
+		manager.cacheManager = nil
 	}
 
-	// let session know instance ID
-	session.SetIRODSFSClientInstanceID(instanceID)
+	manager.sessions = map[string]*PoolSession{}
+	manager.connMap = map[string]string{}
+	manager.mutex.Unlock()
+	wg.Wait()
+
+	// Also wait for any sessions that were released asynchronously (e.g. via RemoveConnection).
+	manager.releaseWg.Wait()
+
+	if err := manager.closeFailedSessionStore(); err != nil {
+		manager.logger.WithError(err).Error("Failed to close failed session store")
+	}
+}
+
+func (manager *PoolSessionManager) NewSession(account *api.Account, appName string) (*PoolSession, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(manager.logger)
+
+	irodsAccount := convertAccountFromAPIToIRODS(account)
+	accountKey := makeAccountKey(irodsAccount)
+
+	for {
+		manager.mutex.Lock()
+
+		// Check if session already exists for this account
+		if session, ok := manager.sessions[accountKey]; ok {
+			session.mutex.RLock()
+			isReleasing := session.releasing
+			releaseDone := session.releaseDone
+			session.mutex.RUnlock()
+
+			if isReleasing {
+				// Session is being released, wait for it to complete
+				manager.mutex.Unlock()
+				manager.logger.Infof("Waiting for session %q release to complete before creating new session for username %q", accountKey, irodsAccount.ClientUser)
+				<-releaseDone
+				continue
+			}
+
+			// Cancel any pending grace-period release so a new connection
+			// arriving shortly after the last one left doesn't force a
+			// teardown-and-recreate cycle.
+			if t, ok := manager.pendingReleases[accountKey]; ok {
+				t.Stop()
+				delete(manager.pendingReleases, accountKey)
+				manager.logger.Infof("Cancelled pending grace-period release for session %q (new login)", accountKey)
+			}
+
+			session.UpdateLastAccessTime()
+			manager.mutex.Unlock()
+			manager.checkpointSession(session)
+
+			manager.logger.Infof("Reusing existing session %q for username %q", accountKey, irodsAccount.ClientUser)
+			return session, nil
+		}
+
+		manager.mutex.Unlock()
+		break
+	}
+
+	sessionID := accountKey
+
+	// Create new session
+	manager.logger.Infof("Creating a new pool session for username %q", irodsAccount.ClientUser)
+
+	sessionLogger, sessionLogFile, err := newSessionLogger(manager.config.logRootPath, sessionID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create log file for session %q", sessionID)
+	}
+	sessionLogger.Infof("Creating a new pool session for username %q", irodsAccount.ClientUser)
+
+	irodsClientLogger, err := newIrodsClientLogger(sessionLogFile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create log file for go-irodsclient %q", sessionID)
+	}
+
+	fsConfig := irodsclient_fs.NewFileSystemConfig(appName)
+	fsConfig.LogEntry = irodsClientLogger
+	fsConfig.IOConnection.MaxNumber = manager.config.maxIOConnectionPerSession
+	fsConfig.Cache.MetadataTimeoutSettings = manager.config.metadataCacheTimeoutSettings
+	fsConfig.Cache.StartNewTransaction = manager.config.startNewTransaction
+
+	fsConfig.Cache.Backend.Type = irodsclient_fs.CacheBackendTypeRistretto
+	fsConfig.Cache.Backend.Ristretto.MaxEntries = manager.config.maxMetadataCacheEntriesPerSession
+	fsConfig.Cache.Backend.Ristretto.MaxCost = manager.config.maxMetadataCacheSizePerSession
+	fsConfig.Cache.Backend.Ristretto.BufferItems = manager.config.maxMetadataCacheBufferItemsPerSession
+	fsConfig.Cache.Backend.Ristretto.DefaultTTL = manager.config.metadataCacheTTL
+
+	fs, err := irodsclient_fs.NewFileSystem(irodsAccount, fsConfig)
+	if err != nil {
+		sessionLogFile.Close()
+		return nil, errors.Wrap(err, "failed to create iRODS filesystem")
+	}
+
+	sessionStagingPath := manager.config.stagingRootPath
+	if sessionStagingPath != "" {
+		sessionStagingPath = fmt.Sprintf("%s/%s", sessionStagingPath, sessionID)
+	}
+
+	buffConfig := &irodsfs_common_irods.IRODSFSClientBufferedConfig{
+		BlockSize:          int(manager.config.dataBlockSize),
+		StagingRootPath:    sessionStagingPath,
+		MaxStagingDataSize: manager.config.maxStagingDataSize,
+		MaxCacheFileSize:   manager.config.maxCacheFileSize,
+		SyncInterval:       manager.config.stagingDataGracePeriod / 2,
+		GracePeriod:        manager.config.stagingDataGracePeriod,
+		UsePersistence:     true,
+	}
+
+	fsClient, err := irodsfs_common_irods.NewIRODSFSClientBuffered(fs, manager.cacheManager, buffConfig)
+	if err != nil {
+		fs.Release()
+		sessionLogFile.Close()
+		return nil, errors.Wrap(err, "failed to create buffered client")
+	}
+
+	session := &PoolSession{
+		id:           sessionID,
+		accountKey:   accountKey,
+		irodsAccount: irodsAccount,
+
+		fs:       fs,
+		fsClient: fsClient,
+
+		connections:     map[string]connInfo{},
+		lastAccessTime:  time.Now(),
+		poolFileHandles: map[string]*PoolFileHandle{},
+
+		logger:         sessionLogger,
+		sessionLogFile: sessionLogFile,
+	}
+	if err := manager.trackActiveSession(session); err != nil {
+		releaseErr := session.release()
+		return nil, errors.CombineErrors(errors.Wrap(err, "failed to persist session lifecycle record"), releaseErr)
+	}
 
 	manager.mutex.Lock()
-	manager.sessions[session.GetID()] = session
-	defer manager.mutex.Unlock()
+	manager.sessions[session.id] = session
+	manager.mutex.Unlock()
 
-	logger.Infof("Created a new pool session for session id %q, client id %q, username %q", session.GetID(), session.GetPoolClientID(), irodsAccount.ClientUser)
+	manager.logger.Infof("Created a new pool session %q for username %q", session.id, irodsAccount.ClientUser)
+	session.logger.Infof("Created a new pool session for username %q", irodsAccount.ClientUser)
 	return session, nil
 }
 
 func (manager *PoolSessionManager) ReleaseSession(sessionID string) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "ReleaseSession",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	logger.Infof("Releasing the pool session for session id %q", sessionID)
+	defer irodsfs_common_util.StackTraceFromPanic(manager.logger)
 
 	manager.mutex.Lock()
-
-	if session, ok := manager.sessions[sessionID]; ok {
-		delete(manager.sessions, sessionID)
+	session, ok := manager.sessions[sessionID]
+	if !ok {
 		manager.mutex.Unlock()
-
-		instanceID := session.GetIRODSFSClientInstanceID()
-		sessionID := session.GetID()
-
-		// release the session first as it needs irodsfs client instance to close open file handles
-		session.release()
-		manager.irodsFsClientInstanceManager.RemovePoolSession(instanceID, sessionID)
-	} else {
-		manager.mutex.Unlock()
+		return
 	}
+
+	remaining := session.getConnectionCount()
+	manager.logger.Infof("Session %q has %d connections remaining", sessionID, remaining)
+
+	if remaining > 0 {
+		session.UpdateLastAccessTime()
+		manager.mutex.Unlock()
+		return
+	}
+
+	// No connections, mark as releasing
+	session.mutex.Lock()
+	session.releasing = true
+	session.releaseDone = make(chan struct{})
+	session.mutex.Unlock()
+	manager.mutex.Unlock()
+
+	manager.logger.Infof("Releasing pool session %q (no more connections)", sessionID)
+	if manager.onBeforeSessionRelease != nil {
+		manager.onBeforeSessionRelease(session)
+	}
+	manager.releaseSessionResources(session)
+
+	// After release completes, remove from maps and signal waiters
+	manager.mutex.Lock()
+	delete(manager.sessions, sessionID)
+	manager.mutex.Unlock()
+
+	close(session.releaseDone)
 }
 
 func (manager *PoolSessionManager) ReleaseAllSessions() {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "ReleaseAllSessions",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(manager.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	manager.mutex.Lock()
+	sessions := make([]*PoolSession, 0, len(manager.sessions))
+	for _, session := range manager.sessions {
+		sessions = append(sessions, session)
+	}
+	manager.sessions = map[string]*PoolSession{}
+	manager.connMap = map[string]string{}
+	manager.mutex.Unlock()
 
-	sessionIDs := []string{}
+	wg := sync.WaitGroup{}
+	for _, session := range sessions {
+		wg.Add(1)
+		go func(sess *PoolSession) {
+			defer wg.Done()
+
+			manager.logger.Infof("Force releasing pool session %q", sess.id)
+			if manager.onBeforeSessionRelease != nil {
+				manager.onBeforeSessionRelease(sess)
+			}
+
+			sess.mutex.Lock()
+			alreadyReleasing := sess.releasing
+			if !alreadyReleasing {
+				sess.releasing = true
+				sess.releaseDone = make(chan struct{})
+			}
+			sess.mutex.Unlock()
+
+			if !alreadyReleasing {
+				manager.releaseSessionResources(sess)
+				close(sess.releaseDone)
+			} else {
+				<-sess.releaseDone
+			}
+		}(session)
+	}
+	wg.Wait()
+}
+
+func (manager *PoolSessionManager) AddConnection(connID string, sessionID string, appName string, description string) {
+	defer irodsfs_common_util.StackTraceFromPanic(manager.logger)
+
+	manager.mutex.Lock()
+	defer manager.mutex.Unlock()
+
+	// If this connID was previously mapped to another session, remove it
+	if oldSessionID, ok := manager.connMap[connID]; ok {
+		if oldSessionID != sessionID {
+			if oldSession, ok := manager.sessions[oldSessionID]; ok {
+				oldSession.removeConnection(connID)
+				manager.checkpointSession(oldSession)
+				manager.logger.Infof("Moved connection %q from session %q to session %q", connID, oldSessionID, sessionID)
+			}
+		}
+	}
+
+	manager.connMap[connID] = sessionID
+
+	if session, ok := manager.sessions[sessionID]; ok {
+		// Cancel any pending grace-period release now that a new connection
+		// is being established for this session.
+		if t, ok := manager.pendingReleases[sessionID]; ok {
+			t.Stop()
+			delete(manager.pendingReleases, sessionID)
+			manager.logger.Infof("Cancelled pending grace-period release for session %q (connection %q added)", sessionID, connID)
+		}
+		session.addConnection(connID, appName, description)
+		manager.checkpointSession(session)
+		manager.logger.Infof("Added connection %q (app=%q) to session %q (connections=%d)", connID, appName, sessionID, session.getConnectionCount())
+	}
+}
+
+func (manager *PoolSessionManager) RemoveConnection(connID string) {
+	defer irodsfs_common_util.StackTraceFromPanic(manager.logger)
 
 	manager.mutex.Lock()
 
-	for _, session := range manager.sessions {
-		sessionIDs = append(sessionIDs, session.GetID())
+	sessionID, ok := manager.connMap[connID]
+	if !ok {
+		manager.mutex.Unlock()
+		return
 	}
 
+	delete(manager.connMap, connID)
+
+	session, ok := manager.sessions[sessionID]
+	if !ok {
+		manager.mutex.Unlock()
+		return
+	}
+
+	remaining := session.removeConnection(connID)
+	session.UpdateLastAccessTime()
+	manager.checkpointSession(session)
+	manager.logger.Infof("Removed connection %q from session %q (remaining connections=%d)", connID, sessionID, remaining)
+
+	if remaining > 0 {
+		manager.mutex.Unlock()
+		return
+	}
+
+	// No connections remaining.  If a grace period is configured, defer the
+	// actual release so a quickly-reconnecting client reuses the session
+	// without paying the teardown/setup cost.  Otherwise release immediately.
+	if manager.config.sessionCloseGracePeriod > 0 {
+		// Discard any stale timer that somehow survived (shouldn't normally happen).
+		if t, ok := manager.pendingReleases[sessionID]; ok {
+			t.Stop()
+			delete(manager.pendingReleases, sessionID)
+		}
+		t := time.AfterFunc(manager.config.sessionCloseGracePeriod, func() {
+			manager.startSessionRelease(sessionID)
+		})
+		manager.pendingReleases[sessionID] = t
+		manager.mutex.Unlock()
+		manager.logger.Infof("Session %q has no connections; will release after grace period %q", sessionID, manager.config.sessionCloseGracePeriod)
+		return
+	}
+
+	// No grace period — release right away (still asynchronous so the Logout
+	// RPC returns before the iRODS upload completes).
+	session.mutex.Lock()
+	session.releasing = true
+	session.releaseDone = make(chan struct{})
+	session.mutex.Unlock()
+
+	delete(manager.sessions, sessionID)
 	manager.mutex.Unlock()
 
-	for _, sessionID := range sessionIDs {
-		if len(manager.terminateChan) > 0 {
-			// terminate
-			return
-		}
+	manager.logger.Infof("Releasing pool session %q asynchronously (no more connections)", sessionID)
 
-		diff := time.Since(manager.sessions[sessionID].lastAccessTime)
-		logger.Infof("Releasing the pool session for session id %q as it was idle for %s", sessionID, diff.String())
-		manager.ReleaseSession(sessionID)
+	manager.releaseWg.Add(1)
+	go func() {
+		defer manager.releaseWg.Done()
+		// Flush staging before capturing metrics so BytesSent reflects the
+		// actual iRODS upload, not just the local-disk write.
+		flushSessionStaging(session, session.logger)
+		if manager.onBeforeSessionRelease != nil {
+			manager.onBeforeSessionRelease(session)
+		}
+		manager.releaseSessionResources(session)
+		close(session.releaseDone)
+	}()
+}
+
+// startSessionRelease is called by the grace-period timer.  It re-checks that
+// no new connection arrived during the grace period before proceeding.
+// All access to sessions and pendingReleases is protected by manager.mutex.
+func (manager *PoolSessionManager) startSessionRelease(sessionID string) {
+	manager.mutex.Lock()
+
+	session, ok := manager.sessions[sessionID]
+	if !ok {
+		// Already released by another path (e.g. forceReleaseSession).
+		delete(manager.pendingReleases, sessionID)
+		manager.mutex.Unlock()
+		return
 	}
+
+	if session.getConnectionCount() > 0 {
+		// A new connection arrived during the grace period; keep the session.
+		delete(manager.pendingReleases, sessionID)
+		manager.mutex.Unlock()
+		return
+	}
+
+	delete(manager.pendingReleases, sessionID)
+
+	session.mutex.Lock()
+	session.releasing = true
+	session.releaseDone = make(chan struct{})
+	session.mutex.Unlock()
+
+	delete(manager.sessions, sessionID)
+	manager.mutex.Unlock()
+
+	manager.logger.Infof("Releasing pool session %q asynchronously after grace period (no more connections)", sessionID)
+
+	manager.releaseWg.Add(1)
+	go func() {
+		defer manager.releaseWg.Done()
+		flushSessionStaging(session, session.logger)
+		if manager.onBeforeSessionRelease != nil {
+			manager.onBeforeSessionRelease(session)
+		}
+		manager.releaseSessionResources(session)
+		close(session.releaseDone)
+	}()
 }
 
 func (manager *PoolSessionManager) releaseStaleSessions() {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "releaseStaleSessions",
-	})
+	manager.mutex.RLock()
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	staleSessionIDs := []string{}
-
-	manager.mutex.Lock()
-
-	sessionTimeout := time.Duration(manager.config.SessionTimeout) * time.Second
+	sessionTimeout := manager.config.sessionTimeout
+	staleIDs := []string{}
 
 	for _, session := range manager.sessions {
-		if session.lastAccessTime.Add(sessionTimeout).Before(time.Now()) {
-			// stale
-			staleSessionIDs = append(staleSessionIDs, session.GetID())
+		if time.Since(session.GetLastAccessTime()) > sessionTimeout {
+			staleIDs = append(staleIDs, session.id)
 		}
 	}
 
-	manager.mutex.Unlock()
+	manager.mutex.RUnlock()
 
-	for _, sessionID := range staleSessionIDs {
-		if len(manager.terminateChan) > 0 {
-			// terminate
-			return
-		}
-
-		diff := time.Since(manager.sessions[sessionID].lastAccessTime)
-		logger.Infof("Releasing the pool session for session id %q as it was idle for %s", sessionID, diff.String())
-		manager.ReleaseSession(sessionID)
+	for _, sessionID := range staleIDs {
+		manager.forceReleaseSession(sessionID)
 	}
 }
 
+func (manager *PoolSessionManager) checkpointActiveSessions() {
+	for _, session := range manager.GetAllSessions() {
+		manager.checkpointSession(session)
+	}
+}
+
+func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
+	defer irodsfs_common_util.StackTraceFromPanic(manager.logger)
+
+	manager.mutex.Lock()
+	session, ok := manager.sessions[sessionID]
+	if !ok {
+		manager.mutex.Unlock()
+		return
+	}
+
+	// Skip if already being released
+	session.mutex.RLock()
+	if session.releasing {
+		session.mutex.RUnlock()
+		manager.mutex.Unlock()
+		return
+	}
+	session.mutex.RUnlock()
+
+	// Mark as releasing and remove from map so Release() won't double-release.
+	session.mutex.Lock()
+	session.releasing = true
+	session.releaseDone = make(chan struct{})
+	session.mutex.Unlock()
+
+	delete(manager.sessions, sessionID)
+	manager.mutex.Unlock()
+
+	manager.logger.Infof("Force releasing stale pool session %q asynchronously", sessionID)
+
+	manager.releaseWg.Add(1)
+	go func() {
+		defer manager.releaseWg.Done()
+		flushSessionStaging(session, session.logger)
+		if manager.onBeforeSessionRelease != nil {
+			manager.onBeforeSessionRelease(session)
+		}
+		manager.releaseSessionResources(session)
+		close(session.releaseDone)
+	}()
+}
+
 func (manager *PoolSessionManager) GetSession(sessionID string) (*PoolSession, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "GetSession",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
 	manager.mutex.RLock()
 	defer manager.mutex.RUnlock()
 
@@ -242,95 +623,43 @@ func (manager *PoolSessionManager) GetSession(sessionID string) (*PoolSession, e
 		return session, nil
 	}
 
-	return nil, xerrors.Errorf("failed to find the pool session for id %q: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
+	return nil, commons.NewSessionNotFoundError(sessionID)
 }
 
-func (manager *PoolSessionManager) GetSessionAndIRODSFSClientInstance(sessionID string) (*PoolSession, *IRODSFSClientInstance, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "GetSessionAndIRODSFSClientInstance",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	manager.mutex.RLock()
-	defer manager.mutex.RUnlock()
-
-	if session, ok := manager.sessions[sessionID]; ok {
-		instanceID := session.GetIRODSFSClientInstanceID()
-		instance, err := manager.irodsFsClientInstanceManager.GetInstance(instanceID)
-		if err != nil {
-			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %q and session id %q: %w", instanceID, sessionID, err)
-			logger.Errorf("%+v", instanceErr)
-			return nil, nil, err
-		}
-
-		return session, instance, nil
+func (manager *PoolSessionManager) InvalidateSessionMetadataCache(sessionID string) error {
+	session, err := manager.GetSession(sessionID)
+	if err != nil {
+		return err
 	}
 
-	return nil, nil, xerrors.Errorf("failed to find the pool session for id %q: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
+	return session.invalidateMetadataCache()
 }
 
-func (manager *PoolSessionManager) GetSessionAndIRODSFSClient(sessionID string) (*PoolSession, irodsfs_common_irods.IRODSFSClient, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "GetSessionAndIRODSFSClient",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	manager.mutex.RLock()
-	defer manager.mutex.RUnlock()
-
-	if session, ok := manager.sessions[sessionID]; ok {
-		instanceID := session.GetIRODSFSClientInstanceID()
-		instance, err := manager.irodsFsClientInstanceManager.GetInstance(instanceID)
-		if err != nil {
-			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %q and session id %q: %w", instanceID, sessionID, err)
-			logger.Errorf("%+v", instanceErr)
-			return nil, nil, err
-		}
-
-		fsClient := instance.GetFSClient()
-		return session, fsClient, nil
+func (manager *PoolSessionManager) SyncSessionStaging(sessionID string) error {
+	session, err := manager.GetSession(sessionID)
+	if err != nil {
+		return err
 	}
 
-	return nil, nil, xerrors.Errorf("failed to find the pool session for id %q: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
+	return session.syncStaging()
 }
 
-func (manager *PoolSessionManager) GetSessions() []*PoolSession {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "GetSessions",
-	})
+func (manager *PoolSessionManager) GetCacheManager() *irodsfs_common_cache.MemoryCacheManager {
+	return manager.cacheManager
+}
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
+func (manager *PoolSessionManager) GetAllSessions() []*PoolSession {
 	manager.mutex.RLock()
 	defer manager.mutex.RUnlock()
 
-	sessions := make([]*PoolSession, len(manager.sessions))
-	idx := 0
+	sessions := make([]*PoolSession, 0, len(manager.sessions))
 	for _, session := range manager.sessions {
-		sessions[idx] = session
-		idx++
+		sessions = append(sessions, session)
 	}
-
 	return sessions
 }
 
 func (manager *PoolSessionManager) GetTotalSessions() int {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "GetTotalSessions",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
 	manager.mutex.RLock()
 	defer manager.mutex.RUnlock()
 
@@ -338,168 +667,189 @@ func (manager *PoolSessionManager) GetTotalSessions() int {
 }
 
 func (manager *PoolSessionManager) GetTotalIRODSFSClientInstances() int {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "GetTotalIRODSFSClientInstances",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
 	manager.mutex.RLock()
 	defer manager.mutex.RUnlock()
 
-	return manager.irodsFsClientInstanceManager.GetTotalInstances()
+	return len(manager.sessions)
 }
 
 func (manager *PoolSessionManager) GetTotalIRODSFSClientConnections() int {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "GetTotalIRODSFSClientConnections",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
 	manager.mutex.RLock()
 	defer manager.mutex.RUnlock()
 
-	return manager.irodsFsClientInstanceManager.GetTotalConnections()
-}
-
-func (manager *PoolSessionManager) GetIRODSFSClientInstanceForSession(sessionID string) (*IRODSFSClientInstance, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "GetIRODSFSClientInstanceForSession",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	manager.mutex.RLock()
-	defer manager.mutex.RUnlock()
-
-	if session, ok := manager.sessions[sessionID]; ok {
-		instanceID := session.GetIRODSFSClientInstanceID()
-		instance, err := manager.irodsFsClientInstanceManager.GetInstance(instanceID)
-		if err != nil {
-			instanceErr := xerrors.Errorf("failed to find the irods fs client instance for instance id %q and session id %q: %w", instanceID, sessionID, err)
-			logger.Errorf("%+v", instanceErr)
-			return nil, err
+	total := 0
+	for _, session := range manager.sessions {
+		if session.fsClient != nil {
+			total += session.fsClient.GetOpenConnections()
 		}
-
-		return instance, nil
 	}
-
-	return nil, xerrors.Errorf("failed to find the pool session for id %q: %w", sessionID, commons.NewSessionNotFoundError(sessionID))
+	return total
 }
 
-func (manager *PoolSessionManager) GetIRODSFSClientInstances() []*IRODSFSClientInstance {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSessionManager",
-		"function": "GetIRODSFSClientInstances",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	manager.mutex.RLock()
-	defer manager.mutex.RUnlock()
-
-	return manager.irodsFsClientInstanceManager.GetInstances()
+func (manager *PoolSessionManager) releaseSessionResources(session *PoolSession) {
+	releaseErr := session.release()
+	manager.handleSessionReleaseResult(session, releaseErr)
 }
 
-// PoolSession is a struct for client login
+// connInfo holds per-connection metadata supplied at Login time.
+type connInfo struct {
+	appName     string
+	description string
+}
+
+type sessionFileSystem interface {
+	ClearCache()
+	Release()
+}
+
+// PoolSession represents a shared session for the same account
 type PoolSession struct {
-	id                      string // pool session id
-	poolClientID            string
-	irodsAccount            *irodsclient_types.IRODSAccount
-	irodsFsClientInstanceID string
+	id           string
+	accountKey   string
+	irodsAccount *irodsclient_types.IRODSAccount
 
+	fs       sessionFileSystem
+	fsClient irodsfs_common_irods.IRODSFSClient
+
+	connections     map[string]connInfo // connID -> client info
 	lastAccessTime  time.Time
 	poolFileHandles map[string]*PoolFileHandle
+
+	backgroundWg sync.WaitGroup
+
+	releasing   bool
+	releaseDone chan struct{}
+
+	logger         *log.Entry
+	sessionLogFile io.WriteCloser
 
 	mutex sync.RWMutex
 }
 
-func newPoolSession(poolClientID string, irodsAccount *irodsclient_types.IRODSAccount) *PoolSession {
-	return &PoolSession{
-		id:                      xid.New().String(),
-		poolClientID:            poolClientID,
-		irodsAccount:            irodsAccount,
-		irodsFsClientInstanceID: "", // to be set later
+func (session *PoolSession) invalidateMetadataCache() error {
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
 
-		lastAccessTime:  time.Now(),
-		poolFileHandles: map[string]*PoolFileHandle{},
-
-		mutex: sync.RWMutex{},
+	if session.releasing || session.fs == nil {
+		return errors.Wrapf(errSessionUnavailable, "session %q", session.id)
 	}
+
+	// go-irodsclient groups the filesystem's entry, directory, ACL, and AVU
+	// caches behind ClearCache. The pool's shared data block cache is separate
+	// and is not affected by this call.
+	session.fs.ClearCache()
+	if session.logger != nil {
+		session.logger.Info("Invalidated the session metadata cache")
+	}
+	return nil
 }
 
-func (session *PoolSession) release() {
-	logger := log.WithFields(log.Fields{
-		"package":  "service",
-		"struct":   "PoolSession",
-		"function": "release",
-	})
+func (session *PoolSession) syncStaging() error {
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	if session.releasing || session.fsClient == nil {
+		return errors.Wrapf(errSessionUnavailable, "session %q", session.id)
+	}
+
+	session.lastAccessTime = time.Now()
+	if err := session.fsClient.Sync(); err != nil {
+		return errors.Wrap(err, "failed to sync session staging data")
+	}
+
+	if session.logger != nil {
+		session.logger.Info("Synced the session staging data")
+	}
+	return nil
+}
+
+func (session *PoolSession) release() error {
+	defer func() {
+		if session.sessionLogFile != nil {
+			session.sessionLogFile.Close()
+			session.sessionLogFile = nil
+		}
+	}()
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	session.logger.Info("Releasing the pool session")
+
+	session.backgroundWg.Wait()
 
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
-	logger.Infof("Release the pool session for session id %q, client id %q", session.id, session.poolClientID)
+	handleWg := sync.WaitGroup{}
+	handleErrChan := make(chan error, len(session.poolFileHandles))
+	for _, handle := range session.poolFileHandles {
+		handleWg.Add(1)
+		go func(h *PoolFileHandle) {
+			defer handleWg.Done()
+			if err := h.Release(); err != nil {
+				handleErrChan <- err
+			}
+		}(handle)
+	}
+	handleWg.Wait()
+	close(handleErrChan)
+	session.poolFileHandles = map[string]*PoolFileHandle{}
 
-	wg := sync.WaitGroup{}
-	for _, fileHandle := range session.poolFileHandles {
-		wg.Add(1)
-		go func(handle *PoolFileHandle) {
-			defer wg.Done()
-			handle.Release() // release file handles asynchronously
-		}(fileHandle)
+	var releaseErr error
+	for err := range handleErrChan {
+		releaseErr = errors.CombineErrors(releaseErr, err)
 	}
 
-	wg.Wait()
+	if session.fsClient != nil {
+		releaseErr = errors.CombineErrors(releaseErr, session.fsClient.Release())
+		session.fsClient = nil
+	}
 
-	session.irodsFsClientInstanceID = ""
+	if session.fs != nil {
+		session.fs.Release()
+		session.fs = nil
+	}
 
-	// empty
-	session.poolFileHandles = map[string]*PoolFileHandle{}
+	if releaseErr != nil {
+		session.logger.WithError(releaseErr).Error("Released the pool session with errors")
+	} else {
+		session.logger.Info("Released the pool session")
+	}
+
+	return releaseErr
+}
+
+func (session *PoolSession) addConnection(connID string, appName string, description string) {
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	session.connections[connID] = connInfo{appName: appName, description: description}
+}
+
+func (session *PoolSession) removeConnection(connID string) int {
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	delete(session.connections, connID)
+	return len(session.connections)
+}
+
+func (session *PoolSession) getConnectionCount() int {
+	session.mutex.RLock()
+	defer session.mutex.RUnlock()
+
+	return len(session.connections)
 }
 
 func (session *PoolSession) GetID() string {
-	session.mutex.RLock()
-	defer session.mutex.RUnlock()
-
 	return session.id
 }
 
-func (session *PoolSession) GetPoolClientID() string {
-	session.mutex.RLock()
-	defer session.mutex.RUnlock()
-
-	return session.poolClientID
-}
-
 func (session *PoolSession) GetIRODSAccount() *irodsclient_types.IRODSAccount {
-	session.mutex.RLock()
-	defer session.mutex.RUnlock()
-
 	return session.irodsAccount
 }
 
-func (session *PoolSession) SetIRODSFSClientInstanceID(irodsFsClientInstanceID string) {
-	session.mutex.Lock()
-	defer session.mutex.Unlock()
-
-	session.irodsFsClientInstanceID = irodsFsClientInstanceID
-}
-
-func (session *PoolSession) GetIRODSFSClientInstanceID() string {
-	session.mutex.RLock()
-	defer session.mutex.RUnlock()
-
-	return session.irodsFsClientInstanceID
+func (session *PoolSession) GetIRODSFSClient() irodsfs_common_irods.IRODSFSClient {
+	return session.fsClient
 }
 
 func (session *PoolSession) UpdateLastAccessTime() {
@@ -510,8 +860,8 @@ func (session *PoolSession) UpdateLastAccessTime() {
 }
 
 func (session *PoolSession) GetLastAccessTime() time.Time {
-	session.mutex.Lock()
-	defer session.mutex.Unlock()
+	session.mutex.RLock()
+	defer session.mutex.RUnlock()
 
 	return session.lastAccessTime
 }
@@ -534,9 +884,75 @@ func (session *PoolSession) GetPoolFileHandle(poolFileHandleID string) (*PoolFil
 	session.mutex.RLock()
 	defer session.mutex.RUnlock()
 
-	if poolFileHandle, ok := session.poolFileHandles[poolFileHandleID]; ok {
-		return poolFileHandle, nil
+	if handle, ok := session.poolFileHandles[poolFileHandleID]; ok {
+		return handle, nil
 	}
 
-	return nil, xerrors.Errorf("failed to find the pool file handle for handle id %q: %w", poolFileHandleID, commons.NewFileHandleNotFoundError(poolFileHandleID))
+	return nil, commons.NewFileHandleNotFoundError(poolFileHandleID)
+}
+
+// makeAccountKey creates a unique key for an iRODS account
+func makeAccountKey(account *irodsclient_types.IRODSAccount) string {
+	h := sha256.New()
+	h.Write([]byte(account.Host))
+	h.Write([]byte(fmt.Sprintf("%d", account.Port)))
+	h.Write([]byte(account.ClientUser))
+	h.Write([]byte(account.ClientZone))
+	h.Write([]byte(account.ProxyUser))
+	h.Write([]byte(account.ProxyZone))
+	h.Write([]byte(account.Ticket))
+	h.Write([]byte(account.DefaultResource))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func newSessionLogger(logRootPath string, sessionID string) (*log.Entry, io.WriteCloser, error) {
+	if len(logRootPath) == 0 {
+		return nil, nil, errors.New("log root path is required")
+	}
+
+	sessionLogRootPath := filepath.Join(logRootPath, "session_logs")
+	if err := os.MkdirAll(sessionLogRootPath, 0775); err != nil {
+		return nil, nil, errors.Wrapf(err, "failed to create session log directory %q", sessionLogRootPath)
+	}
+
+	logFilePath := filepath.Join(sessionLogRootPath, fmt.Sprintf("%s.log", sessionID))
+	logWriter := &lumberjack.Logger{
+		Filename:   logFilePath,
+		MaxSize:    sessionLogMaxSizeMB,
+		MaxBackups: sessionLogMaxBackups,
+		MaxAge:     sessionLogMaxAgeDays,
+		Compress:   false,
+	}
+
+	myFormatter := &irodsfs_common_util.StacktraceTextFormatter{
+		TextFormatter: log.TextFormatter{
+			TimestampFormat: "2006-01-02 15:04:05.000000",
+			FullTimestamp:   true,
+		},
+	}
+
+	sessionLogger := log.New()
+	sessionLogger.SetOutput(logWriter)
+	sessionLogger.SetFormatter(myFormatter)
+	sessionLogger.SetLevel(log.GetLevel())
+	sessionLogger.SetReportCaller(true)
+
+	return sessionLogger.WithField("session_id", sessionID), logWriter, nil
+}
+
+func newIrodsClientLogger(logWriter io.WriteCloser) (*log.Entry, error) {
+	myFormatter := &irodsfs_common_util.StacktraceTextFormatter{
+		TextFormatter: log.TextFormatter{
+			TimestampFormat: "2006-01-02 15:04:05.000000",
+			FullTimestamp:   true,
+		},
+	}
+
+	irodsClientLogger := log.New()
+	irodsClientLogger.SetOutput(logWriter)
+	irodsClientLogger.SetFormatter(myFormatter)
+	irodsClientLogger.SetLevel(log.ErrorLevel)
+	irodsClientLogger.SetReportCaller(true)
+
+	return irodsClientLogger.WithFields(log.Fields{}), nil
 }

@@ -4,29 +4,63 @@ import (
 	"context"
 	"io"
 	"net"
+	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
+	irodsclient_common "github.com/cyverse/go-irodsclient/irods/common"
 	irodsclient_metrics "github.com/cyverse/go-irodsclient/irods/metrics"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	irodsclient_util "github.com/cyverse/go-irodsclient/irods/util"
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
-	irodsfs_common_utils "github.com/cyverse/irodsfs-common/utils"
+	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 const (
-	fileRWLengthMax    int = 1024 * 1024     // 1MB
-	messageRWLengthMax int = 8 * 1024 * 1024 // 8MB
+	fileRWLengthMax        int   = 1024 * 1024      // 1MB
+	messageRWLengthMax     int   = 8 * 1024 * 1024  // 8MB
+	microBufferSize        int   = 1024 * 1024      // 1MB - micro buffering threshold for WRONLY
+	prefetchBlockSize      int   = 4 * 1024 * 1024  // 4MB - prefetch block size for RDONLY
+	prefetchCacheThreshold int64 = 16 * 1024 * 1024 // 16MB - switch to server-side memory cache after this much data is read
 
-	localMetadataCacheTiemout time.Duration = 1 * time.Minute
+	localMetadataCacheTiemout time.Duration = 10 * time.Second
+
+	reconnectInitialInterval time.Duration = 1 * time.Second
+	reconnectMaxInterval     time.Duration = 1 * time.Minute
+	reconnectTimeout         time.Duration = 1 * time.Hour
 )
+
+// prefetchState manages double-buffered read-ahead for ReadOnly file handles
+type prefetchState struct {
+	mu sync.Mutex
+
+	buf      []byte
+	bufStart int64
+	bufSize  int
+
+	nextBuf   []byte
+	nextStart int64
+	nextSize  int
+	nextReady chan struct{}
+	nextErr   error
+	fetching  bool
+
+	bytesRead int64
+	disabled  bool
+	closed    bool
+}
 
 // PoolServiceClient is a client of pool service
 type PoolServiceClient struct {
@@ -37,25 +71,47 @@ type PoolServiceClient struct {
 	apiClient        api.PoolAPIClient
 	fsCache          *MetadataCache
 	connected        bool
+	autoReconnect    bool
+	reconnectingFlag int32 // atomic: 0=normal, 1=reconnect in progress
+
+	bgCancelMu sync.Mutex
+	bgCancel   context.CancelFunc // cancels the running backgroundReconnect goroutine
+
+	logger *log.Entry
+
+	reconnectSequence uint64
+	mutex             sync.RWMutex
 }
 
 // PoolServiceSession is a service session
 // implements irodsfs-common/irods/interface.go
+const maxPrefetchHandles int = 10
+
 type PoolServiceSession struct {
 	id                string
 	poolServiceClient *PoolServiceClient
 	account           *irodsclient_types.IRODSAccount
 	applicationName   string
 
-	loggedIn      bool
-	mutex         sync.RWMutex // mutex to access PoolServiceSession
-	terminateChan chan bool
+	loggedIn            bool
+	openReadOnlyHandles int32
+	mutex               sync.RWMutex // mutex to access PoolServiceSession
+	terminateChan       chan bool
+	logger              *log.Entry
 }
 
 // NewPoolServiceClient creates a new pool service client
-func NewPoolServiceClient(address string, operationTimeout time.Duration, clientID string) *PoolServiceClient {
-	if len(clientID) == 0 {
-		clientID = xid.New().String()
+func NewPoolServiceClient(address string, operationTimeout time.Duration, autoReconnect bool, logger *log.Entry) *PoolServiceClient {
+	clientID := xid.New().String()
+
+	if logger == nil {
+		logger = log.WithFields(log.Fields{
+			"clientID": clientID,
+		})
+	} else {
+		logger = logger.WithFields(log.Fields{
+			"clientID": clientID,
+		})
 	}
 
 	return &PoolServiceClient{
@@ -65,83 +121,245 @@ func NewPoolServiceClient(address string, operationTimeout time.Duration, client
 		grpcConnection:   nil,
 		fsCache:          NewMetadataCache(localMetadataCacheTiemout, localMetadataCacheTiemout),
 		connected:        false,
+		autoReconnect:    autoReconnect,
+
+		logger: logger,
 	}
+}
+
+// isTransportError returns true for gRPC errors that indicate the server is unreachable.
+func isTransportError(err error) bool {
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	return st.Code() == codes.Unavailable
+}
+
+// waitForReady blocks until conn reaches connectivity.Ready, or the context
+// expires, or the connection is shut down.
+func waitForReady(ctx context.Context, conn *grpc.ClientConn) bool {
+	for {
+		state := conn.GetState()
+		if state == connectivity.Ready {
+			return true
+		}
+		if state == connectivity.Shutdown {
+			return false
+		}
+		if !conn.WaitForStateChange(ctx, state) {
+			return false
+		}
+	}
+}
+
+// startBackgroundReconnect creates a cancellable context, stores the cancel
+// func so Disconnect() can stop the goroutine, then starts backgroundReconnect.
+func (client *PoolServiceClient) startBackgroundReconnect() {
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	sequence := atomic.AddUint64(&client.reconnectSequence, 1)
+
+	client.bgCancelMu.Lock()
+	if client.bgCancel != nil {
+		client.bgCancel() // cancel any previous (should not happen, but be safe)
+	}
+	client.bgCancel = bgCancel
+	client.bgCancelMu.Unlock()
+
+	go client.backgroundReconnect(bgCtx, sequence)
+}
+
+// backgroundReconnect runs until ctx is cancelled (by Disconnect) or the
+// connection is re-established. It uses exponential backoff capped at 1 min
+// and gives up after 1 hr. While running, reconnectingFlag == 1 and every
+// API call returns an error immediately.
+func (client *PoolServiceClient) backgroundReconnect(parent context.Context, sequence uint64) {
+	defer func() {
+		client.bgCancelMu.Lock()
+		if atomic.LoadUint64(&client.reconnectSequence) == sequence {
+			atomic.StoreInt32(&client.reconnectingFlag, 0)
+			client.bgCancel = nil
+		}
+		client.bgCancelMu.Unlock()
+	}()
+	ctx, cancel := context.WithTimeout(parent, reconnectTimeout)
+	defer cancel()
+
+	interval := reconnectInitialInterval
+	for ctx.Err() == nil && client.isConnected() {
+		connection, apiClient, _, err := client.newConnection()
+		if err != nil {
+			client.logger.WithError(err).Warn("background reconnect failed to create connection")
+		} else {
+			connection.Connect()
+			waitContext, waitCancel := context.WithTimeout(ctx, interval)
+			ready := waitForReady(waitContext, connection)
+			waitCancel()
+			if !ready {
+				_ = connection.Close()
+			} else {
+				client.mutex.Lock()
+				if !client.connected || ctx.Err() != nil {
+					client.mutex.Unlock()
+					_ = connection.Close()
+					return
+				}
+				oldConnection := client.grpcConnection
+				client.grpcConnection = connection
+				client.apiClient = apiClient
+				client.mutex.Unlock()
+
+				if oldConnection != nil {
+					if closeErr := oldConnection.Close(); closeErr != nil {
+						client.logger.WithError(closeErr).Warn("failed to close replaced gRPC connection")
+					}
+				}
+				client.logger.Info("reconnected to pool service")
+				return
+			}
+		}
+
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			timer := time.NewTimer(interval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+
+		if interval < reconnectMaxInterval {
+			interval *= 2
+			if interval > reconnectMaxInterval {
+				interval = reconnectMaxInterval
+			}
+		}
+	}
+	if parent.Err() == nil && client.isConnected() {
+		client.logger.Error("background reconnect timed out")
+	}
+}
+
+// newConnection creates a gRPC connection for the configured service endpoint.
+func (client *PoolServiceClient) newConnection() (*grpc.ClientConn, api.PoolAPIClient, string, error) {
+	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(client.address)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	client.logger.Infof("scheme: %s, endpoint: %s", scheme, endpoint)
+	if scheme != "unix" && scheme != "tcp" {
+		schemeErr := errors.Newf("unknown protocol %q", scheme)
+		client.logger.Error(schemeErr)
+		return nil, nil, "", schemeErr
+	}
+	client.logger.Infof("Connecting to %s endpoint: %q", scheme, endpoint)
+
+	dialer := &net.Dialer{}
+	grpcDialer := func(ctx context.Context, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, scheme, endpoint)
+	}
+	connection, err := grpc.NewClient(
+		"passthrough:///"+endpoint,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(grpcDialer),
+	)
+	if err != nil {
+		return nil, nil, "", errors.Wrapf(err, "failed to create gRPC client for %q", client.address)
+	}
+	return connection, api.NewPoolAPIClient(connection), scheme + "://" + endpoint, nil
 }
 
 // Connect connects to pool service
 func (client *PoolServiceClient) Connect() error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceClient",
-		"function": "Connect",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(client.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	if client.connected {
-		return xerrors.Errorf("already connected to %q", client.address)
-	}
-
-	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(client.address)
+	connection, apiClient, endpointDescription, err := client.newConnection()
 	if err != nil {
+		client.logger.WithError(err).Error("failed to create pool service connection")
 		return err
 	}
 
-	logger.Infof("scheme: %s, endpoint: %s", scheme, endpoint)
-
-	if scheme != "unix" && scheme != "tcp" {
-		logger.Errorf("unknown protocol %q", scheme)
-		return xerrors.Errorf("unknown protocol %q", scheme)
+	client.mutex.Lock()
+	if client.connected {
+		client.mutex.Unlock()
+		_ = connection.Close()
+		return errors.Newf("already connected to %q", client.address)
 	}
-
-	logger.Infof("Connecting to %s endpoint: %q", scheme, endpoint)
-
-	dialer := func(ctx context.Context, address string) (net.Conn, error) {
-		return net.Dial(scheme, address)
-	}
-
-	conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(dialer))
-	if err != nil {
-		grpcErr := xerrors.Errorf("failed to dial to %q: %w", client.address, err)
-		logger.Errorf("%+v", grpcErr)
-		return grpcErr
-	}
-
-	client.grpcConnection = conn
-	client.apiClient = api.NewPoolAPIClient(client.grpcConnection)
+	client.grpcConnection = connection
+	client.apiClient = apiClient
 	client.connected = true
+	client.mutex.Unlock()
+	client.logger.Infof("connected to pool service at %s", endpointDescription)
 	return nil
+}
+
+// disconnectConn tears down the gRPC connection without touching bgCancel or
+// reconnectingFlag. Used internally by the reconnect paths so they don't
+// accidentally cancel themselves or reset the in-progress flag.
+func (client *PoolServiceClient) disconnectConn() {
+	client.mutex.Lock()
+	connection := client.grpcConnection
+	client.apiClient = nil
+	client.grpcConnection = nil
+	client.connected = false
+	client.mutex.Unlock()
+
+	if connection != nil {
+		if err := connection.Close(); err != nil {
+			client.logger.WithError(err).Warn("failed to close gRPC connection")
+		}
+	}
 }
 
 // Disconnect disconnects connection from pool service
 func (client *PoolServiceClient) Disconnect() {
-	if client.apiClient != nil {
-		client.apiClient = nil
+	// Stop any running background reconnect goroutine.
+	atomic.AddUint64(&client.reconnectSequence, 1)
+	client.bgCancelMu.Lock()
+	if client.bgCancel != nil {
+		client.bgCancel()
+		client.bgCancel = nil
 	}
+	client.bgCancelMu.Unlock()
+	atomic.StoreInt32(&client.reconnectingFlag, 0)
 
-	if client.grpcConnection != nil {
-		client.grpcConnection.Close()
-		client.grpcConnection = nil
-	}
-
-	client.connected = false
+	client.disconnectConn()
 }
 
-// disconnected unintentionally
-func (client *PoolServiceClient) disconnected() {
-	client.connected = false
-	client.apiClient = nil
-	client.grpcConnection = nil
+func (client *PoolServiceClient) getAPIClient() (api.PoolAPIClient, error) {
+	if atomic.LoadInt32(&client.reconnectingFlag) == 1 {
+		return nil, status.Error(codes.Unavailable, "pool service reconnect in progress; retry later")
+	}
+	client.mutex.RLock()
+	defer client.mutex.RUnlock()
+	if !client.connected || client.apiClient == nil {
+		return nil, errors.New("client is not connected")
+	}
+	return client.apiClient, nil
+}
 
-	// clear all cache
-	client.fsCache.ClearDirCache()
-	client.fsCache.ClearEntryCache()
-	client.fsCache.ClearACLsCache()
-	client.fsCache.ClearDirEntryACLsCache()
+func (client *PoolServiceClient) getGRPCConnection() *grpc.ClientConn {
+	client.mutex.RLock()
+	defer client.mutex.RUnlock()
+	return client.grpcConnection
+}
+
+func (client *PoolServiceClient) isConnected() bool {
+	client.mutex.RLock()
+	defer client.mutex.RUnlock()
+	return client.connected
 }
 
 func (client *PoolServiceClient) getContextWithDeadline() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), client.operationTimeout)
+	if client.operationTimeout > 0 {
+		return context.WithTimeout(context.Background(), client.operationTimeout)
+	}
+	return context.WithCancel(context.Background())
 }
 
 func getLargeReadOption() grpc.CallOption {
@@ -153,59 +371,25 @@ func getLargeWriteOption() grpc.CallOption {
 }
 
 // NewSession creates a new session for iRODS service using account info
-func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAccount, applicationName string) (irodsfs_common_irods.IRODSFSClient, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceClient",
-		"function": "NewSession",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAccount, applicationName string, description string) (irodsfs_common_irods.IRODSFSClient, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(client.logger)
 
 	ctx, cancel := client.getContextWithDeadline()
 	defer cancel()
 
-	var sslConf *api.SSLConfiguration
-	if account.SSLConfiguration != nil {
-		sslConf = &api.SSLConfiguration{
-			CaCertificateFile:       account.SSLConfiguration.CACertificateFile,
-			CaCertificatePath:       account.SSLConfiguration.CACertificatePath,
-			EncryptionKeySize:       int32(account.SSLConfiguration.EncryptionKeySize),
-			EncryptionAlgorithm:     account.SSLConfiguration.EncryptionAlgorithm,
-			EncryptionSaltSize:      int32(account.SSLConfiguration.EncryptionSaltSize),
-			EncryptionNumHashRounds: int32(account.SSLConfiguration.EncryptionNumHashRounds),
-			VerifyServer:            string(account.SSLConfiguration.VerifyServer),
-			DhParamsFile:            account.SSLConfiguration.DHParamsFile,
-			ServerName:              account.SSLConfiguration.ServerName,
-		}
-	}
-
 	request := &api.LoginRequest{
-		Account: &api.Account{
-			AuthenticationScheme:    string(account.AuthenticationScheme),
-			ClientServerNegotiation: account.ClientServerNegotiation,
-			CsNegotiationPolicy:     string(account.CSNegotiationPolicy),
-			Host:                    account.Host,
-			Port:                    int32(account.Port),
-			ClientUser:              account.ClientUser,
-			ClientZone:              account.ClientZone,
-			ProxyUser:               account.ProxyUser,
-			ProxyZone:               account.ProxyZone,
-			Password:                account.Password,
-			Ticket:                  account.Ticket,
-			DefaultResource:         account.DefaultResource,
-			DefaultHashScheme:       account.DefaultHashScheme,
-			PamTtl:                  int32(account.PamTTL),
-			PamToken:                account.PAMToken,
-			SslConfiguration:        sslConf,
-		},
+		Account:         convertAccountFromIRODSToAPI(account),
 		ApplicationName: applicationName,
-		ClientId:        client.id,
+		Description:     description,
 	}
 
-	response, err := client.apiClient.Login(ctx, request)
+	apiClient, err := client.getAPIClient()
 	if err != nil {
-		logger.Errorf("%+v", err)
+		return nil, err
+	}
+	response, err := apiClient.Login(ctx, request)
+	if err != nil {
+		client.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
@@ -217,6 +401,8 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 		loggedIn:          true,
 		mutex:             sync.RWMutex{},
 		terminateChan:     make(chan bool),
+
+		logger: client.logger.WithFields(log.Fields{"session_id": response.SessionId}),
 	}
 
 	// run a goroutine to send keepalive
@@ -240,13 +426,16 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 						SessionId: session.id,
 					}
 
-					_, err := session.poolServiceClient.apiClient.KeepAlive(context.Background(), request)
+					apiClient, err := session.poolServiceClient.getAPIClient()
+					if err == nil {
+						_, err = apiClient.KeepAlive(context.Background(), request)
+					}
 					if err != nil {
 						session.mutex.Lock()
 						session.loggedIn = false
 						session.mutex.Unlock()
 
-						logger.Errorf("%+v", err)
+						client.logger.Error(err)
 					}
 				}
 			}
@@ -257,14 +446,8 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 }
 
 // Release logouts from iRODS service session
-func (session *PoolServiceSession) Release() {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "Release",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+func (session *PoolServiceSession) Release() error {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	session.terminateChan <- true
 
@@ -279,22 +462,21 @@ func (session *PoolServiceSession) Release() {
 	session.loggedIn = false
 	session.mutex.Unlock()
 
-	_, err := session.poolServiceClient.apiClient.Logout(ctx, request)
+	apiClient, err := session.poolServiceClient.getAPIClient()
 	if err != nil {
-		logger.Errorf("%+v", err)
-		return
+		return err
 	}
+	_, err = apiClient.Logout(ctx, request)
+	if err != nil {
+		session.logger.Error(err)
+		return err
+	}
+	return nil
 }
 
 // Relogin re-login iRODS service session
 func (session *PoolServiceSession) Relogin() error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "Relogin",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
@@ -302,47 +484,18 @@ func (session *PoolServiceSession) Relogin() error {
 	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
 	defer cancel()
 
-	var sslConf *api.SSLConfiguration
-	if session.account.SSLConfiguration != nil {
-		sslConf = &api.SSLConfiguration{
-			CaCertificateFile:       session.account.SSLConfiguration.CACertificateFile,
-			CaCertificatePath:       session.account.SSLConfiguration.CACertificatePath,
-			EncryptionKeySize:       int32(session.account.SSLConfiguration.EncryptionKeySize),
-			EncryptionAlgorithm:     session.account.SSLConfiguration.EncryptionAlgorithm,
-			EncryptionSaltSize:      int32(session.account.SSLConfiguration.EncryptionSaltSize),
-			EncryptionNumHashRounds: int32(session.account.SSLConfiguration.EncryptionNumHashRounds),
-			VerifyServer:            string(session.account.SSLConfiguration.VerifyServer),
-			DhParamsFile:            session.account.SSLConfiguration.DHParamsFile,
-			ServerName:              session.account.SSLConfiguration.ServerName,
-		}
-	}
-
 	request := &api.LoginRequest{
-		Account: &api.Account{
-			AuthenticationScheme:    string(session.account.AuthenticationScheme),
-			ClientServerNegotiation: session.account.ClientServerNegotiation,
-			CsNegotiationPolicy:     string(session.account.CSNegotiationPolicy),
-			Host:                    session.account.Host,
-			Port:                    int32(session.account.Port),
-			ClientUser:              session.account.ClientUser,
-			ClientZone:              session.account.ClientZone,
-			ProxyUser:               session.account.ProxyUser,
-			ProxyZone:               session.account.ProxyZone,
-			Password:                session.account.Password,
-			Ticket:                  session.account.Ticket,
-			DefaultResource:         session.account.DefaultResource,
-			DefaultHashScheme:       session.account.DefaultHashScheme,
-			PamTtl:                  int32(session.account.PamTTL),
-			PamToken:                session.account.PAMToken,
-			SslConfiguration:        sslConf,
-		},
+		Account:         convertAccountFromIRODSToAPI(session.account),
 		ApplicationName: session.applicationName,
-		ClientId:        session.poolServiceClient.id,
 	}
 
-	response, err := session.poolServiceClient.apiClient.Login(ctx, request)
+	apiClient, err := session.poolServiceClient.getAPIClient()
 	if err != nil {
-		logger.Errorf("%+v", err)
+		return err
+	}
+	response, err := apiClient.Login(ctx, request)
+	if err != nil {
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -360,7 +513,7 @@ func (session *PoolServiceSession) GetApplicationName() string {
 	return session.applicationName
 }
 
-func (session *PoolServiceSession) GetConnections() int {
+func (session *PoolServiceSession) GetOpenConnections() int {
 	// return just 1, proxy connection
 	return 1
 }
@@ -371,15 +524,28 @@ func (session *PoolServiceSession) GetMetrics() *irodsclient_metrics.IRODSMetric
 }
 
 func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) (interface{}, error) {
+	client := session.poolServiceClient
+
+	// While background reconnect is running every call fails immediately.
+	if atomic.LoadInt32(&client.reconnectingFlag) == 1 {
+		return nil, errors.New("pool server reconnect in progress, please retry later")
+	}
+
 	session.mutex.RLock()
 	loggedIn := session.loggedIn
 	session.mutex.RUnlock()
 
 	if !loggedIn {
-		// keepalive detected logged out
-		// relogin first
+		// keepalive detected logged out — relogin first
 		err := session.Relogin()
 		if err != nil {
+			if client.autoReconnect && isTransportError(err) {
+				// Transport error during relogin: trigger background reconnect if not already running.
+				if atomic.CompareAndSwapInt32(&client.reconnectingFlag, 0, 1) {
+					client.logger.Warn("Transport error on re-login, starting background reconnect")
+					client.startBackgroundReconnect()
+				}
+			}
 			return nil, err
 		}
 	}
@@ -387,7 +553,51 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 	// now let's go
 	res, err := f()
 	if err != nil {
-		// relogin required
+		// Check for transport error FIRST: IsReloginRequiredError also returns
+		// true for codes.Unavailable, so it must not intercept transport errors.
+		if client.autoReconnect && isTransportError(err) {
+			session.logger.Warnf("Transport error detected: %v", err)
+
+			session.mutex.Lock()
+			session.loggedIn = false
+			session.mutex.Unlock()
+
+			// Only one goroutine handles the reconnect; others return error immediately.
+			if !atomic.CompareAndSwapInt32(&client.reconnectingFlag, 0, 1) {
+				return res, err
+			}
+
+			// One immediate attempt: recreate connection and test with Relogin.
+			// Use disconnectConn (not Disconnect) to preserve reconnectingFlag==1.
+			client.disconnectConn()
+			_ = client.Connect()
+			if conn := client.getGRPCConnection(); conn != nil {
+				conn.Connect()
+				waitCtx, cancel := context.WithTimeout(context.Background(), reconnectInitialInterval)
+				ready := waitForReady(waitCtx, conn)
+				cancel()
+
+				if ready {
+					if reloginErr := session.Relogin(); reloginErr == nil {
+						// Server is back, resume normally.
+						atomic.StoreInt32(&client.reconnectingFlag, 0)
+						res, err = f()
+						return res, err
+					} else if !isTransportError(reloginErr) {
+						// Server reachable but auth/other error — don't background reconnect.
+						atomic.StoreInt32(&client.reconnectingFlag, 0)
+						return nil, reloginErr
+					}
+				}
+			}
+
+			// Immediate attempt failed — hand off to background reconnect loop.
+			client.logger.Warn("Immediate reconnect failed, starting background reconnect")
+			client.startBackgroundReconnect()
+			return res, err
+		}
+
+		// relogin required (session expired, not a transport failure)
 		if commons.IsReloginRequiredError(err) {
 			session.mutex.Lock()
 			session.loggedIn = false
@@ -418,13 +628,7 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 
 // List lists iRODS collection entries
 func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "List",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	// if there's a cache
 	cachedEntries := []*irodsclient_fs.Entry{}
@@ -461,46 +665,31 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 			Path:      path,
 		}
 
-		return session.poolServiceClient.apiClient.List(ctx, request, getLargeReadOption())
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.List(ctx, request, getLargeReadOption())
 	}
 
 	res, err := session.doWithRelogin(listFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
 	response, ok := res.(*api.ListResponse)
 	if !ok {
-		logger.Error("failed to convert interface to ListResponse")
-		return nil, xerrors.Errorf("failed to convert interface to ListResponse")
+		err = errors.New("failed to convert interface to ListResponse")
+		session.logger.Error(err)
+		return nil, err
 	}
 
 	for _, entry := range response.Entries {
-		createTime, err := irodsfs_common_utils.ParseTime(entry.CreateTime)
+		irodsEntry, err := convertEntryFromAPIToIRODS(entry)
 		if err != nil {
-			logger.Errorf("%+v", err)
+			session.logger.Error(err)
 			return nil, err
-		}
-
-		modifyTime, err := irodsfs_common_utils.ParseTime(entry.ModifyTime)
-		if err != nil {
-			logger.Errorf("%+v", err)
-			return nil, err
-		}
-
-		irodsEntry := &irodsclient_fs.Entry{
-			ID:                entry.Id,
-			Type:              irodsclient_fs.EntryType(entry.Type),
-			Name:              entry.Name,
-			Path:              entry.Path,
-			Owner:             entry.Owner,
-			Size:              entry.Size,
-			DataType:          entry.DataType,
-			CreateTime:        createTime,
-			ModifyTime:        modifyTime,
-			CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(entry.ChecksumAlgorithm),
-			CheckSum:          entry.Checksum,
 		}
 
 		irodsEntries = append(irodsEntries, irodsEntry)
@@ -518,13 +707,7 @@ func (session *PoolServiceSession) List(path string) ([]*irodsclient_fs.Entry, e
 
 // Stat stats iRODS entry
 func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "Stat",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	// if there's a cache
 	cachedEntry := session.poolServiceClient.fsCache.GetEntryCache(path)
@@ -542,45 +725,30 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 			Path:      path,
 		}
 
-		return session.poolServiceClient.apiClient.Stat(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Stat(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(statFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
 	response, ok := res.(*api.StatResponse)
 	if !ok {
-		logger.Error("failed to convert interface to StatResponse")
-		return nil, xerrors.Errorf("failed to convert interface to StatResponse")
-	}
-
-	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
-	if err != nil {
-		logger.Errorf("%+v", err)
+		err = errors.New("failed to convert interface to StatResponse")
+		session.logger.Error(err)
 		return nil, err
 	}
 
-	modifyTime, err := irodsfs_common_utils.ParseTime(response.Entry.ModifyTime)
+	irodsEntry, err := convertEntryFromAPIToIRODS(response.Entry)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
-	}
-
-	irodsEntry := &irodsclient_fs.Entry{
-		ID:                response.Entry.Id,
-		Type:              irodsclient_fs.EntryType(response.Entry.Type),
-		Name:              response.Entry.Name,
-		Path:              response.Entry.Path,
-		Owner:             response.Entry.Owner,
-		Size:              response.Entry.Size,
-		DataType:          response.Entry.DataType,
-		CreateTime:        createTime,
-		ModifyTime:        modifyTime,
-		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
-		CheckSum:          response.Entry.Checksum,
 	}
 
 	// put to cache
@@ -589,181 +757,9 @@ func (session *PoolServiceSession) Stat(path string) (*irodsclient_fs.Entry, err
 	return irodsEntry, nil
 }
 
-// ListXattr lists iRODS metadata (xattr)
-func (session *PoolServiceSession) ListXattr(path string) ([]*irodsclient_types.IRODSMeta, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "ListXattr",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	irodsMetadata := []*irodsclient_types.IRODSMeta{}
-
-	listXattrFunc := func() (interface{}, error) {
-		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.ListXattrRequest{
-			SessionId: session.id,
-			Path:      path,
-		}
-
-		return session.poolServiceClient.apiClient.ListXattr(ctx, request, getLargeReadOption())
-	}
-
-	res, err := session.doWithRelogin(listXattrFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.StatusToError(err)
-	}
-
-	response, ok := res.(*api.ListXattrResponse)
-	if !ok {
-		logger.Error("failed to convert interface to ListXattrResponse")
-		return nil, xerrors.Errorf("failed to convert interface to ListXattrResponse")
-	}
-
-	for _, metadata := range response.Metadata {
-		irodsMeta := &irodsclient_types.IRODSMeta{
-			AVUID: metadata.Id,
-			Name:  metadata.Name,
-			Value: metadata.Value,
-			Units: metadata.Unit,
-		}
-
-		irodsMetadata = append(irodsMetadata, irodsMeta)
-	}
-
-	return irodsMetadata, nil
-}
-
-// GetXattr returns iRODS metadata (xattr)
-func (session *PoolServiceSession) GetXattr(path string, name string) (*irodsclient_types.IRODSMeta, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "GetXattr",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	getXattrFunc := func() (interface{}, error) {
-		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.GetXattrRequest{
-			SessionId: session.id,
-			Path:      path,
-			Name:      name,
-		}
-
-		return session.poolServiceClient.apiClient.GetXattr(ctx, request)
-	}
-
-	res, err := session.doWithRelogin(getXattrFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		err2 := commons.StatusToError(err)
-		if irodsclient_types.IsFileNotFoundError(err2) {
-			// xattr not found
-			return nil, nil
-		}
-
-		return nil, err
-	}
-
-	response, ok := res.(*api.GetXattrResponse)
-	if !ok {
-		logger.Error("failed to convert interface to GetXattrResponse")
-		return nil, xerrors.Errorf("failed to convert interface to GetXattrResponse")
-	}
-
-	irodsMeta := &irodsclient_types.IRODSMeta{
-		AVUID: response.Metadata.Id,
-		Name:  response.Metadata.Name,
-		Value: response.Metadata.Value,
-		Units: response.Metadata.Unit,
-	}
-
-	return irodsMeta, nil
-}
-
-// SetXattr sets iRODS metadata (xattr)
-func (session *PoolServiceSession) SetXattr(path string, name string, value string) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "SetXattr",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	setXattrFunc := func() (interface{}, error) {
-		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.SetXattrRequest{
-			SessionId: session.id,
-			Path:      path,
-			Name:      name,
-			Value:     value,
-		}
-
-		return session.poolServiceClient.apiClient.SetXattr(ctx, request)
-	}
-
-	_, err := session.doWithRelogin(setXattrFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return commons.StatusToError(err)
-	}
-
-	return nil
-}
-
-// RemoveXattr removes iRODS metadata (xattr)
-func (session *PoolServiceSession) RemoveXattr(path string, name string) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "RemoveXattr",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	removeXattrFunc := func() (interface{}, error) {
-		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.RemoveXattrRequest{
-			SessionId: session.id,
-			Path:      path,
-			Name:      name,
-		}
-
-		return session.poolServiceClient.apiClient.RemoveXattr(ctx, request)
-	}
-
-	_, err := session.doWithRelogin(removeXattrFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return commons.StatusToError(err)
-	}
-
-	return nil
-}
-
 // ExistsDir checks existence of Dir
 func (session *PoolServiceSession) ExistsDir(path string) bool {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "ExistsDir",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	// if there's a cache
 	cachedEntry := session.poolServiceClient.fsCache.GetEntryCache(path)
@@ -781,18 +777,22 @@ func (session *PoolServiceSession) ExistsDir(path string) bool {
 			Path:      path,
 		}
 
-		return session.poolServiceClient.apiClient.ExistsDir(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.ExistsDir(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(existsDirFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return false
 	}
 
 	response, ok := res.(*api.ExistsDirResponse)
 	if !ok {
-		logger.Error("failed to convert interface to ExistsDirResponse")
+		session.logger.Error("failed to convert interface to ExistsDirResponse")
 		return false
 	}
 
@@ -801,13 +801,7 @@ func (session *PoolServiceSession) ExistsDir(path string) bool {
 
 // ExistsFile checks existence of File
 func (session *PoolServiceSession) ExistsFile(path string) bool {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "ExistsFile",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	// if there's a cache
 	cachedEntry := session.poolServiceClient.fsCache.GetEntryCache(path)
@@ -825,267 +819,31 @@ func (session *PoolServiceSession) ExistsFile(path string) bool {
 			Path:      path,
 		}
 
-		return session.poolServiceClient.apiClient.ExistsFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.ExistsFile(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(existsFileFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return false
 	}
 
 	response, ok := res.(*api.ExistsFileResponse)
 	if !ok {
-		logger.Error("failed to convert interface to ExistsFileResponse")
+		session.logger.Error("failed to convert interface to ExistsFileResponse")
 		return false
 	}
 
 	return response.Exist
 }
 
-// ListUserGroups lists iRODS Groups that a user belongs to
-func (session *PoolServiceSession) ListUserGroups(zone string, user string) ([]*irodsclient_types.IRODSUser, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "ListUserGroups",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	listUserGroupsFunc := func() (interface{}, error) {
-		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.ListUserGroupsRequest{
-			SessionId: session.id,
-			Zone:      zone,
-			UserName:  user,
-		}
-
-		return session.poolServiceClient.apiClient.ListUserGroups(ctx, request, getLargeReadOption())
-	}
-
-	res, err := session.doWithRelogin(listUserGroupsFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.StatusToError(err)
-	}
-
-	response, ok := res.(*api.ListUserGroupsResponse)
-	if !ok {
-		logger.Error("failed to convert interface to ListUserGroupsResponse")
-		return nil, xerrors.Errorf("failed to convert interface to ListUserGroupsResponse")
-	}
-
-	irodsUsers := []*irodsclient_types.IRODSUser{}
-
-	for _, user := range response.Users {
-		irodsUser := &irodsclient_types.IRODSUser{
-			Name: user.Name,
-			Zone: user.Zone,
-			Type: irodsclient_types.IRODSUserType(user.Type),
-		}
-
-		irodsUsers = append(irodsUsers, irodsUser)
-	}
-
-	return irodsUsers, nil
-}
-
-// ListDirACLs lists iRODS collection ACLs
-func (session *PoolServiceSession) ListDirACLs(path string) ([]*irodsclient_types.IRODSAccess, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "ListDirACLs",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	// if there's a cache
-	cachedACLs := session.poolServiceClient.fsCache.GetACLsCache(path)
-	if cachedACLs != nil {
-		return cachedACLs, nil
-	}
-
-	// no cache
-	irodsAccesses := []*irodsclient_types.IRODSAccess{}
-
-	listDirACLsFunc := func() (interface{}, error) {
-		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.ListDirACLsRequest{
-			SessionId: session.id,
-			Path:      path,
-		}
-
-		return session.poolServiceClient.apiClient.ListDirACLs(ctx, request, getLargeReadOption())
-	}
-
-	res, err := session.doWithRelogin(listDirACLsFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.StatusToError(err)
-	}
-
-	response, ok := res.(*api.ListDirACLsResponse)
-	if !ok {
-		logger.Error("failed to convert interface to ListDirACLsResponse")
-		return nil, xerrors.Errorf("failed to convert interface to ListDirACLsResponse")
-	}
-
-	for _, access := range response.Accesses {
-		irodsAccess := &irodsclient_types.IRODSAccess{
-			Path:        access.Path,
-			UserName:    access.UserName,
-			UserZone:    access.UserZone,
-			UserType:    irodsclient_types.IRODSUserType(access.UserType),
-			AccessLevel: irodsclient_types.IRODSAccessLevelType(access.AccessLevel),
-		}
-
-		irodsAccesses = append(irodsAccesses, irodsAccess)
-	}
-
-	// put to cache
-	session.poolServiceClient.fsCache.AddACLsCache(path, irodsAccesses)
-
-	return irodsAccesses, nil
-}
-
-// ListFileACLs lists iRODS data object ACLs
-func (session *PoolServiceSession) ListFileACLs(path string) ([]*irodsclient_types.IRODSAccess, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "ListFileACLs",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	// if there's a cache
-	cachedACLs := session.poolServiceClient.fsCache.GetACLsCache(path)
-	if cachedACLs != nil {
-		return cachedACLs, nil
-	}
-
-	// no cache
-	irodsAccesses := []*irodsclient_types.IRODSAccess{}
-
-	listFileACLsFunc := func() (interface{}, error) {
-		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.ListFileACLsRequest{
-			SessionId: session.id,
-			Path:      path,
-		}
-
-		return session.poolServiceClient.apiClient.ListFileACLs(ctx, request, getLargeReadOption())
-	}
-
-	res, err := session.doWithRelogin(listFileACLsFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.StatusToError(err)
-	}
-
-	response, ok := res.(*api.ListFileACLsResponse)
-	if !ok {
-		logger.Error("failed to convert interface to ListFileACLsResponse")
-		return nil, xerrors.Errorf("failed to convert interface to ListFileACLsResponse")
-	}
-
-	for _, access := range response.Accesses {
-		irodsAccess := &irodsclient_types.IRODSAccess{
-			Path:        access.Path,
-			UserName:    access.UserName,
-			UserZone:    access.UserZone,
-			UserType:    irodsclient_types.IRODSUserType(access.UserType),
-			AccessLevel: irodsclient_types.IRODSAccessLevelType(access.AccessLevel),
-		}
-
-		irodsAccesses = append(irodsAccesses, irodsAccess)
-	}
-
-	// put to cache
-	session.poolServiceClient.fsCache.AddACLsCache(path, irodsAccesses)
-
-	return irodsAccesses, nil
-}
-
-// ListACLsForEntries lists ACLs for entries in an iRODS collection
-func (session *PoolServiceSession) ListACLsForEntries(path string) ([]*irodsclient_types.IRODSAccess, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "ListACLsForEntries",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	// if there's a cache
-	cachedACLs := session.poolServiceClient.fsCache.GetDirEntryACLsCache(path)
-	if cachedACLs != nil {
-		return cachedACLs, nil
-	}
-
-	// no cache
-	listACLsForEntriesFunc := func() (interface{}, error) {
-		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.ListACLsForEntriesRequest{
-			SessionId: session.id,
-			Path:      path,
-		}
-
-		return session.poolServiceClient.apiClient.ListACLsForEntries(ctx, request, getLargeReadOption())
-	}
-
-	res, err := session.doWithRelogin(listACLsForEntriesFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return nil, commons.StatusToError(err)
-	}
-
-	response, ok := res.(*api.ListACLsForEntriesResponse)
-	if !ok {
-		logger.Error("failed to convert interface to ListACLsForEntriesResponse")
-		return nil, xerrors.Errorf("failed to convert interface to ListACLsForEntriesResponse")
-	}
-
-	irodsAccesses := []*irodsclient_types.IRODSAccess{}
-
-	for _, access := range response.Accesses {
-		irodsAccess := &irodsclient_types.IRODSAccess{
-			Path:        access.Path,
-			UserName:    access.UserName,
-			UserZone:    access.UserZone,
-			UserType:    irodsclient_types.IRODSUserType(access.UserType),
-			AccessLevel: irodsclient_types.IRODSAccessLevelType(access.AccessLevel),
-		}
-
-		irodsAccesses = append(irodsAccesses, irodsAccess)
-	}
-
-	// put to cache
-	session.poolServiceClient.fsCache.AddDirEntryACLsCache(path, irodsAccesses)
-	session.poolServiceClient.fsCache.AddACLsCacheMulti(irodsAccesses)
-
-	return irodsAccesses, nil
-}
-
 // RemoveFile removes iRODS data object
 func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "RemoveFile",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	removeFileFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
@@ -1097,12 +855,16 @@ func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
 			Force:     force,
 		}
 
-		return session.poolServiceClient.apiClient.RemoveFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.RemoveFile(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(removeFileFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -1114,13 +876,7 @@ func (session *PoolServiceSession) RemoveFile(path string, force bool) error {
 
 // RemoveDir removes iRODS collection
 func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bool) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "RemoveDir",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	removeDirFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
@@ -1133,12 +889,16 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 			Force:     force,
 		}
 
-		return session.poolServiceClient.apiClient.RemoveDir(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.RemoveDir(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(removeDirFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -1150,13 +910,7 @@ func (session *PoolServiceSession) RemoveDir(path string, recurse bool, force bo
 
 // MakeDir creates a new iRODS collection
 func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "MakeDir",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	makeDirFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
@@ -1168,12 +922,16 @@ func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
 			Recurse:   recurse,
 		}
 
-		return session.poolServiceClient.apiClient.MakeDir(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.MakeDir(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(makeDirFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -1185,13 +943,7 @@ func (session *PoolServiceSession) MakeDir(path string, recurse bool) error {
 
 // RenameDirToDir renames iRODS collection
 func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath string) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "RenameDirToDir",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	renameDirToDirFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
@@ -1203,12 +955,16 @@ func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath strin
 			DestinationPath: destPath,
 		}
 
-		return session.poolServiceClient.apiClient.RenameDirToDir(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.RenameDirToDir(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(renameDirToDirFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -1220,13 +976,7 @@ func (session *PoolServiceSession) RenameDirToDir(srcPath string, destPath strin
 
 // RenameFileToFile renames iRODS data object
 func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath string) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "RenameFileToFile",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	renameFileToFileFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
@@ -1238,12 +988,16 @@ func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath str
 			DestinationPath: destPath,
 		}
 
-		return session.poolServiceClient.apiClient.RenameFileToFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.RenameFileToFile(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(renameFileToFileFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -1254,14 +1008,8 @@ func (session *PoolServiceSession) RenameFileToFile(srcPath string, destPath str
 }
 
 // CreateFile creates a new iRODS data object
-func (session *PoolServiceSession) CreateFile(path string, resource string, mode string) (irodsfs_common_irods.IRODSFSFileHandle, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "CreateFile",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+func (session *PoolServiceSession) CreateFile(path string, mode string) (irodsfs_common_irods.IRODSFSFileHandle, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	createFileFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
@@ -1270,72 +1018,58 @@ func (session *PoolServiceSession) CreateFile(path string, resource string, mode
 		request := &api.CreateFileRequest{
 			SessionId: session.id,
 			Path:      path,
-			Resource:  resource,
 			Mode:      mode,
 		}
 
-		return session.poolServiceClient.apiClient.CreateFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.CreateFile(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(createFileFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
 	response, ok := res.(*api.CreateFileResponse)
 	if !ok {
-		logger.Error("failed to convert interface to CreateFileResponse")
-		return nil, xerrors.Errorf("failed to convert interface to CreateFileResponse")
-	}
-
-	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
-	if err != nil {
-		logger.Errorf("%+v", err)
+		err = errors.New("failed to convert interface to CreateFileResponse")
+		session.logger.Error(err)
 		return nil, err
 	}
 
-	modifyTime, err := irodsfs_common_utils.ParseTime(response.Entry.ModifyTime)
+	irodsEntry, err := convertEntryFromAPIToIRODS(response.Entry)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
-	}
-
-	irodsEntry := &irodsclient_fs.Entry{
-		ID:                response.Entry.Id,
-		Type:              irodsclient_fs.EntryType(response.Entry.Type),
-		Name:              response.Entry.Name,
-		Path:              response.Entry.Path,
-		Owner:             response.Entry.Owner,
-		Size:              response.Entry.Size,
-		DataType:          response.Entry.DataType,
-		CreateTime:        createTime,
-		ModifyTime:        modifyTime,
-		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
-		CheckSum:          response.Entry.Checksum,
 	}
 
 	// remove cache
 	session.InvalidateCacheForCreateFile(path)
+	session.poolServiceClient.fsCache.AddEntryCache(irodsEntry)
 
-	return &PoolServiceFileHandle{
+	handle := &PoolServiceFileHandle{
 		id:                 response.FileHandleId,
 		poolServiceClient:  session.poolServiceClient,
 		poolServiceSession: session,
 		entry:              irodsEntry,
 		openMode:           irodsclient_types.FileOpenMode(mode),
-	}, nil
+		logger:             session.logger.WithFields(log.Fields{"handle_id": response.FileHandleId}),
+	}
+
+	if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
+		handle.writeBuffered = true
+	}
+
+	return handle, nil
 }
 
 // OpenFile opens iRODS data object
-func (session *PoolServiceSession) OpenFile(path string, resource string, mode string) (irodsfs_common_irods.IRODSFSFileHandle, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "OpenFile",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+func (session *PoolServiceSession) OpenFile(path string, mode string) (irodsfs_common_irods.IRODSFSFileHandle, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	openFileFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
@@ -1344,69 +1078,195 @@ func (session *PoolServiceSession) OpenFile(path string, resource string, mode s
 		request := &api.OpenFileRequest{
 			SessionId: session.id,
 			Path:      path,
-			Resource:  resource,
 			Mode:      mode,
 		}
 
-		return session.poolServiceClient.apiClient.OpenFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.OpenFile(ctx, request)
 	}
 
 	res, err := session.doWithRelogin(openFileFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, commons.StatusToError(err)
 	}
 
 	response, ok := res.(*api.OpenFileResponse)
 	if !ok {
-		logger.Error("failed to convert interface to OpenFileResponse")
-		return nil, xerrors.Errorf("failed to convert interface to OpenFileResponse")
-	}
-
-	createTime, err := irodsfs_common_utils.ParseTime(response.Entry.CreateTime)
-	if err != nil {
-		logger.Errorf("%+v", err)
+		err = errors.New("failed to convert interface to OpenFileResponse")
+		session.logger.Error(err)
 		return nil, err
 	}
 
-	modifyTime, err := irodsfs_common_utils.ParseTime(response.Entry.ModifyTime)
+	irodsEntry, err := convertEntryFromAPIToIRODS(response.Entry)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return nil, err
 	}
 
-	irodsEntry := &irodsclient_fs.Entry{
-		ID:                response.Entry.Id,
-		Type:              irodsclient_fs.EntryType(response.Entry.Type),
-		Name:              response.Entry.Name,
-		Path:              response.Entry.Path,
-		Owner:             response.Entry.Owner,
-		Size:              response.Entry.Size,
-		DataType:          response.Entry.DataType,
-		CreateTime:        createTime,
-		ModifyTime:        modifyTime,
-		CheckSumAlgorithm: irodsclient_types.ChecksumAlgorithm(response.Entry.ChecksumAlgorithm),
-		CheckSum:          response.Entry.Checksum,
-	}
-
-	return &PoolServiceFileHandle{
+	handle := &PoolServiceFileHandle{
 		id:                 response.FileHandleId,
 		poolServiceClient:  session.poolServiceClient,
 		poolServiceSession: session,
 		entry:              irodsEntry,
 		openMode:           irodsclient_types.FileOpenMode(mode),
-	}, nil
+
+		logger: session.logger.WithFields(log.Fields{"handle_id": response.FileHandleId}),
+	}
+
+	// The server-side open observes the current size of staged files. Publish
+	// that snapshot so a following getattr cannot reuse metadata cached before
+	// the file was written.
+	session.poolServiceClient.fsCache.AddEntryCache(irodsEntry)
+
+	if irodsclient_types.FileOpenMode(mode).IsReadOnly() {
+		count := atomic.AddInt32(&session.openReadOnlyHandles, 1)
+		if int(count) <= maxPrefetchHandles {
+			handle.prefetch = &prefetchState{
+				buf:     make([]byte, prefetchBlockSize),
+				nextBuf: make([]byte, prefetchBlockSize),
+			}
+		} else {
+			session.CacheFileAsync(irodsEntry.Path)
+		}
+	} else if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
+		handle.writeBuffered = true
+	}
+
+	return handle, nil
+}
+
+// CreateFileBulk creates an iRODS data object for bulk upload (file is synced and deleted after close)
+func (session *PoolServiceSession) CreateFileBulk(path string, mode string) (irodsfs_common_irods.IRODSFSFileHandle, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	createFileBulkFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		request := &api.CreateFileBulkRequest{
+			SessionId: session.id,
+			Path:      path,
+			Mode:      mode,
+		}
+
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.CreateFileBulk(ctx, request)
+	}
+
+	res, err := session.doWithRelogin(createFileBulkFunc)
+	if err != nil {
+		session.logger.Error(err)
+		return nil, commons.StatusToError(err)
+	}
+
+	response, ok := res.(*api.CreateFileBulkResponse)
+	if !ok {
+		err = errors.New("failed to convert interface to CreateFileBulkResponse")
+		session.logger.Error(err)
+		return nil, err
+	}
+
+	irodsEntry, err := convertEntryFromAPIToIRODS(response.Entry)
+	if err != nil {
+		session.logger.Error(err)
+		return nil, err
+	}
+
+	// remove cache
+	session.InvalidateCacheForCreateFile(path)
+
+	handle := &PoolServiceFileHandle{
+		id:                 response.FileHandleId,
+		poolServiceClient:  session.poolServiceClient,
+		poolServiceSession: session,
+		entry:              irodsEntry,
+		openMode:           irodsclient_types.FileOpenMode(mode),
+		logger:             session.logger.WithFields(log.Fields{"handle_id": response.FileHandleId}),
+	}
+
+	if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
+		handle.writeBuffered = true
+	}
+
+	return handle, nil
+}
+
+// OpenFileBulk opens an iRODS data object for bulk upload (file is synced and deleted after close)
+func (session *PoolServiceSession) OpenFileBulk(path string, mode string) (irodsfs_common_irods.IRODSFSFileHandle, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	openFileBulkFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		request := &api.OpenFileBulkRequest{
+			SessionId: session.id,
+			Path:      path,
+			Mode:      mode,
+		}
+
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.OpenFileBulk(ctx, request)
+	}
+
+	res, err := session.doWithRelogin(openFileBulkFunc)
+	if err != nil {
+		session.logger.Error(err)
+		return nil, commons.StatusToError(err)
+	}
+
+	response, ok := res.(*api.OpenFileBulkResponse)
+	if !ok {
+		err = errors.New("failed to convert interface to OpenFileBulkResponse")
+		session.logger.Error(err)
+		return nil, err
+	}
+
+	irodsEntry, err := convertEntryFromAPIToIRODS(response.Entry)
+	if err != nil {
+		session.logger.Error(err)
+		return nil, err
+	}
+
+	handle := &PoolServiceFileHandle{
+		id:                 response.FileHandleId,
+		poolServiceClient:  session.poolServiceClient,
+		poolServiceSession: session,
+		entry:              irodsEntry,
+		openMode:           irodsclient_types.FileOpenMode(mode),
+		logger:             session.logger.WithFields(log.Fields{"handle_id": response.FileHandleId}),
+	}
+
+	if irodsclient_types.FileOpenMode(mode).IsReadOnly() {
+		count := atomic.AddInt32(&session.openReadOnlyHandles, 1)
+		if int(count) <= maxPrefetchHandles {
+			handle.prefetch = &prefetchState{
+				buf:     make([]byte, prefetchBlockSize),
+				nextBuf: make([]byte, prefetchBlockSize),
+			}
+		} else {
+			session.CacheFileAsync(irodsEntry.Path)
+		}
+	} else if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
+		handle.writeBuffered = true
+	}
+
+	return handle, nil
 }
 
 // TruncateFile truncates iRODS data object
 func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceSession",
-		"function": "TruncateFile",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	truncateFileFunc := func() (interface{}, error) {
 		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
@@ -1418,12 +1278,16 @@ func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 			Size:      size,
 		}
 
-		return session.poolServiceClient.apiClient.TruncateFile(ctx, request)
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.TruncateFile(ctx, request)
 	}
 
 	_, err := session.doWithRelogin(truncateFileFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		session.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
@@ -1433,31 +1297,378 @@ func (session *PoolServiceSession) TruncateFile(path string, size int64) error {
 	return nil
 }
 
+// Sync synchronizes data
+func (session *PoolServiceSession) Sync() error {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	syncFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		request := &api.SyncRequest{
+			SessionId: session.id,
+		}
+
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Sync(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(syncFunc)
+	if err != nil {
+		session.logger.Error(err)
+		return commons.StatusToError(err)
+	}
+
+	return nil
+}
+
+// DownloadFile downloads iRODS file to local path using ReadStream
+func (session *PoolServiceSession) DownloadFile(irodsPath string, localPath string, transferCallback irodsclient_common.TransferTrackerCallback) error {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	var fileSize int64
+	if transferCallback != nil {
+		entry, err := session.Stat(irodsPath)
+		if err != nil {
+			return err
+		}
+		fileSize = entry.Size
+	}
+
+	localFile, err := os.Create(localPath)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create local file %q", localPath)
+	}
+	defer localFile.Close()
+
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.ReadStreamRequest{
+		SessionId: session.id,
+		IrodsPath: irodsPath,
+	}
+
+	apiClient, err := session.poolServiceClient.getAPIClient()
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+	stream, err := apiClient.ReadStream(ctx, request, getLargeReadOption())
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+
+	for {
+		response, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return commons.StatusToError(err)
+		}
+
+		_, writeErr := localFile.WriteAt(response.Data, response.Offset)
+		if writeErr != nil {
+			return errors.Wrapf(writeErr, "failed to write to local file %q", localPath)
+		}
+
+		if transferCallback != nil {
+			newOffset := response.Offset + int64(len(response.Data))
+			transferCallback("download", newOffset, fileSize)
+		}
+	}
+
+	return nil
+}
+
+// DownloadFileParallel downloads iRODS file to local path (uses single stream)
+func (session *PoolServiceSession) DownloadFileParallel(irodsPath string, localPath string, taskNum int, transferCallback irodsclient_common.TransferTrackerCallback) error {
+	return session.DownloadFile(irodsPath, localPath, transferCallback)
+}
+
+// DownloadFileWithCallback downloads iRODS file and calls blockReadyCallback for each block
+func (session *PoolServiceSession) DownloadFileWithCallback(irodsPath string, blockSize int, numBlocks int, blockReadyCallback irodsclient_common.DataObjectBlockCallback, transferCallback irodsclient_common.TransferTrackerCallback) error {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	var fileSize int64
+	if transferCallback != nil {
+		entry, err := session.Stat(irodsPath)
+		if err != nil {
+			return err
+		}
+		fileSize = entry.Size
+	}
+
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.ReadStreamRequest{
+		SessionId: session.id,
+		IrodsPath: irodsPath,
+		BlockSize: int32(blockSize),
+		NumBlocks: int32(numBlocks),
+	}
+
+	apiClient, err := session.poolServiceClient.getAPIClient()
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+	stream, err := apiClient.ReadStream(ctx, request, getLargeReadOption())
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+
+	for {
+		response, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return commons.StatusToError(err)
+		}
+
+		if blockReadyCallback != nil {
+			callbackErr := blockReadyCallback(response.Data, response.Offset)
+			if callbackErr != nil {
+				return callbackErr
+			}
+		}
+
+		if transferCallback != nil {
+			newOffset := response.Offset + int64(len(response.Data))
+			transferCallback("download", newOffset, fileSize)
+		}
+	}
+
+	return nil
+}
+
+// DownloadFileParallelWithCallback downloads iRODS file with callback using parallel reading on the server
+func (session *PoolServiceSession) DownloadFileParallelWithCallback(irodsPath string, blockSize int, numBlocks int, blockReadyCallback irodsclient_common.DataObjectBlockCallback, taskNum int, transferCallback irodsclient_common.TransferTrackerCallback) error {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.ReadStreamParallelRequest{
+		SessionId: session.id,
+		IrodsPath: irodsPath,
+		BlockSize: int32(blockSize),
+		NumBlocks: int32(numBlocks),
+		TaskNum:   int32(taskNum),
+	}
+
+	apiClient, err := session.poolServiceClient.getAPIClient()
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+	stream, err := apiClient.ReadStreamParallel(ctx, request, getLargeReadOption())
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+
+	for {
+		response, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return commons.StatusToError(err)
+		}
+
+		if blockReadyCallback != nil {
+			callbackErr := blockReadyCallback(response.Data, response.Offset)
+			if callbackErr != nil {
+				return callbackErr
+			}
+		}
+
+		if transferCallback != nil {
+			newOffset := response.Offset + int64(len(response.Data))
+			transferCallback("download", newOffset, 0)
+		}
+	}
+
+	return nil
+}
+
+// UploadFile uploads local file to iRODS path using WriteStream
+func (session *PoolServiceSession) UploadFile(localPath string, irodsPath string, transferCallback irodsclient_common.TransferTrackerCallback) error {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	fileInfo, err := os.Stat(localPath)
+	if err != nil {
+		return errors.Wrapf(err, "failed to stat local file %q", localPath)
+	}
+
+	// open local file
+	localFile, err := os.Open(localPath)
+	if err != nil {
+		return errors.Wrapf(err, "failed to open local file %q", localPath)
+	}
+	defer localFile.Close()
+
+	// use WriteStream
+	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	apiClient, err := session.poolServiceClient.getAPIClient()
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+	stream, err := apiClient.WriteStream(ctx, getLargeWriteOption())
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+
+	err = stream.Send(&api.WriteStreamRequest{
+		Payload: &api.WriteStreamRequest_Header{
+			Header: &api.WriteStreamHeader{
+				SessionId: session.id,
+				IrodsPath: irodsPath,
+			},
+		},
+	})
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+
+	buffer := make([]byte, fileRWLengthMax)
+	var offset int64
+
+	for {
+		n, readErr := localFile.Read(buffer)
+		if n > 0 {
+			sendErr := stream.Send(&api.WriteStreamRequest{
+				Payload: &api.WriteStreamRequest_Block{
+					Block: &api.WriteStreamBlock{
+						Offset: offset,
+						Data:   buffer[:n],
+					},
+				},
+			})
+			if sendErr != nil {
+				return commons.StatusToError(sendErr)
+			}
+			offset += int64(n)
+
+			if transferCallback != nil {
+				transferCallback("upload", offset, fileInfo.Size())
+			}
+		}
+
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return errors.Wrapf(readErr, "failed to read local file %q", localPath)
+		}
+	}
+
+	_, err = stream.CloseAndRecv()
+	if err != nil {
+		return commons.StatusToError(err)
+	}
+
+	session.InvalidateCacheForCreateFile(irodsPath)
+
+	return nil
+}
+
+// UploadFileParallel uploads local file to iRODS path (uses single stream)
+func (session *PoolServiceSession) UploadFileParallel(localPath string, irodsPath string, taskNum int, transferCallback irodsclient_common.TransferTrackerCallback) error {
+	return session.UploadFile(localPath, irodsPath, transferCallback)
+}
+
+// CacheFile requests the pool server to cache file content (synchronous)
+func (session *PoolServiceSession) CacheFile(irodsPath string, transferCallback irodsclient_common.TransferTrackerCallback) error {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	cacheFileFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		request := &api.CacheFileRequest{
+			SessionId: session.id,
+			IrodsPath: irodsPath,
+		}
+
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.CacheFile(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(cacheFileFunc)
+	if err != nil {
+		session.logger.Error(err)
+		return commons.StatusToError(err)
+	}
+
+	return nil
+}
+
+// CacheFileAsync requests the pool server to cache file content in background.
+// The server returns immediately and caches asynchronously.
+// Session release on the server waits for the caching to complete.
+func (session *PoolServiceSession) CacheFileAsync(irodsPath string) {
+	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+
+	cacheFileFunc := func() (interface{}, error) {
+		ctx, cancel := session.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		request := &api.CacheFileRequest{
+			SessionId: session.id,
+			IrodsPath: irodsPath,
+			Async:     true,
+		}
+
+		apiClient, err := session.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.CacheFile(ctx, request)
+	}
+
+	_, err := session.doWithRelogin(cacheFileFunc)
+	if err != nil {
+		session.logger.Error(err)
+	}
+}
+
+// InvalidateAllCache removes all caches
+func (session *PoolServiceSession) InvalidateAllCache() {
+	session.poolServiceClient.fsCache.ClearDirCache()
+	session.poolServiceClient.fsCache.ClearEntryCache()
+}
+
 // InvalidateCacheForRemoveFile removes caches for file
 func (session *PoolServiceSession) InvalidateCacheForRemoveFile(path string) {
 	// remove cache
-	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	parentDirPath := irodsclient_util.GetIRODSPathDirname(path)
 	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
 	session.poolServiceClient.fsCache.RemoveEntryCache(path)
-	session.poolServiceClient.fsCache.RemoveACLsCache(path)
 }
 
 // InvalidateCacheForCreateFile removes caches for file
 func (session *PoolServiceSession) InvalidateCacheForCreateFile(path string) {
 	// remove cache
-	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	parentDirPath := irodsclient_util.GetIRODSPathDirname(path)
 	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
 	session.poolServiceClient.fsCache.RemoveEntryCache(path)
-	session.poolServiceClient.fsCache.RemoveACLsCache(path)
 }
 
 // InvalidateCacheForUpdateFile removes caches for file
 func (session *PoolServiceSession) InvalidateCacheForUpdateFile(path string) {
 	// remove cache
-	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	parentDirPath := irodsclient_util.GetIRODSPathDirname(path)
 	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
 	session.poolServiceClient.fsCache.RemoveEntryCache(path)
-	session.poolServiceClient.fsCache.RemoveACLsCache(path)
 }
 
 // InvalidateCacheForRenameFile removes caches for file
@@ -1468,8 +1679,6 @@ func (session *PoolServiceSession) InvalidateCacheForRenameFile(srcPath string, 
 
 func (session *PoolServiceSession) invalidateCacheForRemoveDirInternal(path string, recurse bool) {
 	session.poolServiceClient.fsCache.RemoveEntryCache(path)
-	session.poolServiceClient.fsCache.RemoveACLsCache(path)
-	session.poolServiceClient.fsCache.RemoveDirEntryACLsCache(path)
 
 	if recurse {
 		dirEntries := session.poolServiceClient.fsCache.GetDirCache(path)
@@ -1493,23 +1702,20 @@ func (session *PoolServiceSession) InvalidateCacheForRemoveDir(path string, recu
 		}
 	}
 
-	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	parentDirPath := irodsclient_util.GetIRODSPathDirname(path)
 	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
 
 	session.poolServiceClient.fsCache.RemoveDirCache(path)
-	session.poolServiceClient.fsCache.RemoveDirEntryACLsCache(path)
 	session.poolServiceClient.fsCache.RemoveEntryCache(path)
-	session.poolServiceClient.fsCache.RemoveACLsCache(path)
 }
 
 // InvalidateCacheForMakeDir removes caches for dir
 func (session *PoolServiceSession) InvalidateCacheForMakeDir(path string) {
 	// remove cache
-	parentDirPath := irodsfs_common_utils.GetDirname(path)
+	parentDirPath := irodsclient_util.GetIRODSPathDirname(path)
 	session.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
 	session.poolServiceClient.fsCache.RemoveDirCache(path)
 	session.poolServiceClient.fsCache.RemoveEntryCache(path)
-	session.poolServiceClient.fsCache.RemoveACLsCache(path)
 }
 
 // InvalidateCacheForRenameDir removes caches for dir
@@ -1526,8 +1732,18 @@ type PoolServiceFileHandle struct {
 	entry              *irodsclient_fs.Entry
 	openMode           irodsclient_types.FileOpenMode
 
-	availableOffset int64
-	availableLen    int64
+	writeBuffered     bool
+	writeBuffer       []byte
+	writeBufferOffset int64
+	writeBufferSize   int
+
+	prefetch *prefetchState
+
+	readMutex sync.Mutex
+	closed    bool
+	mutex     sync.Mutex
+
+	logger *log.Entry
 }
 
 func (handle *PoolServiceFileHandle) GetID() string {
@@ -1542,43 +1758,6 @@ func (handle *PoolServiceFileHandle) GetOpenMode() irodsclient_types.FileOpenMod
 	return handle.openMode
 }
 
-// GetOffset returns current offset
-func (handle *PoolServiceFileHandle) GetOffset() int64 {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceFileHandle",
-		"function": "GetOffset",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	getOffsetFunc := func() (interface{}, error) {
-		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.GetOffsetRequest{
-			SessionId:    handle.poolServiceSession.id,
-			FileHandleId: handle.id,
-		}
-
-		return handle.poolServiceClient.apiClient.GetOffset(ctx, request)
-	}
-
-	res, err := handle.poolServiceSession.doWithRelogin(getOffsetFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return -1
-	}
-
-	response, ok := res.(*api.GetOffsetResponse)
-	if !ok {
-		logger.Error("failed to convert interface to GetOffsetResponse")
-		return -1
-	}
-
-	return response.Offset
-}
-
 func (handle *PoolServiceFileHandle) IsReadMode() bool {
 	return handle.openMode.IsRead()
 }
@@ -1589,14 +1768,210 @@ func (handle *PoolServiceFileHandle) IsWriteMode() bool {
 
 // ReadAt reads iRODS data object
 func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceFileHandle",
-		"function": "ReadAt",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(handle.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	if handle.prefetch == nil {
+		return handle.readFromServer(buffer, offset)
+	}
 
+	// FUSE may issue concurrent reads for a single open file handle. The
+	// prefetch state uses a current and a next buffer and deliberately drops
+	// its own lock while fetching a cache miss. Serialize callers here so two
+	// misses cannot overwrite that shared state or start background fetches
+	// into the same next buffer.
+	handle.readMutex.Lock()
+	defer handle.readMutex.Unlock()
+
+	n, err := handle.readWithPrefetch(buffer, offset)
+
+	pf := handle.prefetch
+	pf.mu.Lock()
+	requestCache := false
+	if !pf.disabled {
+		pf.bytesRead += int64(n)
+		if pf.bytesRead > prefetchCacheThreshold {
+			pf.disabled = true
+			pf.buf = nil
+			pf.nextBuf = nil
+			pf.bufSize = 0
+			pf.nextSize = 0
+			requestCache = true
+		}
+	}
+	pf.mu.Unlock()
+
+	if requestCache {
+		handle.poolServiceSession.CacheFileAsync(handle.entry.Path)
+	}
+
+	return n, err
+}
+
+func (handle *PoolServiceFileHandle) readWithPrefetch(buffer []byte, offset int64) (int, error) {
+	totalRead := 0
+	for totalRead < len(buffer) {
+		currentOffset := offset + int64(totalRead)
+		if currentOffset >= handle.entry.Size {
+			return totalRead, io.EOF
+		}
+
+		n, err := handle.readFromPrefetchBlock(buffer[totalRead:], currentOffset)
+		totalRead += n
+		if err != nil && err != io.EOF {
+			return totalRead, err
+		}
+		if n == 0 {
+			return totalRead, io.EOF
+		}
+	}
+
+	return totalRead, nil
+}
+
+// readFromPrefetchBlock reads from one prefetch block. A short read with
+// io.EOF can mean the end of this internal block rather than the end of the
+// file; readWithPrefetch continues with the following block in that case.
+func (handle *PoolServiceFileHandle) readFromPrefetchBlock(buffer []byte, offset int64) (int, error) {
+	pf := handle.prefetch
+	pf.mu.Lock()
+
+	if pf.disabled {
+		pf.mu.Unlock()
+		return handle.readFromServer(buffer, offset)
+	}
+
+	bufEnd := pf.bufStart + int64(pf.bufSize)
+	if pf.bufSize > 0 && offset >= pf.bufStart && offset < bufEnd {
+		start := int(offset - pf.bufStart)
+		n := copy(buffer, pf.buf[start:pf.bufSize])
+		readEnd := offset + int64(n)
+
+		// trigger prefetch if consumed past 50%
+		if !pf.fetching && pf.bufSize > 0 && int(readEnd-pf.bufStart) > pf.bufSize/2 {
+			handle.triggerPrefetch(bufEnd)
+		}
+
+		pf.mu.Unlock()
+
+		if n < len(buffer) {
+			return n, io.EOF
+		}
+		return n, nil
+	}
+
+	// check if data is in next buffer (being fetched or already ready)
+	if pf.fetching {
+		nextReady := pf.nextReady
+		pf.mu.Unlock()
+		<-nextReady
+		pf.mu.Lock()
+	}
+
+	if pf.nextSize > 0 {
+		nextEnd := pf.nextStart + int64(pf.nextSize)
+		if offset >= pf.nextStart && offset < nextEnd {
+			// swap next → current
+			pf.buf, pf.nextBuf = pf.nextBuf, pf.buf
+			pf.bufStart = pf.nextStart
+			pf.bufSize = pf.nextSize
+			pf.nextSize = 0
+			pf.nextErr = nil
+
+			start := int(offset - pf.bufStart)
+			n := copy(buffer, pf.buf[start:pf.bufSize])
+			readEnd := offset + int64(n)
+
+			bufEnd = pf.bufStart + int64(pf.bufSize)
+			if !pf.fetching && int(readEnd-pf.bufStart) > pf.bufSize/2 {
+				handle.triggerPrefetch(bufEnd)
+			}
+
+			pf.mu.Unlock()
+
+			if n < len(buffer) {
+				return n, io.EOF
+			}
+			return n, nil
+		}
+	}
+	pf.mu.Unlock()
+
+	// fetch block synchronously
+	blockStart := (offset / int64(prefetchBlockSize)) * int64(prefetchBlockSize)
+	buf := make([]byte, prefetchBlockSize)
+	n, err := handle.readFromServer(buf, blockStart)
+
+	pf.mu.Lock()
+	pf.buf = buf
+	pf.bufStart = blockStart
+	pf.bufSize = n
+	pf.nextSize = 0
+	pf.nextErr = nil
+	pf.fetching = false
+
+	if n > 0 && offset >= blockStart && offset < blockStart+int64(n) {
+		start := int(offset - blockStart)
+		copied := copy(buffer, pf.buf[start:n])
+		readEnd := offset + int64(copied)
+		bufEnd = blockStart + int64(n)
+
+		if !pf.fetching && int(readEnd-pf.bufStart) > pf.bufSize/2 {
+			handle.triggerPrefetch(bufEnd)
+		}
+
+		pf.mu.Unlock()
+
+		if copied < len(buffer) {
+			return copied, io.EOF
+		}
+		return copied, nil
+	}
+	pf.mu.Unlock()
+
+	if err != nil {
+		return 0, err
+	}
+	return 0, io.EOF
+}
+
+// triggerPrefetch starts background fetch of the next block. Must be called with pf.mu held.
+func (handle *PoolServiceFileHandle) triggerPrefetch(nextOffset int64) {
+	pf := handle.prefetch
+	if nextOffset >= handle.entry.Size || pf.fetching || pf.nextSize > 0 || pf.closed {
+		return
+	}
+
+	pf.fetching = true
+	pf.nextStart = nextOffset
+	ready := make(chan struct{})
+	pf.nextReady = ready
+
+	// Remove the target buffer from shared state while the background read is
+	// mutating it. It is published again only after the complete read finishes.
+	nextBuffer := pf.nextBuf
+	pf.nextBuf = nil
+	if cap(nextBuffer) < prefetchBlockSize {
+		nextBuffer = make([]byte, prefetchBlockSize)
+	} else {
+		nextBuffer = nextBuffer[:prefetchBlockSize]
+	}
+
+	go func() {
+		n, err := handle.readFromServer(nextBuffer, nextOffset)
+
+		pf.mu.Lock()
+		if !pf.closed && !pf.disabled {
+			pf.nextBuf = nextBuffer
+			pf.nextSize = n
+			pf.nextErr = err
+		}
+		pf.fetching = false
+		close(ready)
+		pf.mu.Unlock()
+	}()
+}
+
+func (handle *PoolServiceFileHandle) readFromServer(buffer []byte, offset int64) (int, error) {
 	remainLength := len(buffer)
 	curOffset := offset
 	totalReadLength := 0
@@ -1618,19 +1993,24 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 				Length:       int32(curLength),
 			}
 
-			return handle.poolServiceClient.apiClient.ReadAt(ctx, request, getLargeReadOption())
+			apiClient, err := handle.poolServiceClient.getAPIClient()
+			if err != nil {
+				return nil, err
+			}
+			return apiClient.ReadAt(ctx, request, getLargeReadOption())
 		}
 
 		res, err := handle.poolServiceSession.doWithRelogin(readAtFunc)
 		if err != nil {
-			logger.Errorf("%+v", err)
+			handle.logger.Error(err)
 			return 0, commons.StatusToError(err)
 		}
 
 		response, ok := res.(*api.ReadAtResponse)
 		if !ok {
-			logger.Error("failed to convert interface to ReadAtResponse")
-			return 0, xerrors.Errorf("failed to convert interface to ReadAtResponse")
+			err = errors.New("failed to convert interface to ReadAtResponse")
+			handle.logger.Error(err)
+			return 0, err
 		}
 
 		if len(response.Data) > 0 {
@@ -1641,16 +2021,7 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 			totalReadLength += copyLen
 		}
 
-		if response.Available > 0 {
-			handle.availableOffset = curOffset
-			handle.availableLen = response.Available
-		} else {
-			handle.availableOffset = -1
-			handle.availableLen = -1
-		}
-
 		if len(response.Data) < curLength {
-			// EOF
 			return totalReadLength, io.EOF
 		}
 	}
@@ -1658,25 +2029,97 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 	return totalReadLength, nil
 }
 
-// GetAvailable returns available len for read
 func (handle *PoolServiceFileHandle) GetAvailable(offset int64) int64 {
-	if handle.availableOffset == offset {
-		return handle.availableLen
+	defer irodsfs_common_util.StackTraceFromPanic(handle.logger)
+
+	ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.GetAvailableRequest{
+		SessionId:    handle.poolServiceSession.id,
+		FileHandleId: handle.id,
+		Offset:       offset,
 	}
 
-	return -1
+	apiClient, err := handle.poolServiceClient.getAPIClient()
+	if err != nil {
+		return -1
+	}
+	response, err := apiClient.GetAvailable(ctx, request)
+	if err != nil {
+		return -1
+	}
+
+	return response.Available
 }
 
 // WriteAt writes iRODS data object
 func (handle *PoolServiceFileHandle) WriteAt(data []byte, offset int64) (int, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceFileHandle",
-		"function": "WriteAt",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(handle.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	if !handle.writeBuffered {
+		return handle.sendToServer(data, offset)
+	}
 
+	// micro buffering for WriteOnly mode
+	dataLen := len(data)
+
+	if handle.writeBufferSize > 0 && offset != handle.writeBufferOffset+int64(handle.writeBufferSize) {
+		if err := handle.flushWriteBuffer(); err != nil {
+			return 0, err
+		}
+	}
+
+	if handle.writeBuffer == nil {
+		handle.writeBuffer = make([]byte, microBufferSize)
+	}
+
+	if handle.writeBufferSize == 0 {
+		handle.writeBufferOffset = offset
+	}
+
+	copied := 0
+	for copied < dataLen {
+		space := microBufferSize - handle.writeBufferSize
+		n := dataLen - copied
+		if n > space {
+			n = space
+		}
+
+		copy(handle.writeBuffer[handle.writeBufferSize:], data[copied:copied+n])
+		handle.writeBufferSize += n
+		copied += n
+
+		if handle.writeBufferSize >= microBufferSize {
+			if err := handle.flushWriteBuffer(); err != nil {
+				return copied, err
+			}
+			if copied < dataLen {
+				handle.writeBufferOffset = offset + int64(copied)
+			}
+		}
+	}
+
+	endOffset := offset + int64(dataLen)
+	if handle.entry.Size < endOffset {
+		handle.entry.Size = endOffset
+	}
+	handle.poolServiceClient.fsCache.AddEntryCache(handle.entry)
+
+	return dataLen, nil
+}
+
+func (handle *PoolServiceFileHandle) flushWriteBuffer() error {
+	if handle.writeBufferSize == 0 {
+		return nil
+	}
+
+	_, err := handle.sendToServer(handle.writeBuffer[:handle.writeBufferSize], handle.writeBufferOffset)
+	handle.writeBufferSize = 0
+	return err
+}
+
+func (handle *PoolServiceFileHandle) sendToServer(data []byte, offset int64) (int, error) {
 	remainLength := len(data)
 	curOffset := offset
 	totalWriteLength := 0
@@ -1698,132 +2141,39 @@ func (handle *PoolServiceFileHandle) WriteAt(data []byte, offset int64) (int, er
 				Data:         data[totalWriteLength : totalWriteLength+curLength],
 			}
 
-			return handle.poolServiceClient.apiClient.WriteAt(ctx, request, getLargeWriteOption())
+			apiClient, err := handle.poolServiceClient.getAPIClient()
+			if err != nil {
+				return nil, err
+			}
+			return apiClient.WriteAt(ctx, request, getLargeWriteOption())
 		}
 
 		_, err := handle.poolServiceSession.doWithRelogin(writeAtFunc)
 		if err != nil {
-			logger.Errorf("%+v", err)
+			handle.logger.Error(err)
 			return 0, commons.StatusToError(err)
 		}
 
 		remainLength -= curLength
 		curOffset += int64(curLength)
-		totalWriteLength += int(curLength)
+		totalWriteLength += curLength
 
-		// update entry size
-		if handle.entry.Size < curOffset+int64(curLength) {
-			handle.entry.Size = curOffset + int64(curLength)
+		if handle.entry.Size < curOffset {
+			handle.entry.Size = curOffset
 		}
 	}
+	handle.poolServiceClient.fsCache.AddEntryCache(handle.entry)
 
 	return totalWriteLength, nil
 }
 
-// Lock locks iRODS data object
-func (handle *PoolServiceFileHandle) Lock(wait bool) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceFileHandle",
-		"function": "Lock",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	lockFunc := func() (interface{}, error) {
-		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.LockRequest{
-			SessionId:    handle.poolServiceSession.id,
-			FileHandleId: handle.id,
-			Wait:         wait,
-		}
-
-		return handle.poolServiceClient.apiClient.Lock(ctx, request)
-	}
-
-	_, err := handle.poolServiceSession.doWithRelogin(lockFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return commons.StatusToError(err)
-	}
-
-	return nil
-}
-
-// RLock locks iRODS data object with read lock
-func (handle *PoolServiceFileHandle) RLock(wait bool) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceFileHandle",
-		"function": "RLock",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	rlockFunc := func() (interface{}, error) {
-		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.LockRequest{
-			SessionId:    handle.poolServiceSession.id,
-			FileHandleId: handle.id,
-			Wait:         wait,
-		}
-
-		return handle.poolServiceClient.apiClient.RLock(ctx, request)
-	}
-
-	_, err := handle.poolServiceSession.doWithRelogin(rlockFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return commons.StatusToError(err)
-	}
-
-	return nil
-}
-
-// Unlock unlocks iRODS data object with read lock
-func (handle *PoolServiceFileHandle) Unlock() error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceFileHandle",
-		"function": "Unlock",
-	})
-
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
-
-	unlockFunc := func() (interface{}, error) {
-		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
-		defer cancel()
-
-		request := &api.UnlockRequest{
-			SessionId:    handle.poolServiceSession.id,
-			FileHandleId: handle.id,
-		}
-
-		return handle.poolServiceClient.apiClient.Unlock(ctx, request)
-	}
-
-	_, err := handle.poolServiceSession.doWithRelogin(unlockFunc)
-	if err != nil {
-		logger.Errorf("%+v", err)
-		return commons.StatusToError(err)
-	}
-
-	return nil
-}
-
 // Truncate truncates iRODS data object
 func (handle *PoolServiceFileHandle) Truncate(size int64) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceFileHandle",
-		"function": "Truncate",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(handle.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	if err := handle.flushWriteBuffer(); err != nil {
+		return err
+	}
 
 	truncateFunc := func() (interface{}, error) {
 		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
@@ -1835,32 +2185,32 @@ func (handle *PoolServiceFileHandle) Truncate(size int64) error {
 			Size:         size,
 		}
 
-		return handle.poolServiceClient.apiClient.Truncate(ctx, request)
+		apiClient, err := handle.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Truncate(ctx, request)
 	}
 
 	_, err := handle.poolServiceSession.doWithRelogin(truncateFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		handle.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
-	// update entry size
-	if handle.entry.Size < size {
-		handle.entry.Size = size
-	}
+	handle.entry.Size = size
+	handle.poolServiceClient.fsCache.AddEntryCache(handle.entry)
 
 	return nil
 }
 
 // Flush flushes iRODS data object handle
 func (handle *PoolServiceFileHandle) Flush() error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceFileHandle",
-		"function": "Flush",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(handle.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	if err := handle.flushWriteBuffer(); err != nil {
+		return err
+	}
 
 	flushFunc := func() (interface{}, error) {
 		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
@@ -1871,16 +2221,20 @@ func (handle *PoolServiceFileHandle) Flush() error {
 			FileHandleId: handle.id,
 		}
 
-		return handle.poolServiceClient.apiClient.Flush(ctx, request)
+		apiClient, err := handle.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Flush(ctx, request)
 	}
 
 	_, err := handle.poolServiceSession.doWithRelogin(flushFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		handle.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
-	parentDirPath := irodsfs_common_utils.GetDirname(handle.entry.Path)
+	parentDirPath := irodsclient_util.GetIRODSPathDirname(handle.entry.Path)
 	handle.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
 	handle.poolServiceClient.fsCache.RemoveEntryCache(handle.entry.Path)
 
@@ -1889,13 +2243,25 @@ func (handle *PoolServiceFileHandle) Flush() error {
 
 // Close closes iRODS data object handle
 func (handle *PoolServiceFileHandle) Close() error {
-	logger := log.WithFields(log.Fields{
-		"package":  "client",
-		"struct":   "PoolServiceFileHandle",
-		"function": "Close",
-	})
+	defer irodsfs_common_util.StackTraceFromPanic(handle.logger)
 
-	defer irodsfs_common_utils.StackTraceFromPanic(logger)
+	handle.mutex.Lock()
+	if handle.closed {
+		handle.mutex.Unlock()
+		return nil
+	}
+	handle.closed = true
+	handle.mutex.Unlock()
+
+	if err := handle.flushWriteBuffer(); err != nil {
+		return err
+	}
+
+	if handle.prefetch != nil {
+		handle.prefetch.mu.Lock()
+		handle.prefetch.closed = true
+		handle.prefetch.mu.Unlock()
+	}
 
 	closeFunc := func() (interface{}, error) {
 		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
@@ -1906,17 +2272,25 @@ func (handle *PoolServiceFileHandle) Close() error {
 			FileHandleId: handle.id,
 		}
 
-		return handle.poolServiceClient.apiClient.Close(ctx, request)
+		apiClient, err := handle.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Close(ctx, request)
 	}
 
 	_, err := handle.poolServiceSession.doWithRelogin(closeFunc)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		handle.logger.Error(err)
 		return commons.StatusToError(err)
 	}
 
+	if handle.openMode.IsReadOnly() {
+		atomic.AddInt32(&handle.poolServiceSession.openReadOnlyHandles, -1)
+	}
+
 	if handle.openMode.IsWrite() {
-		parentDirPath := irodsfs_common_utils.GetDirname(handle.entry.Path)
+		parentDirPath := irodsclient_util.GetIRODSPathDirname(handle.entry.Path)
 		handle.poolServiceClient.fsCache.RemoveDirCache(parentDirPath)
 		handle.poolServiceClient.fsCache.RemoveEntryCache(handle.entry.Path)
 	}

@@ -14,10 +14,7 @@ import (
 )
 
 func main() {
-	logger := log.WithFields(log.Fields{
-		"package":  "main",
-		"function": "main",
-	})
+	logger := log.WithFields(log.Fields{})
 
 	// Parse cli parameters
 	flag.Parse()
@@ -40,26 +37,26 @@ func main() {
 	account := cfg.ToIRODSAccount()
 	logger.Debugf("Account : %v", account.GetRedacted())
 
-	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, "test_client_1")
+	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, false, logger)
 	err = poolClient.Connect()
 	if err != nil {
-		logger.Errorf("%+v", err)
+		logger.Error(err)
 		panic(err)
 	}
 
 	defer poolClient.Disconnect()
 
 	appName := "list_dir"
-	poolSession, err := poolClient.NewSession(account, appName)
+	poolSession, err := poolClient.NewSession(account, appName, "list_dir test")
 	if err != nil {
-		logger.Errorf("%+v", err)
+		logger.Error(err)
 		panic(err)
 	}
 	defer poolSession.Release()
 
 	entries, err := poolSession.List(inputPath)
 	if err != nil {
-		logger.Errorf("%+v", err)
+		logger.Error(err)
 		panic(err)
 	}
 

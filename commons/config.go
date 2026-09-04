@@ -1,115 +1,206 @@
 package commons
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/url"
+	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/xerrors"
-	yaml "gopkg.in/yaml.v2"
+	"gopkg.in/natefinch/lumberjack.v2"
+	yaml "gopkg.in/yaml.v3"
 
+	"github.com/cockroachdb/errors"
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
+	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 )
-
-// GetDefaultInstanceID returns default instance id
-func GetDefaultInstanceID() string {
-	return xid.New().String()
-}
-
-// GetDefaultDataRootDirPath returns default data root path
-func GetDefaultDataRootDirPath() string {
-	dirPath, err := os.Getwd()
-	if err != nil {
-		return DataRootPathDefault
-	}
-	return dirPath
-}
 
 // Config holds the parameters list which can be configured
 type Config struct {
-	ServiceEndpoint      string                                       `yaml:"service_endpoint" json:"service_endpoint"`
-	DataCacheSizeMax     int64                                        `yaml:"data_cache_size_max,omitempty" json:"data_cache_size_max,omitempty"`
-	DataRootPath         string                                       `yaml:"data_root_path,omitempty" json:"data_root_path,omitempty"`
-	CacheTimeoutSettings []irodsclient_fs.MetadataCacheTimeoutSetting `yaml:"cache_timeout_settings,omitempty" json:"cache_timeout_settings,omitempty"`
-	OperationTimeout     int                                          `yaml:"operation_timeout,omitempty" json:"operation_timeout,omitempty"`
-	SessionTimeout       int                                          `yaml:"session_timeout,omitempty" json:"session_timeout,omitempty"`
+	ServiceEndpoint string `yaml:"service_endpoint,omitempty" json:"service_endpoint,omitempty"`
+	DataRootPath    string `yaml:"data_root_path,omitempty" json:"data_root_path,omitempty"`
+	PIDFile         string `yaml:"pid_file,omitempty" json:"pid_file,omitempty"`
 
-	LogPath string `yaml:"log_path,omitempty" json:"log_path,omitempty"`
+	RecoveryEncryptionKey string `yaml:"recovery_encryption_key,omitempty" json:"recovery_encryption_key,omitempty"`
 
-	Profile                bool `yaml:"profile,omitempty" json:"profile,omitempty"`
-	ProfileServicePort     int  `yaml:"profile_service_port,omitempty" json:"profile_service_port,omitempty"`
-	PrometheusExporterPort int  `yaml:"prometheus_exporter_port,omitempty" json:"prometheus_exporter_port,omitempty"`
+	SessionTimeout                        irodsclient_types.Duration                   `yaml:"session_timeout,omitempty" json:"session_timeout,omitempty"`
+	SessionTimeoutCheckInterval           irodsclient_types.Duration                   `yaml:"session_timeout_check_interval,omitempty" json:"session_timeout_check_interval,omitempty"`
+	DataBlockSize                         int64                                        `yaml:"data_block_size,omitempty" json:"data_block_size,omitempty"`
+	MaxDataMemCacheSize                   int64                                        `yaml:"max_data_mem_cache_size,omitempty" json:"max_data_mem_cache_size,omitempty"`
+	MaxDataMemCacheBufferItems            int64                                        `yaml:"max_data_mem_cache_buffer_items,omitempty" json:"max_data_mem_cache_buffer_items,omitempty"`
+	DataMemCacheTTL                       irodsclient_types.Duration                   `yaml:"data_mem_cache_ttl,omitempty" json:"data_mem_cache_ttl,omitempty"`
+	MaxIOConnectionPerSession             int                                          `yaml:"max_io_connection_per_session,omitempty" json:"max_io_connection_per_session,omitempty"`
+	MetadataCacheTimeoutSettings          []irodsclient_fs.MetadataCacheTimeoutSetting `yaml:"metadata_cache_timeout_settings,omitempty" json:"metadata_cache_timeout_settings,omitempty"`
+	StartNewTransaction                   bool                                         `yaml:"start_new_transaction,omitempty" json:"start_new_transaction,omitempty"`
+	MaxMetadataCacheEntriesPerSession     int64                                        `yaml:"max_metadata_cache_entries_per_session,omitempty" json:"max_metadata_cache_entries_per_session,omitempty"`
+	MaxMetadataCacheSizePerSession        int64                                        `yaml:"max_metadata_cache_size_per_session,omitempty" json:"max_metadata_cache_size_per_session,omitempty"`
+	MaxMetadataCacheBufferItemsPerSession int64                                        `yaml:"max_metadata_cache_buffer_items_per_session,omitempty" json:"max_metadata_cache_buffer_items_per_session,omitempty"`
+	MetadataCacheTTL                      irodsclient_types.Duration                   `yaml:"metadata_cache_ttl,omitempty" json:"metadata_cache_ttl,omitempty"`
+	StagingRootPath                       string                                       `yaml:"staging_root_path,omitempty" json:"staging_root_path,omitempty"`
+	MaxStagingDataSize                    int64                                        `yaml:"max_staging_data_size,omitempty" json:"max_staging_data_size,omitempty"`
+	MaxCacheFileSize                      int64                                        `yaml:"max_cache_file_size,omitempty" json:"max_cache_file_size,omitempty"`
+	StagingDataGracePeriod                irodsclient_types.Duration                   `yaml:"staging_data_grace_period,omitempty" json:"staging_data_grace_period,omitempty"`
+	SessionCloseGracePeriod               irodsclient_types.Duration                   `yaml:"session_close_grace_period,omitempty" json:"session_close_grace_period,omitempty"`
+	OperationTimeout                      irodsclient_types.Duration                   `yaml:"operation_timeout,omitempty" json:"operation_timeout,omitempty"`
 
-	Foreground   bool `yaml:"foreground,omitempty" json:"foreground,omitempty"`
-	Debug        bool `yaml:"debug,omitempty" json:"debug,omitempty"`
-	ChildProcess bool `yaml:"childprocess,omitempty" json:"childprocess,omitempty"`
+	ManagementServicePort int `yaml:"management_service_port,omitempty" json:"management_service_port,omitempty"`
 
-	InstanceID string `yaml:"instanceid,omitempty" json:"instanceid,omitempty"`
+	Debug bool `yaml:"debug,omitempty" json:"debug,omitempty"`
+
+	LogRootPath string `yaml:"log_root_path,omitempty" json:"log_root_path,omitempty"`
 }
 
 // NewDefaultConfig returns a default config
 func NewDefaultConfig() *Config {
 	return &Config{
-		ServiceEndpoint:      "",
-		DataCacheSizeMax:     DataCacheSizeMaxDefault,
-		DataRootPath:         GetDefaultDataRootDirPath(),
-		CacheTimeoutSettings: []irodsclient_fs.MetadataCacheTimeoutSetting{},
-		OperationTimeout:     OperationTimeoutDefault,
-		SessionTimeout:       SessionTimeoutDefault,
+		ServiceEndpoint: "",
+		DataRootPath:    DataRootPathDefault,
+		PIDFile:         PIDFilePathDefault,
 
-		LogPath: "", // use default
+		SessionTimeout:                        irodsclient_types.Duration(SessionTimeoutDefault),
+		SessionTimeoutCheckInterval:           irodsclient_types.Duration(SessionTimeoutCheckIntervalDefault),
+		DataBlockSize:                         DataBlockSizeDefault,
+		MaxDataMemCacheSize:                   MaxDataMemCacheSizeDefault,
+		MaxDataMemCacheBufferItems:            MaxDataMemCacheBufferItemsDefault,
+		DataMemCacheTTL:                       irodsclient_types.Duration(DataMemCacheTTLDefault),
+		MaxIOConnectionPerSession:             MaxIOConnectionPerSessionDefault,
+		MetadataCacheTimeoutSettings:          []irodsclient_fs.MetadataCacheTimeoutSetting{},
+		StartNewTransaction:                   StartNewTransactionDefault,
+		MaxMetadataCacheEntriesPerSession:     MaxMetadataCacheEntriesPerSessionDefault,
+		MaxMetadataCacheSizePerSession:        MaxMetadataCacheSizePerSessionDefault,
+		MaxMetadataCacheBufferItemsPerSession: MaxMetadataCacheBufferItemsPerSessionDefault,
+		MetadataCacheTTL:                      irodsclient_types.Duration(MetadataCacheTTLDefault),
+		StagingRootPath:                       filepath.Join(DataRootPathDefault, StagingRootPathDefault),
+		MaxStagingDataSize:                    MaxStagingDataSizeDefault,
+		MaxCacheFileSize:                      MaxCacheFileSizeDefault,
+		StagingDataGracePeriod:                irodsclient_types.Duration(StagingDataGracePeriodDefault),
+		SessionCloseGracePeriod:               irodsclient_types.Duration(SessionCloseGracePeriodDefault),
+		OperationTimeout:                      irodsclient_types.Duration(OperationTimeoutDefault),
 
-		Profile:                false,
-		ProfileServicePort:     ProfileServicePortDefault,
-		PrometheusExporterPort: PrometheusExporterPortDefault,
+		ManagementServicePort: ManagementServicePortDefault,
 
-		Foreground:   false,
-		Debug:        false,
-		ChildProcess: false,
+		Debug: false,
 
-		InstanceID: GetDefaultInstanceID(),
+		LogRootPath: "", // use default
 	}
 }
 
-// NewConfigFromYAML creates Config from YAML
-func NewConfigFromYAML(yamlBytes []byte) (*Config, error) {
-	config := NewDefaultConfig()
-
-	err := yaml.Unmarshal(yamlBytes, config)
+// NewConfigFromFile creates Config from file
+func NewConfigFromFile(config *Config, filePath string) (*Config, error) {
+	st, err := os.Stat(filePath)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to unmarshal yaml into config: %w", err)
+		if os.IsNotExist(err) {
+			return nil, err
+		}
+
+		return nil, errors.Wrapf(err, "failed to stat file %q", filePath)
+	}
+
+	if st.IsDir() {
+		return nil, errors.Newf("configuration must be a file %q", filePath)
+	}
+
+	dataBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read file %q", filePath)
+	}
+
+	format := DetectFormat(dataBytes)
+	switch format {
+	case FormatJSON:
+		return NewConfigFromJSONFile(config, filePath)
+	case FormatYAML:
+		return NewConfigFromYAMLFile(config, filePath)
+	default:
+		return nil, errors.New("unknown file format")
+	}
+}
+
+// NewConfigFromYAMLFile creates Config from YAML
+func NewConfigFromYAMLFile(config *Config, yamlPath string) (*Config, error) {
+	cfg := Config{}
+	if config != nil {
+		cfg = *config
+	}
+
+	yamlBytes, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read YAML file %q", yamlPath)
+	}
+
+	err = yaml.Unmarshal(yamlBytes, &cfg)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal YAML file %q to config", yamlPath)
+	}
+
+	return &cfg, nil
+}
+
+// NewConfigFromJSONFile creates Config from JSON
+func NewConfigFromJSONFile(config *Config, jsonPath string) (*Config, error) {
+	cfg := Config{}
+	if config != nil {
+		cfg = *config
+	}
+
+	jsonBytes, err := os.ReadFile(jsonPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read JSON file %q", jsonPath)
+	}
+
+	err = json.Unmarshal(jsonBytes, &cfg)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal JSON file %q to config", jsonPath)
+	}
+
+	return &cfg, nil
+}
+
+// NewConfigFromYAML creates Config from YAML
+func NewConfigFromYAML(config *Config, yamlBytes []byte) (*Config, error) {
+	cfg := Config{}
+	if config != nil {
+		cfg = *config
+	}
+
+	err := yaml.Unmarshal(yamlBytes, &cfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal yaml into config")
 	}
 
 	return config, nil
 }
 
 // NewConfigFromJSON creates Config from JSON
-func NewConfigFromJSON(jsonBytes []byte) (*Config, error) {
-	config := NewDefaultConfig()
+func NewConfigFromJSON(config *Config, jsonBytes []byte) (*Config, error) {
+	cfg := Config{}
+	if config != nil {
+		cfg = *config
+	}
 
-	err := json.Unmarshal(jsonBytes, config)
+	err := json.Unmarshal(jsonBytes, &cfg)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to unmarshal json into config: %w", err)
+		return nil, errors.Wrap(err, "failed to unmarshal json into config")
 	}
 
 	return config, nil
 }
 
-// GetLogFilePath returns log file path
-func (config *Config) GetLogFilePath() string {
-	if len(config.LogPath) > 0 {
-		return config.LogPath
+// GetLogRootPath returns the directory containing service and session logs.
+func (config *Config) GetLogRootPath() string {
+	if len(config.LogRootPath) > 0 {
+		return config.LogRootPath
 	}
 
 	// default
-	logFilename := fmt.Sprintf("%s.log", config.InstanceID)
-	return path.Join(config.DataRootPath, logFilename)
+	return config.DataRootPath
+}
+
+// GetLogFilePath returns the service log file path.
+func (config *Config) GetLogFilePath() string {
+	return filepath.Join(config.GetLogRootPath(), "irodsfs-pool.log")
 }
 
 func (config *Config) GetServiceEndpoint() string {
@@ -120,46 +211,44 @@ func (config *Config) GetServiceEndpoint() string {
 	return fmt.Sprintf("unix://%s/comm.sock", config.DataRootPath)
 }
 
-func (config *Config) GetDataCacheRootDirPath() string {
-	dirname := fmt.Sprintf("%s/cache", config.InstanceID)
-	return path.Join(config.DataRootPath, dirname)
+func (config *Config) GetDataStagingRootPath() string {
+	return filepath.Join(config.DataRootPath, "staging")
 }
 
-func (config *Config) GetInstanceDataRootDirPath() string {
-	return path.Join(config.DataRootPath, config.InstanceID)
+func (config *Config) GetDataRootPath() string {
+	return config.DataRootPath
+}
+
+func (config *Config) GetRecoveryEncryptionKey() ([]byte, error) {
+	encodedKey := strings.TrimSpace(config.RecoveryEncryptionKey)
+	if encodedKey == "" {
+		return nil, errors.New("recovery encryption key must be given")
+	}
+	key, err := base64.StdEncoding.DecodeString(encodedKey)
+	if err != nil {
+		return nil, errors.Wrap(err, "recovery encryption key must be valid base64")
+	}
+	if len(key) != 32 {
+		return nil, errors.Newf("recovery encryption key must decode to exactly 32 bytes, got %d", len(key))
+	}
+	return key, nil
 }
 
 // MakeLogDir makes a log dir required
 func (config *Config) MakeLogDir() error {
-	logger := log.WithFields(log.Fields{
-		"package":  "commons",
-		"object":   "Config",
-		"function": "MakeLogDir",
-	})
-
-	logFilePath := config.GetLogFilePath()
-	logDirPath := filepath.Dir(logFilePath)
-
-	logger.Debugf("making log dir %q", logDirPath)
-	err := config.makeDir(logDirPath)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return config.makeDir(config.GetLogRootPath())
 }
 
 // MakeWorkDirs makes dirs required
 func (config *Config) MakeWorkDirs() error {
-	logger := log.WithFields(log.Fields{
-		"package":  "commons",
-		"object":   "Config",
-		"function": "MakeWorkDirs",
-	})
+	dataRootPath := config.GetDataRootPath()
+	err := config.makeDir(dataRootPath)
+	if err != nil {
+		return err
+	}
 
-	cacheDirPath := config.GetDataCacheRootDirPath()
-	logger.Debugf("making cache dir %q", cacheDirPath)
-	err := config.makeDir(cacheDirPath)
+	dataStagingRootPath := config.GetDataStagingRootPath()
+	err = config.makeDir(dataStagingRootPath)
 	if err != nil {
 		return err
 	}
@@ -179,39 +268,10 @@ func (config *Config) MakeWorkDirs() error {
 	return nil
 }
 
-// CleanWorkDirs cleans dirs used
-func (config *Config) CleanWorkDirs() error {
-	cacheDirPath := config.GetDataCacheRootDirPath()
-	err := config.removeDir(cacheDirPath)
-	if err != nil {
-		return err
-	}
-
-	instanceDataDirPath := config.GetInstanceDataRootDirPath()
-	err = config.removeDir(instanceDataDirPath)
-	if err != nil {
-		return err
-	}
-
-	scheme, endpoint, err := ParsePoolServiceEndpoint(config.GetServiceEndpoint())
-	if err != nil {
-		return err
-	}
-
-	if scheme == "unix" {
-		err = config.removeUnixSocketFile(endpoint)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // makeDir makes a dir for use
 func (config *Config) makeDir(path string) error {
 	if len(path) == 0 {
-		return xerrors.Errorf("failed to create a dir with empty path")
+		return errors.New("failed to create a dir with empty path")
 	}
 
 	dirInfo, err := os.Stat(path)
@@ -220,34 +280,25 @@ func (config *Config) makeDir(path string) error {
 			// make
 			mkdirErr := os.MkdirAll(path, 0775)
 			if mkdirErr != nil {
-				return xerrors.Errorf("making a dir %q error: %w", path, mkdirErr)
+				return errors.Wrapf(mkdirErr, "making a dir %q error", path)
 			}
 
 			return nil
 		}
 
-		return xerrors.Errorf("stating a dir %q error: %w", path, err)
+		return errors.Wrapf(err, "stating a dir %q error", path)
 	}
 
 	if !dirInfo.IsDir() {
-		return xerrors.Errorf("a file %q exist, not a directory", path)
+		return errors.Newf("a file %q exist, not a directory", path)
 	}
 
 	dirPerm := dirInfo.Mode().Perm()
 	if dirPerm&0200 != 0200 {
-		return xerrors.Errorf("a dir %q exist, but does not have the write permission", path)
+		return errors.Newf("a dir %q exist, but does not have the write permission", path)
 	}
 
 	return nil
-}
-
-// removeDir removes a dir
-func (config *Config) removeDir(path string) error {
-	if len(path) == 0 {
-		return xerrors.Errorf("failed to remove a dir with empty path")
-	}
-
-	return os.RemoveAll(path)
 }
 
 // makeUnixSocketDir makes unix socket dir
@@ -256,14 +307,14 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 	_, err := os.Stat(endpoint)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return xerrors.Errorf("service unix socket file %q error: %w", endpoint, err)
+			return errors.Wrapf(err, "service unix socket file %q error", endpoint)
 		}
 	} else {
 		// file exists
 		// remove
 		err2 := os.Remove(endpoint)
 		if err2 != nil {
-			return xerrors.Errorf("failed to remove the existing unix socket file %q: %w", endpoint, err2)
+			return errors.Wrapf(err2, "failed to remove the existing unix socket file %q", endpoint)
 		}
 	}
 
@@ -273,33 +324,20 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 		if os.IsNotExist(err) {
 			err2 := os.MkdirAll(parentDir, os.FileMode(0777))
 			if err2 != nil {
-				return xerrors.Errorf("failed to make a directory for unix socket %q: %w", parentDir, err2)
+				return errors.Wrapf(err2, "failed to make a directory for unix socket %q", parentDir)
 			}
 			// ok - fall
 		} else {
-			return xerrors.Errorf("unix socket directory %q error: %w", parentDir, err)
+			return errors.Wrapf(err, "unix socket directory %q error", parentDir)
 		}
 	} else {
 		unixSocketDirPerm := unixSocketDirInfo.Mode().Perm()
 		if unixSocketDirPerm&0200 != 0200 {
-			return xerrors.Errorf("unix socket directory %q must have write permission", parentDir)
+			return errors.Newf("unix socket directory %q must have write permission", parentDir)
 		}
 		// ok - fall
 	}
 
-	return nil
-}
-
-// removeUnixSocketFile removes unix socket file
-func (config *Config) removeUnixSocketFile(endpoint string) error {
-	if len(endpoint) == 0 {
-		return nil
-	}
-
-	err := os.Remove(endpoint)
-	if err != nil {
-		return xerrors.Errorf("failed to remove unix socket file %q: %w", endpoint, err)
-	}
 	return nil
 }
 
@@ -310,75 +348,109 @@ func (config *Config) Validate() error {
 		return err
 	}
 
-	if config.Profile && config.ProfileServicePort <= 0 {
-		return xerrors.Errorf("profile service port must be given")
+	paths := map[string]string{
+		"data_root_path":    config.DataRootPath,
+		"pid_file":          config.PIDFile,
+		"log_root_path":     config.LogRootPath,
+		"staging_root_path": config.StagingRootPath,
 	}
 
-	if config.PrometheusExporterPort <= 0 {
-		return xerrors.Errorf("prometheus exporter port must be given")
+	for name, path := range paths {
+		if !filepath.IsAbs(path) {
+			return errors.Newf("%s %q must be an absolute path", name, path)
+		}
 	}
 
 	if len(config.DataRootPath) == 0 {
-		return xerrors.Errorf("data root dir must be given")
+		return errors.New("data root dir must be given")
 	}
 
-	if config.DataCacheSizeMax < 0 {
-		return xerrors.Errorf("data cache size max must be a positive value")
+	if len(config.PIDFile) == 0 {
+		return errors.New("pid file path must be given")
+	}
+
+	if _, err := config.GetRecoveryEncryptionKey(); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func parseRawURL(rawurl string) (string, string, string, error) {
-	if len(strings.TrimSpace(rawurl)) == 0 {
-		return "", "", "", xerrors.Errorf("empty raw url")
-	}
-
-	u, err := url.ParseRequestURI(rawurl)
-	if err != nil || (u.Host == "" && u.Path == "") {
-		// try adding //
-		u, repErr := url.ParseRequestURI("tcp://" + rawurl)
-		if repErr != nil {
-			return "", "", "", xerrors.Errorf("could not parse raw url: %s, error: %w", rawurl, err)
-		}
-
-		return "tcp", u.Host, "", nil
-	}
-
-	if u != nil {
-		scheme := strings.ToLower(u.Scheme)
-		if scheme == "unix" {
-			return "unix", "", u.Path, nil
-		} else if scheme == "tcp" {
-			return "tcp", u.Host, "", nil
-		}
-
-		return u.Scheme, u.Host, u.Path, nil
-	}
-
-	return "", "", "", xerrors.Errorf("could not parse raw url: %s", rawurl)
+// MultiWriteCloser writes to multiple writers and closes the ones that implement io.Closer.
+type MultiWriteCloser struct {
+	writers []io.Writer
 }
 
-// ParsePoolServiceEndpoint parses endpoint string
-func ParsePoolServiceEndpoint(endpoint string) (string, string, error) {
-	scheme, host, p, err := parseRawURL(endpoint)
-	if err != nil {
-		return "", "", err
+// nonClosingWriter prevents MultiWriteCloser from closing a writer it does not own.
+// In particular, foreground logging must never close os.Stderr.
+type nonClosingWriter struct {
+	io.Writer
+}
+
+func NewMultiWriteCloser(writers ...io.Writer) *MultiWriteCloser {
+	return &MultiWriteCloser{writers: writers}
+}
+
+func (mw *MultiWriteCloser) Write(p []byte) (n int, err error) {
+	for _, w := range mw.writers {
+		n, err = w.Write(p)
+		if err != nil {
+			return n, err
+		}
+	}
+	return len(p), nil
+}
+
+func (mw *MultiWriteCloser) Close() error {
+	var firstErr error
+	for _, w := range mw.writers {
+		if closer, ok := w.(io.Closer); ok {
+			if err := closer.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
+func (config *Config) GetLogWriter(foregroundProcess bool) (io.WriteCloser, error) {
+	logFilePath := config.GetLogFilePath()
+	if logFilePath == "-" || len(logFilePath) == 0 {
+		return os.Stderr, nil
 	}
 
-	scheme = strings.ToLower(scheme)
-	switch scheme {
-	case "tcp":
-		return "tcp", host, nil
-	case "unix":
-		p = path.Join("/", strings.TrimPrefix(p, "/"))
-		return "unix", p, nil
-	case "":
-		if len(host) > 0 {
-			return "tcp", host, nil
-		}
-		return "", "", xerrors.Errorf("unknown host: %q", host)
-	default:
-		return "", "", xerrors.Errorf("unsupported protocol: %q", scheme)
+	err := config.MakeLogDir()
+	if err != nil {
+		return nil, err
+	}
+
+	if foregroundProcess {
+		fileWriter := getLogWriterForForegroundProcess(logFilePath)
+		return NewMultiWriteCloser(nonClosingWriter{Writer: os.Stderr}, fileWriter), nil
+	}
+
+	daemonWriter := getLogWriterForDaemonProcess(logFilePath)
+	return daemonWriter, nil
+}
+
+func getLogWriterForForegroundProcess(logPath string) io.WriteCloser {
+	logFilePath := fmt.Sprintf("%s.fg", logPath)
+	return &lumberjack.Logger{
+		Filename:   logFilePath,
+		MaxSize:    50, // 50MB
+		MaxBackups: 5,
+		MaxAge:     30, // 30 days
+		Compress:   false,
+	}
+}
+
+func getLogWriterForDaemonProcess(logPath string) io.WriteCloser {
+	logFilePath := fmt.Sprintf("%s", logPath)
+	return &lumberjack.Logger{
+		Filename:   logFilePath,
+		MaxSize:    50, // 50MB
+		MaxBackups: 10,
+		MaxAge:     365, // 365 days
+		Compress:   false,
 	}
 }

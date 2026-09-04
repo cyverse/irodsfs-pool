@@ -3,285 +3,353 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"os/signal"
-	"sync"
+	"path/filepath"
+	"syscall"
+	"time"
 
-	"github.com/pkg/profile"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/spf13/cobra"
-	"golang.org/x/xerrors"
-
+	"github.com/cockroachdb/errors"
+	godaemonizer "github.com/cyverse/go-daemonizer"
+	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	cmd_commons "github.com/cyverse/irodsfs-pool/cmd/commons"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 )
 
-// rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
-	Use:   "irodsfs-pool [args..]",
-	Short: "Run iRODS FUSE Lite Pool Service",
-	Long:  "Run iRODS FUSE Lite Pool Service that handles requests from iRODS FUSE Lite.",
-	RunE:  processCommand,
+const defaultStopWait = 10 * time.Second
+
+func Execute(d *godaemonizer.Daemon) error {
+	return newRootCommand(d).Execute()
 }
 
-func Execute() error {
-	return rootCmd.Execute()
-}
-
-func processCommand(command *cobra.Command, args []string) error {
-	// check if this is subprocess running in the background
-	isChildProc := false
-	childProcessArgument := fmt.Sprintf("-%s", cmd_commons.ChildProcessArgument)
-
-	for _, arg := range os.Args {
-		if len(arg) >= len(childProcessArgument) {
-			if arg == childProcessArgument || arg[1:] == childProcessArgument {
-				// background
-				isChildProc = true
-				break
-			}
-		}
+func newRootCommand(d *godaemonizer.Daemon) *cobra.Command {
+	root := &cobra.Command{
+		Use:           "irodsfs-pool",
+		Short:         "Run iRODS FUSE Pool Service",
+		Long:          "Run iRODS FUSE Pool Service that handles requests from iRODS FUSE.",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		CompletionOptions: cobra.CompletionOptions{
+			DisableDefaultCmd:   true,
+			DisableNoDescFlag:   true,
+			DisableDescriptions: true,
+			HiddenDefaultCmd:    true,
+		},
 	}
 
-	if isChildProc {
-		// child process
-		childMain(command, args)
-	} else {
-		// parent process
-		parentMain(command, args)
+	cmd_commons.SetCommonFlags(root)
+	root.AddCommand(
+		newStartCommand(d),
+		newRunCommand(),
+		newStopCommand(),
+		newStatusCommand(),
+		newVersionCommand(),
+	)
+	return root
+}
+
+func newStartCommand(d *godaemonizer.Daemon) *cobra.Command {
+	return &cobra.Command{
+		Use:   "start",
+		Short: "Start irodsfs-pool as a background daemon",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if d.IsDaemon() {
+				return runDaemonChild(command, d)
+			}
+
+			config, err := loadConfig(command)
+			if err != nil {
+				return errors.Wrap(err, "process command flags")
+			}
+			logWriter, err := config.GetLogWriter(true)
+			if err != nil {
+				return errors.Wrap(err, "get parent log writer")
+			}
+			if logWriter != nil {
+				defer logWriter.Close()
+				log.SetOutput(logWriter)
+			}
+
+			if err := d.Daemonize(context.Background(), config, nil); err != nil {
+				return errors.Wrap(err, "daemonize irodsfs-pool")
+			}
+
+			fmt.Fprintf(command.OutOrStdout(), "irodsfs-pool started (pid file: %s)\n", config.PIDFile)
+			return nil
+		},
+	}
+}
+
+func runDaemonChild(command *cobra.Command, d *godaemonizer.Daemon) error {
+	var config commons.Config
+	ready, err := d.WaitForParent(&config)
+	if err != nil {
+		return errors.Wrap(err, "receive daemon startup parameters")
+	}
+
+	logWriter, err := config.GetLogWriter(false)
+	if err != nil {
+		ready(err)
+		return errors.Wrap(err, "get daemon log writer")
+	}
+	if logWriter != nil {
+		defer logWriter.Close()
+		log.SetOutput(logWriter)
+	}
+
+	return runDaemonManaged(&config, ready)
+}
+
+func newRunCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "run",
+		Short: "Run irodsfs-pool in the foreground",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			config, err := loadConfig(command)
+			if err != nil {
+				return errors.Wrap(err, "process command flags")
+			}
+			if err := configureForegroundPaths(config); err != nil {
+				return errors.Wrap(err, "configure foreground paths")
+			}
+
+			logWriter, err := config.GetLogWriter(true)
+			if err != nil {
+				return errors.Wrap(err, "get foreground log writer")
+			}
+			if logWriter != nil {
+				defer logWriter.Close()
+				log.SetOutput(logWriter)
+			}
+
+			return runForeground(config)
+		},
+	}
+}
+
+func loadConfig(command *cobra.Command) (*commons.Config, error) {
+	return cmd_commons.ProcessCommonFlags(command)
+}
+
+func configureForegroundPaths(config *commons.Config) error {
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return errors.Wrap(err, "get current working directory")
+	}
+
+	oldDataRootPath := config.DataRootPath
+	oldDefaultStagingRootPath := filepath.Join(oldDataRootPath, commons.StagingRootPathDefault)
+
+	config.DataRootPath = workingDirectory
+	if config.StagingRootPath == "" || filepath.Clean(config.StagingRootPath) == filepath.Clean(oldDefaultStagingRootPath) {
+		config.StagingRootPath = filepath.Join(workingDirectory, commons.StagingRootPathDefault)
 	}
 
 	return nil
 }
 
+func newStopCommand() *cobra.Command {
+	var wait time.Duration
+	command := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the running irodsfs-pool process",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			config, err := cmd_commons.ProcessCommonFlags(command)
+			if err != nil {
+				return errors.Wrap(err, "process command flags")
+			}
+
+			pid, err := cmd_commons.ReadPID(config.PIDFile)
+			if err != nil {
+				return err
+			}
+			if !cmd_commons.ProcessRunning(pid) {
+				return errors.Newf("irodsfs-pool is not running (stale pid %d)", pid)
+			}
+			if err := cmd_commons.SignalPID(pid, syscall.SIGTERM); err != nil {
+				return err
+			}
+
+			deadline := time.Now().Add(wait)
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+			for cmd_commons.ProcessRunning(pid) {
+				if time.Now().After(deadline) {
+					return errors.Newf("timed out waiting for irodsfs-pool process %d to stop", pid)
+				}
+				select {
+				case <-command.Context().Done():
+					return command.Context().Err()
+				case <-ticker.C:
+				}
+			}
+
+			fmt.Fprintf(command.OutOrStdout(), "irodsfs-pool stopped (pid %d)\n", pid)
+			return nil
+		},
+	}
+	command.Flags().DurationVar(&wait, "wait", defaultStopWait, "Maximum time to wait for shutdown")
+	return command
+}
+
+func newStatusCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Report whether irodsfs-pool is running",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			config, err := cmd_commons.ProcessCommonFlags(command)
+			if err != nil {
+				return errors.Wrap(err, "process command flags")
+			}
+
+			pid, err := cmd_commons.ReadPID(config.PIDFile)
+			if err != nil {
+				return err
+			}
+			if !cmd_commons.ProcessRunning(pid) {
+				return errors.Newf("irodsfs-pool is not running (stale pid %d)", pid)
+			}
+
+			fmt.Fprintf(command.OutOrStdout(), "irodsfs-pool is running (pid %d)\n", pid)
+			return nil
+		},
+	}
+}
+
+func newVersionCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print version information",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return cmd_commons.PrintVersion(command)
+		},
+	}
+}
+
 func main() {
-	log.SetFormatter(&log.TextFormatter{
-		TimestampFormat: "2006-01-02 15:04:05.000000",
-		FullTimestamp:   true,
-	})
+	myFormatter := &irodsfs_common_util.StacktraceTextFormatter{
+		TextFormatter: log.TextFormatter{
+			TimestampFormat: "2006-01-02 15:04:05.000000",
+			FullTimestamp:   true,
+		},
+	}
 
+	log.SetFormatter(myFormatter)
 	log.SetLevel(log.InfoLevel)
+	log.SetReportCaller(true)
 
-	logger := log.WithFields(log.Fields{
-		"package":  "main",
-		"function": "main",
-	})
+	logger := log.WithFields(log.Fields{})
 
-	// attach common flags
-	cmd_commons.SetCommonFlags(rootCmd)
-
-	err := Execute()
+	// go-daemonizer relaunches os.Args[0]. Use an absolute path so daemon
+	// startup does not depend on the configured working directory.
+	executable, err := os.Executable()
 	if err != nil {
-		logger.Fatalf("%+v", err)
+		logger.WithError(err).Fatal("failed to resolve executable path")
+	}
+	os.Args[0] = executable
+
+	// must be called before Cobra parses os.Args so --__daemon__ is stripped.
+	daemon := godaemonizer.New()
+	if err := Execute(daemon); err != nil {
+		fmt.Fprintf(os.Stderr, "irodsfs-pool: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// parentMain handles command-line parameters and run parent process
-func parentMain(command *cobra.Command, args []string) {
-	logger := log.WithFields(log.Fields{
-		"package":  "main",
-		"function": "parentMain",
-	})
-
-	config, logWriter, cont, err := cmd_commons.ProcessCommonFlags(command)
-	if logWriter != nil {
-		defer logWriter.Close()
-	}
-
+func runDaemonManaged(config *commons.Config, ready func(error)) error {
+	pidFile, err := cmd_commons.AcquirePIDFile(config.PIDFile)
 	if err != nil {
-		logger.Errorf("%+v", err)
-		os.Exit(1)
+		reportReady(ready, err)
+		return err
+	}
+	defer pidFile.Close()
+
+	return runUntilShutdown(config, ready)
+}
+
+func runForeground(config *commons.Config) error {
+	return runUntilShutdown(config, nil)
+}
+
+func runUntilShutdown(config *commons.Config, ready func(error)) error {
+	runErr, shutdownFn := run(config)
+	if runErr != nil {
+		reportReady(ready, runErr)
+		return runErr
 	}
 
-	if !cont {
-		os.Exit(0)
+	reportReady(ready, nil)
+	waitForShutdown()
+
+	if shutdownFn != nil {
+		shutdownFn()
 	}
+	return nil
+}
 
-	if !config.Foreground {
-		// background
-		childStdin, childStdout, err := cmd_commons.RunChildProcess(os.Args[0])
-		if err != nil {
-			childErr := xerrors.Errorf("failed to run iRODS FUSE Lite Pool Service child process: %w", err)
-			logger.Errorf("%+v", childErr)
-			os.Exit(1)
-		}
-
-		err = cmd_commons.ParentProcessSendConfigViaSTDIN(config, childStdin, childStdout)
-		if err != nil {
-			sendErr := xerrors.Errorf("failed to send configuration to iRODS FUSE Lite Pool Service child process: %w", err)
-			logger.Errorf("%+v", sendErr)
-			os.Exit(1)
-		}
-	} else {
-		// run foreground
-		err = run(config, false)
-		if err != nil {
-			runErr := xerrors.Errorf("failed to run iRODS FUSE Lite Pool Service: %w", err)
-			logger.Errorf("%+v", runErr)
-			os.Exit(1)
-		}
+func reportReady(ready func(error), err error) {
+	if ready != nil {
+		ready(err)
 	}
 }
 
-// childMain runs child process
-func childMain(command *cobra.Command, args []string) {
-	logger := log.WithFields(log.Fields{
-		"package":  "main",
-		"function": "childMain",
-	})
-
-	logger.Info("Start child process")
-
-	// read from stdin
-	config, logWriter, err := cmd_commons.ChildProcessReadConfigViaSTDIN()
-	if logWriter != nil {
-		defer logWriter.Close()
-	}
-
-	if err != nil {
-		commErr := xerrors.Errorf("failed to communicate to parent process: %w", err)
-		logger.Errorf("%+v", commErr)
-		cmd_commons.ReportChildProcessError()
-		os.Exit(1)
-	}
-
-	config.ChildProcess = true
-
-	logger.Info("Run child process")
-
-	// background
-	err = run(config, true)
-	if err != nil {
-		runErr := xerrors.Errorf("failed to run iRODS FUSE Lite Pool Service: %w", err)
-		logger.Errorf("%+v", runErr)
-		os.Exit(1)
-	}
-
-	if logWriter != nil {
-		logWriter.Close()
-		logWriter = nil
-	}
-}
-
-// run runs iRODS FUSE Lite Pool Service
-func run(config *commons.Config, isChildProcess bool) error {
-	logger := log.WithFields(log.Fields{
-		"package":  "main",
-		"function": "run",
-	})
+// run runs iRODS FUSE Pool Service.
+func run(config *commons.Config) (error, func()) {
+	logger := log.WithFields(log.Fields{})
 
 	if config.Debug {
 		log.SetLevel(log.DebugLevel)
 	}
 
 	versionInfo := commons.GetVersion()
-	logger.Infof("iRODS FUSE Lite Pool Service version - %q, commit - %q", versionInfo.ServiceVersion, versionInfo.GitCommit)
+	logger.Infof("iRODS FUSE Pool Service version - %q, commit - %q", versionInfo.ServiceVersion, versionInfo.GitCommit)
 
-	// make work dirs required
-	err := config.MakeWorkDirs()
-	if err != nil {
-		mkdirErr := xerrors.Errorf("make work dir error: %w", err)
-		logger.Errorf("%+v", mkdirErr)
-		return err
+	if err := config.MakeWorkDirs(); err != nil {
+		mkdirErr := errors.Wrap(err, "make work dir error")
+		logger.Error(mkdirErr)
+		return mkdirErr, nil
 	}
 
-	err = config.Validate()
-	if err != nil {
-		configErr := xerrors.Errorf("invalid configuration: %w", err)
-		logger.Errorf("%+v", configErr)
-		return err
+	if err := config.Validate(); err != nil {
+		configErr := errors.Wrap(err, "invalid configuration")
+		logger.Error(configErr)
+		return configErr, nil
 	}
 
-	// profile
-	if config.Profile && config.ProfileServicePort > 0 {
-		go func() {
-			profileServiceAddr := fmt.Sprintf(":%d", config.ProfileServicePort)
-
-			logger.Infof("Starting profile service at %q", profileServiceAddr)
-			http.ListenAndServe(profileServiceAddr, nil)
-		}()
-
-		prof := profile.Start(profile.MemProfile)
-		defer prof.Stop()
-	}
-
-	var prometheusExporterServer *http.Server
-	if config.PrometheusExporterPort > 0 {
-		go func() {
-			prometheusExporterAddr := fmt.Sprintf(":%d", config.PrometheusExporterPort)
-			http.Handle("/metrics", promhttp.Handler())
-
-			logger.Infof("Starting prometheus exporter at %q", prometheusExporterAddr)
-			prometheusExporterServer = &http.Server{Addr: prometheusExporterAddr, Handler: nil}
-			prometheusExporterServer.ListenAndServe()
-		}()
-	}
-
-	// run a service
 	svc, err := service.NewPoolService(config)
 	if err != nil {
-		serviceErr := xerrors.Errorf("failed to create the service: %w", err)
-		logger.Errorf("%+v", serviceErr)
-		if isChildProcess {
-			cmd_commons.ReportChildProcessError()
-		}
-		return err
+		serviceErr := errors.Wrap(err, "failed to create the service")
+		logger.Error(serviceErr)
+		return serviceErr, nil
 	}
 
-	err = svc.Start()
-	if err != nil {
-		serviceErr := xerrors.Errorf("failed to start the service: %w", err)
-		logger.Errorf("%+v", serviceErr)
-		if isChildProcess {
-			cmd_commons.ReportChildProcessError()
-		}
-		return err
+	if err := svc.Start(); err != nil {
+		serviceErr := errors.Wrap(err, "failed to start the service")
+		logger.Error(serviceErr)
+		svc.Release()
+		return serviceErr, nil
 	}
 
-	if isChildProcess {
-		cmd_commons.ReportChildProcessStartSuccessfully()
-		if len(config.GetLogFilePath()) == 0 {
-			cmd_commons.SetNilLogWriter()
-		}
-	}
-
-	defer func() {
-		if prometheusExporterServer != nil {
-			prometheusExporterServer.Shutdown(context.TODO())
-		}
-
+	shutdown := func() {
 		svc.Stop()
 		svc.Release()
-
-		// remove work dir
-		config.CleanWorkDirs()
-
-		os.Exit(0)
-	}()
-
-	// wait
-	waitForCtrlC()
-
-	return nil
+	}
+	return nil, shutdown
 }
 
-func waitForCtrlC() {
-	var endWaiter sync.WaitGroup
-
-	endWaiter.Add(1)
+func waitForShutdown() {
 	signalChannel := make(chan os.Signal, 1)
 
-	signal.Notify(signalChannel, os.Interrupt)
-
-	go func() {
-		<-signalChannel
-		endWaiter.Done()
-	}()
-
-	endWaiter.Wait()
+	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signalChannel)
+	<-signalChannel
 }

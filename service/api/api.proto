@@ -1,86 +1,65 @@
 syntax = "proto3";
 
-option go_package = "/api";
+option go_package = "github.com/cyverse/irodsfs-pool/service/api;api";
 
 package api;
+
+import "google/protobuf/timestamp.proto";
 
 message Empty {
 }
 
-message SSLConfiguration{
-	string ca_certificate_file = 1;
-	string ca_certificate_path = 2;
-	int32 encryption_key_size = 3;
-	string encryption_algorithm = 4;
-	int32 encryption_salt_size = 5;
-	int32 encryption_num_hash_rounds = 6;
-	string verify_server = 7;
-	string dh_params_file = 8;
-	string server_name = 9;
-}
-
-message Account{
-	string authentication_scheme = 1;
-	bool client_server_negotiation = 2;
-	string cs_negotiation_policy = 3;
-	string host = 4;
-	int32 port = 5;
-	string client_user = 6;
-	string client_zone = 7;
-	string proxy_user = 8;
-	string proxy_zone = 9;
-	string password = 10;
-	string ticket = 11;
-	string default_resource = 12;
-	string default_hash_scheme = 13;
-	int32 pam_ttl = 14;
-	string pam_token = 15;
-	SSLConfiguration ssl_configuration = 16;
+message Account {
+  optional string irods_authentication_scheme = 1;
+  optional bool irods_client_server_negotiation = 2;
+  optional string irods_client_server_policy = 3;
+  string irods_host = 4;
+  int32 irods_port = 5;
+  string irods_zone_name = 6;
+  optional string irods_client_zone_name = 7;
+  string irods_user_name = 8;
+  optional string irods_client_user_name = 9;
+  optional string irods_default_resource = 10;
+  optional string irods_cwd = 11;
+  optional string irods_home = 12;
+  optional string irods_default_hash_scheme = 13;
+  optional string irods_match_hash_policy = 14;
+  optional string irods_encryption_algorithm = 15;
+  optional int32 irods_encryption_key_size = 16;
+  optional int32 irods_encryption_salt_size = 17;
+  optional int32 irods_encryption_num_hash_rounds = 18;
+  optional string irods_ssl_ca_certificate_file = 19;
+  optional string irods_ssl_ca_certificate_path = 20;
+  optional string irods_ssl_verify_server = 21;
+  optional string irods_ssl_certificate_chain_file = 22;
+  optional string irods_ssl_certificate_key_file = 23;
+  optional string irods_ssl_dh_params_file = 24;
+  optional string irods_user_password = 25;
+  optional string irods_ticket = 26;
+  optional string irods_pam_token = 27;
+  optional int32 irods_pam_ttl = 28;
+  optional string irods_ssl_server_name = 29;
 }
 
 message Entry {
 	int64 id = 1;
-	string type = 2; // "file" or "directory"
+	string type = 2;
 	string name = 3;
 	string path = 4;
 	string owner = 5;
 	int64 size = 6;
 	string data_type = 7;
-	string create_time = 8; // RFC3339 format
-	string modify_time = 9; // RFC3339 format
-	string checksum_algorithm = 10;
-	bytes checksum = 11;
-}
-
-message Access {
-	string path = 1;
-	string user_name = 2;
-	string user_zone = 3;
-	string user_type = 4;
-	string access_level = 5;
-}
-
-message User {
-	int64 id = 1;
-	string name = 2;
-	string zone = 3;
-	string type = 4;
-
-}
-
-message Metadata {
-	int64 id = 1;
-	string name = 2;
-	string value = 3;
-	string unit = 4;
-	string create_time = 5; // RFC3339 format
-	string modify_time = 6; // RFC3339 format
+	google.protobuf.Timestamp create_time = 8;
+	google.protobuf.Timestamp modify_time = 9;
+	google.protobuf.Timestamp access_time = 10;
+	string checksum_algorithm = 11;
+	bytes checksum = 12;
 }
 
 message LoginRequest{
 	Account account = 1;
 	string application_name = 2;
-	string client_id = 3;
+	string description = 3;
 }
 
 message LoginResponse{
@@ -97,7 +76,7 @@ message KeepAliveRequest{
 
 message ListRequest {
 	string session_id = 1;
-    string path = 2;
+	string path = 2;
 }
 
 message ListResponse {
@@ -106,48 +85,16 @@ message ListResponse {
 
 message StatRequest {
 	string session_id = 1;
-    string path = 2;
+	string path = 2;
 }
 
 message StatResponse {
 	Entry entry = 1;
 }
 
-message ListXattrRequest {
-	string session_id = 1;
-	string path = 2;
-}
-
-message ListXattrResponse {
-	repeated Metadata metadata = 1;
-}
-
-message GetXattrRequest {
-	string session_id = 1;
-	string path = 2;
-	string name = 3;
-}
-
-message GetXattrResponse {
-	Metadata metadata = 1;
-}
-
-message SetXattrRequest {
-	string session_id = 1;
-	string path = 2;
-	string name = 3;
-	string value = 4;
-}
-
-message RemoveXattrRequest {
-	string session_id = 1;
-	string path = 2;
-	string name = 3;
-}
-
 message ExistsDirRequest {
 	string session_id = 1;
-    string path = 2;
+	string path = 2;
 }
 
 message ExistsDirResponse {
@@ -156,48 +103,11 @@ message ExistsDirResponse {
 
 message ExistsFileRequest {
 	string session_id = 1;
-    string path = 2;
+	string path = 2;
 }
 
 message ExistsFileResponse {
 	bool exist = 1;
-}
-
-message ListUserGroupsRequest {
-	string session_id = 1;
-	string zone = 2;
-    string user_name = 3;
-}
-
-message ListUserGroupsResponse {
-	repeated User users = 1;
-}
-
-message ListDirACLsRequest {
-	string session_id = 1;
-    string path = 2;
-}
-
-message ListDirACLsResponse {
-	repeated Access accesses = 1;
-}
-
-message ListFileACLsRequest {
-	string session_id = 1;
-    string path = 2;
-}
-
-message ListFileACLsResponse {
-	repeated Access accesses = 1;
-}
-
-message ListACLsForEntriesRequest {
-	string session_id = 1;
-    string path = 2;
-}
-
-message ListACLsForEntriesResponse {
-	repeated Access accesses = 1;
 }
 
 message RemoveFileRequest {
@@ -234,8 +144,7 @@ message RenameFileToFileRequest {
 message CreateFileRequest {
 	string session_id = 1;
 	string path = 2;
-	string resource = 3;
-	string mode = 4;
+	string mode = 3;
 }
 
 message CreateFileResponse {
@@ -246,11 +155,32 @@ message CreateFileResponse {
 message OpenFileRequest {
 	string session_id = 1;
 	string path = 2;
-	string resource = 3;
-	string mode = 4;
+	string mode = 3;
 }
 
 message OpenFileResponse {
+	string file_handle_id = 1;
+	Entry entry = 2;
+}
+
+message CreateFileBulkRequest {
+	string session_id = 1;
+	string path = 2;
+	string mode = 3;
+}
+
+message CreateFileBulkResponse {
+	string file_handle_id = 1;
+	Entry entry = 2;
+}
+
+message OpenFileBulkRequest {
+	string session_id = 1;
+	string path = 2;
+	string mode = 3;
+}
+
+message OpenFileBulkResponse {
 	string file_handle_id = 1;
 	Entry entry = 2;
 }
@@ -259,15 +189,6 @@ message TruncateFileRequest {
 	string session_id = 1;
 	string path = 2;
 	int64 size = 3;
-}
-
-message GetOffsetRequest {
-	string session_id = 1;
-	string file_handle_id = 2;
-}
-
-message GetOffsetResponse {
-	int64 offset = 1;
 }
 
 message ReadAtRequest {
@@ -279,7 +200,6 @@ message ReadAtRequest {
 
 message ReadAtResponse {
 	bytes data = 1;
-	int64 available = 2;
 }
 
 message WriteAtRequest {
@@ -289,15 +209,67 @@ message WriteAtRequest {
 	bytes data = 4;
 }
 
-message LockRequest {
-	string session_id = 1;
-	string file_handle_id = 2;
-	bool wait = 3;
+message WriteAtResponse {
+	int32 length = 1;
 }
 
-message UnlockRequest {
+message GetAvailableRequest {
 	string session_id = 1;
 	string file_handle_id = 2;
+	int64 offset = 3;
+}
+
+message GetAvailableResponse {
+	int64 available = 1;
+}
+
+message ReadStreamRequest {
+	string session_id = 1;
+	string irods_path = 2;
+	int32 block_size = 3;
+	int32 num_blocks = 4;
+}
+
+message ReadStreamResponse {
+	bytes data = 1;
+	int64 offset = 2;
+}
+
+message ReadStreamParallelRequest {
+	string session_id = 1;
+	string irods_path = 2;
+	int32 block_size = 3;
+	int32 num_blocks = 4;
+	int32 task_num = 5;
+}
+
+message ReadStreamParallelResponse {
+	bytes data = 1;
+	int64 offset = 2;
+}
+
+message WriteStreamHeader {
+	string session_id = 1;
+	string irods_path = 2;
+}
+
+message WriteStreamBlock {
+	int64 offset = 1;
+	bytes data = 2;
+}
+
+message WriteStreamRequest {
+	reserved 1 to 4;
+	reserved "session_id", "file_handle_id", "offset", "data";
+
+	oneof payload {
+		WriteStreamHeader header = 5;
+		WriteStreamBlock block = 6;
+	}
+}
+
+message WriteStreamResponse {
+	int64 written = 1;
 }
 
 message TruncateRequest {
@@ -316,23 +288,27 @@ message CloseRequest {
 	string file_handle_id = 2;
 }
 
+message CacheFileRequest {
+	string session_id = 1;
+	string irods_path = 2;
+	bool async = 3;
+}
+
+message SyncRequest {
+	string session_id = 1;
+}
+
 service PoolAPI {
+	// Session
 	rpc Login(LoginRequest) returns (LoginResponse) {}
 	rpc Logout(LogoutRequest) returns (Empty) {}
 	rpc KeepAlive(KeepAliveRequest) returns (Empty) {}
+
+	// Filesystem
 	rpc List(ListRequest) returns (ListResponse) {}
 	rpc Stat(StatRequest) returns (StatResponse) {}
-	rpc ListXattr(ListXattrRequest) returns (ListXattrResponse) {}
-	rpc GetXattr(GetXattrRequest) returns (GetXattrResponse) {}
-	rpc SetXattr(SetXattrRequest) returns (Empty) {}
-	rpc RemoveXattr(RemoveXattrRequest) returns (Empty) {}
 	rpc ExistsDir(ExistsDirRequest) returns (ExistsDirResponse) {}
 	rpc ExistsFile(ExistsFileRequest) returns (ExistsFileResponse) {}
-
-	rpc ListUserGroups(ListUserGroupsRequest) returns (ListUserGroupsResponse) {}
-	rpc ListDirACLs(ListDirACLsRequest) returns (ListDirACLsResponse) {}
-	rpc ListFileACLs(ListFileACLsRequest) returns (ListFileACLsResponse) {}
-	rpc ListACLsForEntries(ListACLsForEntriesRequest) returns (ListACLsForEntriesResponse) {}
 	rpc RemoveFile(RemoveFileRequest) returns (Empty) {}
 	rpc RemoveDir(RemoveDirRequest) returns (Empty) {}
 	rpc MakeDir(MakeDirRequest) returns (Empty) {}
@@ -340,17 +316,28 @@ service PoolAPI {
 	rpc RenameFileToFile(RenameFileToFileRequest) returns (Empty) {}
 	rpc CreateFile(CreateFileRequest) returns (CreateFileResponse) {}
 	rpc OpenFile(OpenFileRequest) returns (OpenFileResponse) {}
+	rpc CreateFileBulk(CreateFileBulkRequest) returns (CreateFileBulkResponse) {}
+	rpc OpenFileBulk(OpenFileBulkRequest) returns (OpenFileBulkResponse) {}
 	rpc TruncateFile(TruncateFileRequest) returns (Empty) {}
-	
-	// file 
-	rpc GetOffset(GetOffsetRequest) returns (GetOffsetResponse) {}
-	rpc ReadAt(ReadAtRequest) returns (ReadAtResponse) {}
-	rpc WriteAt(WriteAtRequest) returns (Empty) {}
-	rpc Lock(LockRequest) returns (Empty) {}
-	rpc RLock(LockRequest) returns (Empty) {}
-	rpc Unlock(UnlockRequest) returns (Empty) {} 
 
+	// File handle (RDWR pass-through)
+	rpc ReadAt(ReadAtRequest) returns (ReadAtResponse) {}
+	rpc WriteAt(WriteAtRequest) returns (WriteAtResponse) {}
+	rpc GetAvailable(GetAvailableRequest) returns (GetAvailableResponse) {}
 	rpc Truncate(TruncateRequest) returns (Empty) {}
 	rpc Flush(FlushRequest) returns (Empty) {}
 	rpc Close(CloseRequest) returns (Empty) {}
+
+	// File handle streaming (RDONLY - server streams 4MB blocks for prefetch)
+	rpc ReadStream(ReadStreamRequest) returns (stream ReadStreamResponse) {}
+	// File streaming (RDONLY - server reads in parallel and streams blocks)
+	rpc ReadStreamParallel(ReadStreamParallelRequest) returns (stream ReadStreamParallelResponse) {}
+	// File handle streaming (WRONLY - client streams micro-buffered chunks)
+	rpc WriteStream(stream WriteStreamRequest) returns (WriteStreamResponse) {}
+
+	// Cache
+	rpc CacheFile(CacheFileRequest) returns (Empty) {}
+
+	// Sync
+	rpc Sync(SyncRequest) returns (Empty) {}
 }

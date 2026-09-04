@@ -1,0 +1,68 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/cyverse/go-irodsclient/config"
+	"github.com/cyverse/irodsfs-pool/client"
+
+	log "github.com/sirupsen/logrus"
+)
+
+func main() {
+	logger := log.WithFields(log.Fields{})
+
+	// Parse cli parameters
+	flag.Parse()
+	args := flag.Args()
+
+	if len(args) != 2 {
+		fmt.Fprintf(os.Stderr, "Give an iRODS path and local path!\n")
+		os.Exit(1)
+	}
+
+	inputPath := args[0]
+	outputPath := args[1]
+
+	// Read account configuration from YAML file
+	cfg, err := config.NewConfigFromYAMLFile(config.GetDefaultConfig(), "account.yml")
+	if err != nil {
+		logger.Error(err)
+		panic(err)
+	}
+
+	account := cfg.ToIRODSAccount()
+	logger.Debugf("Account : %v", account.GetRedacted())
+
+	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, false, logger)
+	err = poolClient.Connect()
+	if err != nil {
+		logger.Error(err)
+		panic(err)
+	}
+
+	defer poolClient.Disconnect()
+
+	appName := "download_file"
+	poolSession, err := poolClient.NewSession(account, appName, "download_file test")
+	if err != nil {
+		logger.Error(err)
+		panic(err)
+	}
+	defer poolSession.Release()
+
+	trackerCB := func(task string, processed int64, total int64) {
+		logger.Infof("%s] %d / %d", task, processed, total)
+	}
+
+	err = poolSession.DownloadFile(inputPath, outputPath, trackerCB)
+	if err != nil {
+		logger.Error(err)
+		panic(err)
+	}
+
+	fmt.Printf("Downloaded %q to %q\n", inputPath, outputPath)
+}

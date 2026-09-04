@@ -6,19 +6,6 @@ LDFLAGS?="-X '${PKG}/commons.serviceVersion=${VERSION}' -X '${PKG}/commons.gitCo
 GO111MODULE=on
 GOPROXY=direct
 GOPATH=$(shell go env GOPATH)
-OS_NAME:=$(shell grep -E '^ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')
-SHELL:=/bin/bash
-ADDUSER_FLAGS:=
-ifeq (${OS_NAME},centos)
-	ADDUSER_FLAGS=-r -d /dev/null -s /sbin/nologin 
-else ifeq (${OS_NAME},almalinux)
-	ADDUSER_FLAGS=-r -d /dev/null -s /sbin/nologin 
-else ifeq (${OS_NAME},ubuntu)
-	ADDUSER_FLAGS=--system --no-create-home --shell /sbin/nologin --group
-else 
-	ADDUSER_FLAGS=--system --no-create-home --shell /sbin/nologin --group
-endif
-
 .EXPORT_ALL_VARIABLES:
 
 .PHONY: build
@@ -40,40 +27,3 @@ examples:
 	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/list_dir/list_dir.out ./client_examples/list_dir/list_dir.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/download_file/download_file.out ./client_examples/download_file/download_file.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/upload_file/upload_file.out ./client_examples/upload_file/upload_file.go
-
-
-.PHONY: release
-release: build
-	mkdir -p release
-	mkdir -p release/bin
-	cp bin/irodsfs-pool release/bin
-	mkdir -p release/packaging/systemd
-	cp packaging/systemd/config.yaml release/packaging/systemd
-	cp packaging/systemd/irodsfs-pool.service release/packaging/systemd
-	cp packaging/systemd/README.md release/packaging/systemd
-	cp Makefile.release release/Makefile
-	cd release && tar zcvf ../irodsfs-pool.tar.gz *
-
-.PHONY: install
-install:
-	cp bin/irodsfs-pool /usr/bin
-	cp packaging/systemd/irodsfs-pool.service /usr/lib/systemd/system/
-	id -u irodsfs-pool &> /dev/null || adduser ${ADDUSER_FLAGS} irodsfs-pool
-	mkdir -p /etc/irodsfs-pool
-	cp packaging/systemd/config.yaml /etc/irodsfs-pool
-	chown irodsfs-pool:irodsfs-pool /etc/irodsfs-pool/config.yaml
-	chmod 660 /etc/irodsfs-pool/config.yaml
-	mkdir -p $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
-	chown irodsfs-pool:irodsfs-pool $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
-	systemctl daemon-reload
-
-.PHONY: uninstall
-uninstall:
-	rm -f /usr/bin/irodsfs-pool
-	rm -f /etc/systemd/system/multi-user.target.wants/irodsfs-pool.service || true
-	rm -f /usr/lib/systemd/system/irodsfs-pool.service
-	systemctl daemon-reload
-	userdel irodsfs-pool || true
-	groupdel irodsfs-pool || true
-	rm -rf $$(awk '/data_root_path:/ {print $$2}' /etc/irodsfs-pool/config.yaml)
-	rm -rf /etc/irodsfs-pool

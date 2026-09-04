@@ -17,6 +17,21 @@ A shared middleware server that pools iRODS connections, caches data blocks in m
 go build -o irodsfs-pool ./cmd
 ```
 
+## Install the latest Linux release
+
+Install the latest release for the current Linux architecture and register it
+as a systemd service with:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/cyverse/irodsfs-pool/main/install.sh | bash
+```
+
+The installer downloads the matching GitHub Release archive, installs the
+service, and enables and starts it. If `recovery_encryption_key` is empty, the
+installer generates a base64-encoded 32-byte key in
+`/etc/irodsfs-pool/config.yaml`; back up that file because the key is needed
+to decrypt persisted recovery credentials.
+
 ## Configuration
 
 Create a YAML config file (see `packaging/systemd/config.yaml` for a full example):

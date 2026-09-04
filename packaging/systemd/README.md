@@ -16,13 +16,25 @@ The binary is output to `bin/irodsfs-pool`.
 ## Install
 
 ```bash
-sudo make install
+sudo ./packaging/systemd/install.sh
 ```
 
-This installs:
+The script works from a source checkout. A release archive contains the same
+assets at its root, so install it after extraction with `sudo ./install.sh`.
+It installs:
 - `/usr/bin/irodsfs-pool` — service binary
 - `/etc/irodsfs-pool/config.yaml` — configuration file
-- `/usr/lib/systemd/system/irodsfs-pool.service` — systemd unit
+- `/etc/systemd/system/irodsfs-pool.service` — systemd unit
+
+It creates the `irodsfs-pool` system user/group and the packaged data and
+staging directories. An existing configuration file is preserved, so a
+reinstall never replaces its recovery encryption key or other local changes.
+It also enables and starts `irodsfs-pool.service` immediately.
+
+When `recovery_encryption_key` is empty, the installer generates a new
+base64-encoded 32-byte key and stores it in the configuration file before
+starting the service. Back up this configuration file: the key must remain
+stable to decrypt persisted recovery credentials after a host replacement.
 
 ## Configuration
 
@@ -80,10 +92,11 @@ service_endpoint: unix:///irodsfs_pool/comm.sock
 
 ## Service Management
 
-Enable and start:
+The install script already enables and starts the service. To restart it after
+changing configuration:
+
 ```bash
-sudo systemctl enable irodsfs-pool.service
-sudo systemctl start irodsfs-pool.service
+sudo systemctl restart irodsfs-pool.service
 ```
 
 Check status:
@@ -108,7 +121,7 @@ a separate `Type=simple` unit.
 ## Uninstall
 
 ```bash
-sudo systemctl stop irodsfs-pool.service
-sudo systemctl disable irodsfs-pool.service
-sudo make uninstall
+sudo systemctl disable --now irodsfs-pool.service
+sudo rm -f /etc/systemd/system/irodsfs-pool.service /usr/bin/irodsfs-pool
+sudo systemctl daemon-reload
 ```

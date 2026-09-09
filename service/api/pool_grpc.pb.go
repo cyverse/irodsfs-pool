@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.2
 // - protoc             v3.21.12
-// source: service/api/api.proto
+// source: service/api/pool.proto
 
 package api
 
@@ -19,34 +19,34 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PoolAPI_Login_FullMethodName              = "/api.PoolAPI/Login"
-	PoolAPI_Logout_FullMethodName             = "/api.PoolAPI/Logout"
-	PoolAPI_KeepAlive_FullMethodName          = "/api.PoolAPI/KeepAlive"
-	PoolAPI_List_FullMethodName               = "/api.PoolAPI/List"
-	PoolAPI_Stat_FullMethodName               = "/api.PoolAPI/Stat"
-	PoolAPI_ExistsDir_FullMethodName          = "/api.PoolAPI/ExistsDir"
-	PoolAPI_ExistsFile_FullMethodName         = "/api.PoolAPI/ExistsFile"
-	PoolAPI_RemoveFile_FullMethodName         = "/api.PoolAPI/RemoveFile"
-	PoolAPI_RemoveDir_FullMethodName          = "/api.PoolAPI/RemoveDir"
-	PoolAPI_MakeDir_FullMethodName            = "/api.PoolAPI/MakeDir"
-	PoolAPI_RenameDirToDir_FullMethodName     = "/api.PoolAPI/RenameDirToDir"
-	PoolAPI_RenameFileToFile_FullMethodName   = "/api.PoolAPI/RenameFileToFile"
-	PoolAPI_CreateFile_FullMethodName         = "/api.PoolAPI/CreateFile"
-	PoolAPI_OpenFile_FullMethodName           = "/api.PoolAPI/OpenFile"
-	PoolAPI_CreateFileBulk_FullMethodName     = "/api.PoolAPI/CreateFileBulk"
-	PoolAPI_OpenFileBulk_FullMethodName       = "/api.PoolAPI/OpenFileBulk"
-	PoolAPI_TruncateFile_FullMethodName       = "/api.PoolAPI/TruncateFile"
-	PoolAPI_ReadAt_FullMethodName             = "/api.PoolAPI/ReadAt"
-	PoolAPI_WriteAt_FullMethodName            = "/api.PoolAPI/WriteAt"
-	PoolAPI_GetAvailable_FullMethodName       = "/api.PoolAPI/GetAvailable"
-	PoolAPI_Truncate_FullMethodName           = "/api.PoolAPI/Truncate"
-	PoolAPI_Flush_FullMethodName              = "/api.PoolAPI/Flush"
-	PoolAPI_Close_FullMethodName              = "/api.PoolAPI/Close"
-	PoolAPI_ReadStream_FullMethodName         = "/api.PoolAPI/ReadStream"
-	PoolAPI_ReadStreamParallel_FullMethodName = "/api.PoolAPI/ReadStreamParallel"
-	PoolAPI_WriteStream_FullMethodName        = "/api.PoolAPI/WriteStream"
-	PoolAPI_CacheFile_FullMethodName          = "/api.PoolAPI/CacheFile"
-	PoolAPI_Sync_FullMethodName               = "/api.PoolAPI/Sync"
+	PoolAPI_Login_FullMethodName              = "/cyverse.irodsfs.pool.v1.PoolAPI/Login"
+	PoolAPI_Logout_FullMethodName             = "/cyverse.irodsfs.pool.v1.PoolAPI/Logout"
+	PoolAPI_KeepAlive_FullMethodName          = "/cyverse.irodsfs.pool.v1.PoolAPI/KeepAlive"
+	PoolAPI_List_FullMethodName               = "/cyverse.irodsfs.pool.v1.PoolAPI/List"
+	PoolAPI_Stat_FullMethodName               = "/cyverse.irodsfs.pool.v1.PoolAPI/Stat"
+	PoolAPI_ExistsDir_FullMethodName          = "/cyverse.irodsfs.pool.v1.PoolAPI/ExistsDir"
+	PoolAPI_ExistsFile_FullMethodName         = "/cyverse.irodsfs.pool.v1.PoolAPI/ExistsFile"
+	PoolAPI_RemoveFile_FullMethodName         = "/cyverse.irodsfs.pool.v1.PoolAPI/RemoveFile"
+	PoolAPI_RemoveDir_FullMethodName          = "/cyverse.irodsfs.pool.v1.PoolAPI/RemoveDir"
+	PoolAPI_MakeDir_FullMethodName            = "/cyverse.irodsfs.pool.v1.PoolAPI/MakeDir"
+	PoolAPI_RenameDirToDir_FullMethodName     = "/cyverse.irodsfs.pool.v1.PoolAPI/RenameDirToDir"
+	PoolAPI_RenameFileToFile_FullMethodName   = "/cyverse.irodsfs.pool.v1.PoolAPI/RenameFileToFile"
+	PoolAPI_CreateFile_FullMethodName         = "/cyverse.irodsfs.pool.v1.PoolAPI/CreateFile"
+	PoolAPI_OpenFile_FullMethodName           = "/cyverse.irodsfs.pool.v1.PoolAPI/OpenFile"
+	PoolAPI_CreateFileBulk_FullMethodName     = "/cyverse.irodsfs.pool.v1.PoolAPI/CreateFileBulk"
+	PoolAPI_OpenFileBulk_FullMethodName       = "/cyverse.irodsfs.pool.v1.PoolAPI/OpenFileBulk"
+	PoolAPI_TruncateFile_FullMethodName       = "/cyverse.irodsfs.pool.v1.PoolAPI/TruncateFile"
+	PoolAPI_ReadAt_FullMethodName             = "/cyverse.irodsfs.pool.v1.PoolAPI/ReadAt"
+	PoolAPI_WriteAt_FullMethodName            = "/cyverse.irodsfs.pool.v1.PoolAPI/WriteAt"
+	PoolAPI_GetAvailable_FullMethodName       = "/cyverse.irodsfs.pool.v1.PoolAPI/GetAvailable"
+	PoolAPI_Truncate_FullMethodName           = "/cyverse.irodsfs.pool.v1.PoolAPI/Truncate"
+	PoolAPI_Flush_FullMethodName              = "/cyverse.irodsfs.pool.v1.PoolAPI/Flush"
+	PoolAPI_Close_FullMethodName              = "/cyverse.irodsfs.pool.v1.PoolAPI/Close"
+	PoolAPI_ReadStream_FullMethodName         = "/cyverse.irodsfs.pool.v1.PoolAPI/ReadStream"
+	PoolAPI_ReadStreamParallel_FullMethodName = "/cyverse.irodsfs.pool.v1.PoolAPI/ReadStreamParallel"
+	PoolAPI_WriteStream_FullMethodName        = "/cyverse.irodsfs.pool.v1.PoolAPI/WriteStream"
+	PoolAPI_CacheFile_FullMethodName          = "/cyverse.irodsfs.pool.v1.PoolAPI/CacheFile"
+	PoolAPI_Sync_FullMethodName               = "/cyverse.irodsfs.pool.v1.PoolAPI/Sync"
 )
 
 // PoolAPIClient is the client API for PoolAPI service.
@@ -1038,7 +1038,7 @@ func _PoolAPI_Sync_Handler(srv interface{}, ctx context.Context, dec func(interf
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var PoolAPI_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "api.PoolAPI",
+	ServiceName: "cyverse.irodsfs.pool.v1.PoolAPI",
 	HandlerType: (*PoolAPIServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -1159,5 +1159,5 @@ var PoolAPI_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "service/api/api.proto",
+	Metadata: "service/api/pool.proto",
 }

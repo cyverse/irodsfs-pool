@@ -2,7 +2,7 @@ syntax = "proto3";
 
 option go_package = "github.com/cyverse/irodsfs-pool/service/api;api";
 
-package api;
+package cyverse.irodsfs.pool.v1;
 
 import "google/protobuf/timestamp.proto";
 

@@ -599,8 +599,8 @@ func getSystemMemoryInfo() (total, available uint64) {
 	if err != nil {
 		return 0, 0
 	}
-	total = info.Totalram * uint64(info.Unit)
-	available = info.Freeram * uint64(info.Unit)
+	total = uint64(info.Totalram) * uint64(info.Unit)
+	available = uint64(info.Freeram) * uint64(info.Unit)
 	return
 }
 

@@ -69,6 +69,42 @@ func TestMonitoringSessionDetailIncludesSyncStagingAction(t *testing.T) {
 	}
 }
 
+func TestMonitoringClientDescriptionsWrapWithinTheirTable(t *testing.T) {
+	session := &PoolSession{
+		id: "session-1234",
+		irodsAccount: &irodsclient_types.IRODSAccount{
+			Host:       "irods.example.org",
+			Port:       1247,
+			ClientUser: "rods",
+			ClientZone: "tempZone",
+		},
+		connections: map[string]connInfo{
+			"connection-1": {appName: "irodsfs", description: strings.Repeat("long-description-", 20)},
+		},
+		poolFileHandles: map[string]*PoolFileHandle{},
+	}
+	server := &PoolServer{
+		sessionManager: &PoolSessionManager{
+			sessions: map[string]*PoolSession{session.id: session},
+		},
+	}
+	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
+
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		`.clients-table { table-layout: fixed; }`,
+		`overflow-wrap: anywhere`,
+		`<table class="clients-table"><tr><th>Connection ID</th><th>Application</th><th>Description</th></tr>`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("monitor response does not contain %q", expected)
+		}
+	}
+}
+
 func TestMonitoringShowsSessionsPendingRecoveryWithoutCredentials(t *testing.T) {
 	manager := newFailedSessionStoreTestManager(t.TempDir())
 	manager.handleSessionReleaseResult(newFailedSessionStoreTestSession("session-1"), errors.New("sync failed"))

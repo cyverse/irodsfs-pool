@@ -45,6 +45,11 @@ h2 { color: #0af; margin-top: 30px; border-bottom: 1px solid #333; padding-botto
 h3 { color: #0cf; margin-top: 16px; }
 table { border-collapse: collapse; width: 100%; margin-top: 10px; }
 th, td { border: 1px solid #333; padding: 6px 10px; text-align: left; }
+.clients-table { table-layout: fixed; }
+.clients-table th, .clients-table td { overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
+.clients-table th:nth-child(1) { width: 25%; }
+.clients-table th:nth-child(2) { width: 25%; }
+.clients-table th:nth-child(3) { width: 50%; }
 th { background: #16213e; }
 tr:nth-child(even) { background: #1a1a2e; }
 tr:nth-child(odd) { background: #0f3460; }
@@ -415,7 +420,7 @@ func (h *MonitoringHandler) renderOneFailedSessionDetail(w http.ResponseWriter, 
 	if len(session.Connections) == 0 {
 		fmt.Fprint(w, `<p>No recorded clients.</p>`)
 	} else {
-		fmt.Fprint(w, `<table><tr><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
+		fmt.Fprint(w, `<table class="clients-table"><tr><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
 		for _, connection := range session.Connections {
 			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td></tr>`, escape(connection.ConnectionID), escape(connection.Application), escape(connection.Description))
 		}
@@ -498,7 +503,7 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	if len(connEntries) == 0 {
 		fmt.Fprint(w, `<p><span class="badge grace">⏳ grace period — no connected clients</span></p>`)
 	} else {
-		fmt.Fprint(w, `<table><tr><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
+		fmt.Fprint(w, `<table class="clients-table"><tr><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
 		for _, e := range connEntries {
 			tooltip := e.app
 			if e.desc != "" {

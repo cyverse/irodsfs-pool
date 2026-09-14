@@ -24,5 +24,5 @@ const (
 	SessionCloseGracePeriodDefault               time.Duration = 30 * time.Second
 	OperationTimeoutDefault                      time.Duration = 5 * time.Minute
 
-	ManagementServicePortDefault int = 12021
+	ManagementServiceEndpointDefault string = "http://0.0.0.0:12021"
 )

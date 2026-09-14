@@ -71,7 +71,7 @@ func TestRESTAPIGetSystemInfo(t *testing.T) {
 	config.DataRootPath = t.TempDir()
 	config.StagingRootPath = t.TempDir()
 	config.MaxStagingDataSize = 123456
-	config.ManagementServicePort = 12021
+	config.ManagementServiceEndpoint = "http://127.0.0.1:12021"
 
 	server := &PoolServer{
 		sessionManager: &PoolSessionManager{sessions: map[string]*PoolSession{}},
@@ -105,7 +105,7 @@ func TestRESTAPIGetSystemInfo(t *testing.T) {
 	if info.Server.Endpoint != config.ServiceEndpoint || info.Server.DataRootPath != config.DataRootPath {
 		t.Fatalf("unexpected server info: %#v", info.Server)
 	}
-	if info.Server.UptimeSeconds < 120 || info.Server.RESTAPIEndpoint != ":12021/api" {
+	if info.Server.UptimeSeconds < 120 || info.Server.RESTAPIEndpoint != "http://127.0.0.1:12021/api" {
 		t.Fatalf("unexpected HTTP service info: %#v", info.Server)
 	}
 	if info.Server.Version.GoVersion == "" || info.Server.Version.Platform == "" {

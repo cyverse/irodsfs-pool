@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -186,7 +185,9 @@ func (svc *PoolService) Start() error {
 		}
 	}()
 
-	if svc.config.ManagementServicePort > 0 {
+	if managementServiceAddr, err := commons.ParseManagementServiceEndpoint(svc.config.GetManagementServiceEndpoint()); err != nil {
+		return errors.Wrap(err, "invalid management service endpoint")
+	} else if managementServiceAddr != "" {
 		startTime := time.Now()
 		monitoringHandler := newMonitoringHandler(svc.poolServer, svc.config, startTime)
 		apiHandler := newRESTAPIHandler(svc.poolServer, svc.config, startTime)
@@ -195,11 +196,10 @@ func (svc *PoolService) Start() error {
 		mux.Handle("/metrics", promhttp.Handler())
 		apiHandler.RegisterRoutes(mux)
 
-		addr := fmt.Sprintf(":%d", svc.config.ManagementServicePort)
-		svc.monitoringServer = &http.Server{Addr: addr, Handler: mux}
+		svc.monitoringServer = &http.Server{Addr: managementServiceAddr, Handler: mux}
 
 		go func() {
-			svc.logger.Infof("Starting monitoring service at %s (endpoints: /healthz, /readyz, /monitor, /metrics, /api/sysinfo, /api/sessions, /api/recovery-sessions)", addr)
+			svc.logger.Infof("Starting monitoring service at %s (endpoints: /healthz, /readyz, /monitor, /metrics, /api/sysinfo, /api/sessions, /api/recovery-sessions)", svc.config.GetManagementServiceEndpoint())
 			if err := svc.monitoringServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				svc.logger.WithError(err).Error("monitoring service error")
 			}

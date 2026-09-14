@@ -71,3 +71,41 @@ func TestParsePoolServiceEndpoint(t *testing.T) {
 		}
 	}
 }
+
+func TestParseManagementServiceEndpoint(t *testing.T) {
+	tests := []struct {
+		endpoint  string
+		wantAddr  string
+		wantError bool
+	}{
+		{"", "", false},
+		{"http://0.0.0.0:12021", "0.0.0.0:12021", false},
+		{"http://127.0.0.1:12021", "127.0.0.1:12021", false},
+		{"http://[::1]:12021", "[::1]:12021", false},
+		{"127.0.0.1:12021", "127.0.0.1:12021", false},
+		{"[::1]:12021", "[::1]:12021", false},
+		{"https://127.0.0.1:12021", "", true},
+		{"http://127.0.0.1", "", true},
+		{"http://127.0.0.1:http", "", true},
+		{"http://127.0.0.1:0", "", true},
+		{"http://127.0.0.1:12021/monitor", "", true},
+		{"http://user@127.0.0.1:12021", "", true},
+	}
+
+	for _, test := range tests {
+		addr, err := ParseManagementServiceEndpoint(test.endpoint)
+		if test.wantError {
+			assert.Error(t, err, "endpoint = %q", test.endpoint)
+			continue
+		}
+		assert.NoError(t, err, "endpoint = %q", test.endpoint)
+		assert.Equal(t, test.wantAddr, addr, "endpoint = %q", test.endpoint)
+	}
+}
+
+func TestGetManagementServiceEndpoint(t *testing.T) {
+	config := NewDefaultConfig()
+	config.ManagementServiceEndpoint = "127.0.0.1:12021"
+
+	assert.Equal(t, "http://127.0.0.1:12021", config.GetManagementServiceEndpoint())
+}

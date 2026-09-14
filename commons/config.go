@@ -45,7 +45,7 @@ type Config struct {
 	SessionCloseGracePeriod               irodsclient_types.Duration                   `yaml:"session_close_grace_period,omitempty" json:"session_close_grace_period,omitempty"`
 	OperationTimeout                      irodsclient_types.Duration                   `yaml:"operation_timeout,omitempty" json:"operation_timeout,omitempty"`
 
-	ManagementServicePort int `yaml:"management_service_port,omitempty" json:"management_service_port,omitempty"`
+	ManagementServiceEndpoint string `yaml:"management_service_endpoint,omitempty" json:"management_service_endpoint,omitempty"`
 
 	Debug bool `yaml:"debug,omitempty" json:"debug,omitempty"`
 
@@ -79,7 +79,7 @@ func NewDefaultConfig() *Config {
 		SessionCloseGracePeriod:               irodsclient_types.Duration(SessionCloseGracePeriodDefault),
 		OperationTimeout:                      irodsclient_types.Duration(OperationTimeoutDefault),
 
-		ManagementServicePort: ManagementServicePortDefault,
+		ManagementServiceEndpoint: ManagementServiceEndpointDefault,
 
 		Debug: false,
 
@@ -209,6 +209,16 @@ func (config *Config) GetServiceEndpoint() string {
 	}
 
 	return fmt.Sprintf("unix://%s/comm.sock", config.DataRootPath)
+}
+
+// GetManagementServiceEndpoint returns the HTTP endpoint for the management service.
+// An empty endpoint disables the service.
+func (config *Config) GetManagementServiceEndpoint() string {
+	endpoint := strings.TrimSpace(config.ManagementServiceEndpoint)
+	if endpoint != "" && !strings.Contains(endpoint, "://") {
+		return "http://" + endpoint
+	}
+	return endpoint
 }
 
 func (config *Config) GetDataStagingRootPath() string {
@@ -345,6 +355,10 @@ func (config *Config) makeUnixSocketDir(endpoint string) error {
 func (config *Config) Validate() error {
 	_, _, err := ParsePoolServiceEndpoint(config.GetServiceEndpoint())
 	if err != nil {
+		return err
+	}
+
+	if _, err := ParseManagementServiceEndpoint(config.GetManagementServiceEndpoint()); err != nil {
 		return err
 	}
 

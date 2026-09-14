@@ -3,7 +3,6 @@ package service
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -188,7 +187,7 @@ func (h *RESTAPIHandler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 		uptime = 0
 	}
 
-	port := h.config.ManagementServicePort
+	managementEndpoint := h.config.GetManagementServiceEndpoint()
 	info := SystemInfo{
 		Server: ServerInfo{
 			Version: VersionInfo{
@@ -202,9 +201,9 @@ func (h *RESTAPIHandler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 			UptimeSeconds:      int64(uptime / time.Second),
 			Endpoint:           h.config.GetServiceEndpoint(),
 			DataRootPath:       h.config.DataRootPath,
-			MonitoringEndpoint: fmt.Sprintf(":%d/monitor", port),
-			MetricsEndpoint:    fmt.Sprintf(":%d/metrics", port),
-			RESTAPIEndpoint:    fmt.Sprintf(":%d/api", port),
+			MonitoringEndpoint: managementEndpoint + "/monitor",
+			MetricsEndpoint:    managementEndpoint + "/metrics",
+			RESTAPIEndpoint:    managementEndpoint + "/api",
 		},
 		MemoryCache: h.getMemoryCacheInfo(),
 		Staging:     h.getStagingInfo(),

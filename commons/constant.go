@@ -24,5 +24,14 @@ const (
 	SessionCloseGracePeriodDefault               time.Duration = 30 * time.Second
 	OperationTimeoutDefault                      time.Duration = 5 * time.Minute
 
+	// Packed directory defaults. Packing is off unless an operator enables it,
+	// because it changes how the directories it covers are stored in iRODS.
+	PackedDirectoriesEnabledDefault   bool          = true
+	PackedDirectorySuffixDefault      string        = ".mount.tar"
+	PackedDirectoryCompressionDefault string        = "none"
+	MaxPackedDirectorySizeDefault     int64         = 5 * 1024 * 1024 * 1024 // 5GB
+	PackedSnapshotIntervalDefault     time.Duration = 30 * time.Minute
+	ConcurrentPackLimitDefault        int           = 2
+
 	ManagementServiceEndpointDefault string = "http://0.0.0.0:12021"
 )

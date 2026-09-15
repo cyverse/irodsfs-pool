@@ -7,6 +7,7 @@ A shared middleware server that pools iRODS connections, caches data blocks in m
 - **Session multiplexing** — clients sharing the same iRODS account reuse a single session and connection pool.
 - **Block cache** — 4MB blocks cached in memory (Ristretto) with configurable capacity and TTL, shared across all sessions.
 - **Local staging** — writes are stored on local disk immediately and synced to iRODS in the background.
+- **Packed directories** — directories full of small files (`.venv`, `.git`, …) are held locally and stored in iRODS as a single archive, turning tens of thousands of round trips into one transfer.
 - **Session recovery** — active-session lifecycle metadata is persisted without credentials so crashes and failed releases can be detected and recovered later.
 - **Monitoring** — built-in HTTP dashboard (`/monitor`), Prometheus metrics (`/metrics`), and an administrative REST API (`/api`) on a single port.
 - **Resource checks** — warns on startup and in the dashboard when memory or disk is insufficient.
@@ -45,6 +46,55 @@ staging_root_path: /irodsfs_pool/staging
 management_service_endpoint: 0.0.0.0:12021  # `http://` is optional
 log_root_path: /var/log/irodsfs-pool
 ```
+
+### Packed directories
+
+Uploading a directory of many small files costs one round trip per file, which
+dominates the transfer for trees like `.venv` or `.git`. Packing stores such a
+directory in iRODS as a single archive data object — `.venv` becomes
+`.venv.mount.tar` — so it crosses the wire once instead of once per file.
+
+```yaml
+packed_directories:
+  enabled: true
+  names: [".git", ".venv", ".claude", ".codex"]
+  suffix: ".mount.tar"
+  compression: none              # none | gzip | zstd
+  max_packed_dir_size: 5368709120  # 5GB
+  snapshot_interval: 30m
+  concurrent_pack_limit: 2
+```
+
+How it behaves:
+
+- **First access** downloads the archive and extracts it under
+  `{staging}/{sessionID}/packed`. Everything after that — listing, stat, read,
+  write, rename, delete — is served from local disk with no iRODS round trip.
+- **Every `snapshot_interval`** a directory with unsaved changes is packed and
+  uploaded, which bounds how much work a crash can lose. A negative value
+  uploads at session release only.
+- **Session release** packs each directory one last time and removes the local
+  tree. The archive is uploaded under a temporary name and renamed into place,
+  so a failed transfer never destroys the previous archive.
+- **Existing collections** are migrated on first access: the collection is
+  downloaded, and the first successful pack replaces it with the archive.
+
+Things to know before enabling it:
+
+- A packed directory is **not browsable in iRODS** on its own — `ils` shows the
+  archive. Pack only directories that are not read directly there.
+- The extracted tree occupies staging disk for the whole session and is never
+  evicted, so a full staging area makes writes fail rather than silently
+  falling back to slow per-file uploads. Size `max_staging_data_size`
+  accordingly.
+- `compression: none` is the default on purpose: these directories hold
+  already-compressed data, so a codec costs CPU without saving much, and an
+  uncompressed archive stays seekable.
+- Renaming or moving a path across the boundary of a packed directory reports
+  `EXDEV`, so callers fall back to copy-and-unlink, as they would across any two
+  filesystems.
+- Mounted directories and their pending bytes are reported in
+  `/api/sessions/{sessionID}` under `packed_directories`.
 
 ## Usage
 

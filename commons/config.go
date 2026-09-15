@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/natefinch/lumberjack.v2"
 	yaml "gopkg.in/yaml.v3"
@@ -15,7 +16,60 @@ import (
 	"github.com/cockroachdb/errors"
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	"github.com/cyverse/irodsfs-common/irods/packedfs"
 )
+
+// PackedDirectoriesConfig controls which directories are stored in iRODS as a
+// single archive data object instead of as a collection.
+//
+// Directories such as .venv or .git hold tens of thousands of small files, and
+// uploading them one at a time costs a round trip each. A packed directory is
+// held on local staging disk for as long as a session uses it and crosses the
+// wire only as one archive, so the per-file cost disappears. The trade is that
+// the directory is not browsable in iRODS on its own, which suits directories
+// that are not read directly there.
+type PackedDirectoriesConfig struct {
+	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+
+	// Names are directory base names that are packed, matched at any depth.
+	Names []string `yaml:"names,omitempty" json:"names,omitempty"`
+
+	// Suffix forms the data object name, so ".venv" becomes ".venv.mount.tar".
+	// Compression appends its own extension on top of this.
+	Suffix string `yaml:"suffix,omitempty" json:"suffix,omitempty"`
+
+	// Compression is one of none, gzip or zstd. The default, none, keeps the
+	// archive seekable and costs no CPU; the files in these directories are
+	// usually already-compressed data, so a codec saves little.
+	Compression string `yaml:"compression,omitempty" json:"compression,omitempty"`
+
+	// MaxPackedDirSize caps the staging disk one packed directory may occupy.
+	// A larger directory is refused rather than filling the staging area.
+	MaxPackedDirSize int64 `yaml:"max_packed_dir_size,omitempty" json:"max_packed_dir_size,omitempty"`
+
+	// SnapshotInterval bounds how much work a crash can lose, by uploading a
+	// dirty directory this often even while the session stays open. Zero uses
+	// the default; a negative value uploads at session release only.
+	SnapshotInterval irodsclient_types.Duration `yaml:"snapshot_interval,omitempty" json:"snapshot_interval,omitempty"`
+
+	// ConcurrentPackLimit caps how many directories are packed at once.
+	ConcurrentPackLimit int `yaml:"concurrent_pack_limit,omitempty" json:"concurrent_pack_limit,omitempty"`
+}
+
+// ToPackedFSConfig converts to the form the common library consumes.
+func (config *PackedDirectoriesConfig) ToPackedFSConfig() *packedfs.Config {
+	packedConfig := &packedfs.Config{
+		Enabled:             config.Enabled,
+		Names:               config.Names,
+		Suffix:              config.Suffix,
+		Compression:         packedfs.Compression(config.Compression),
+		MaxPackedDirSize:    config.MaxPackedDirSize,
+		SnapshotInterval:    time.Duration(config.SnapshotInterval),
+		ConcurrentPackLimit: config.ConcurrentPackLimit,
+	}
+	packedConfig.ApplyDefaults()
+	return packedConfig
+}
 
 // Config holds the parameters list which can be configured
 type Config struct {
@@ -44,6 +98,8 @@ type Config struct {
 	StagingDataGracePeriod                irodsclient_types.Duration                   `yaml:"staging_data_grace_period,omitempty" json:"staging_data_grace_period,omitempty"`
 	SessionCloseGracePeriod               irodsclient_types.Duration                   `yaml:"session_close_grace_period,omitempty" json:"session_close_grace_period,omitempty"`
 	OperationTimeout                      irodsclient_types.Duration                   `yaml:"operation_timeout,omitempty" json:"operation_timeout,omitempty"`
+
+	PackedDirectories PackedDirectoriesConfig `yaml:"packed_directories,omitempty" json:"packed_directories,omitempty"`
 
 	ManagementServiceEndpoint string `yaml:"management_service_endpoint,omitempty" json:"management_service_endpoint,omitempty"`
 
@@ -78,6 +134,18 @@ func NewDefaultConfig() *Config {
 		StagingDataGracePeriod:                irodsclient_types.Duration(StagingDataGracePeriodDefault),
 		SessionCloseGracePeriod:               irodsclient_types.Duration(SessionCloseGracePeriodDefault),
 		OperationTimeout:                      irodsclient_types.Duration(OperationTimeoutDefault),
+
+		PackedDirectories: PackedDirectoriesConfig{
+			Enabled: PackedDirectoriesEnabledDefault,
+			// Listed even while disabled so that turning the feature on is a
+			// one-line change for the directories it is meant for.
+			Names:               []string{".git", ".venv", ".claude", ".codex", ".copilot", ".ansible", ".cache", ".docker", ".vscode", ".vscode-shared"},
+			Suffix:              PackedDirectorySuffixDefault,
+			Compression:         PackedDirectoryCompressionDefault,
+			MaxPackedDirSize:    MaxPackedDirectorySizeDefault,
+			SnapshotInterval:    irodsclient_types.Duration(PackedSnapshotIntervalDefault),
+			ConcurrentPackLimit: ConcurrentPackLimitDefault,
+		},
 
 		ManagementServiceEndpoint: ManagementServiceEndpointDefault,
 
@@ -170,7 +238,7 @@ func NewConfigFromYAML(config *Config, yamlBytes []byte) (*Config, error) {
 		return nil, errors.Wrap(err, "failed to unmarshal yaml into config")
 	}
 
-	return config, nil
+	return &cfg, nil
 }
 
 // NewConfigFromJSON creates Config from JSON
@@ -185,7 +253,7 @@ func NewConfigFromJSON(config *Config, jsonBytes []byte) (*Config, error) {
 		return nil, errors.Wrap(err, "failed to unmarshal json into config")
 	}
 
-	return config, nil
+	return &cfg, nil
 }
 
 // GetLogRootPath returns the directory containing service and session logs.
@@ -385,6 +453,12 @@ func (config *Config) Validate() error {
 
 	if _, err := config.GetRecoveryEncryptionKey(); err != nil {
 		return err
+	}
+
+	// Validate the packed directory settings here so a bad name or codec fails
+	// at startup rather than at the first access to such a directory.
+	if err := config.PackedDirectories.ToPackedFSConfig().Validate(); err != nil {
+		return errors.Wrap(err, "invalid packed_directories configuration")
 	}
 
 	return nil

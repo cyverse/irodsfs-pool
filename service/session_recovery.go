@@ -121,6 +121,7 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 		SyncInterval:       manager.config.stagingDataGracePeriod / 2,
 		GracePeriod:        manager.config.stagingDataGracePeriod,
 		UsePersistence:     true,
+		PackedDirectories:  manager.config.packedDirectories,
 	}
 
 	fsClient, err := irodsfs_common_irods.NewIRODSFSClientBuffered(fs, manager.cacheManager, buffConfig)

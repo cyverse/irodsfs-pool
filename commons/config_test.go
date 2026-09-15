@@ -5,8 +5,10 @@ import (
 	"io"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type trackingWriteCloser struct {
@@ -108,4 +110,76 @@ func TestGetManagementServiceEndpoint(t *testing.T) {
 	config.ManagementServiceEndpoint = "127.0.0.1:12021"
 
 	assert.Equal(t, "http://127.0.0.1:12021", config.GetManagementServiceEndpoint())
+}
+
+func TestPackedDirectoriesDefaults(t *testing.T) {
+	config := NewDefaultConfig()
+
+	// The feature changes how directories are stored in iRODS, so it stays off
+	// until an operator asks for it.
+	assert.False(t, config.PackedDirectories.Enabled)
+	assert.Equal(t, []string{".git", ".venv", ".claude", ".codex"}, config.PackedDirectories.Names)
+	assert.Equal(t, ".mount.tar", config.PackedDirectories.Suffix)
+	assert.Equal(t, "none", config.PackedDirectories.Compression)
+	assert.Equal(t, 30*time.Minute, time.Duration(config.PackedDirectories.SnapshotInterval))
+}
+
+func TestPackedDirectoriesConfigFromYAML(t *testing.T) {
+	yamlConfig := []byte(`
+packed_directories:
+  enabled: true
+  names: [".venv", ".tox"]
+  compression: zstd
+  max_packed_dir_size: 1073741824
+  snapshot_interval: 15m
+  concurrent_pack_limit: 4
+`)
+
+	config := NewDefaultConfig()
+	config, err := NewConfigFromYAML(config, yamlConfig)
+	require.NoError(t, err)
+
+	assert.True(t, config.PackedDirectories.Enabled)
+	assert.Equal(t, []string{".venv", ".tox"}, config.PackedDirectories.Names)
+	assert.Equal(t, "zstd", config.PackedDirectories.Compression)
+	assert.Equal(t, int64(1073741824), config.PackedDirectories.MaxPackedDirSize)
+	assert.Equal(t, 15*time.Minute, time.Duration(config.PackedDirectories.SnapshotInterval))
+
+	packedConfig := config.PackedDirectories.ToPackedFSConfig()
+	require.NoError(t, packedConfig.Validate())
+	// The codec's extension joins the configured suffix.
+	assert.Equal(t, "/p/.venv.mount.tar.zst", packedConfig.ArchivePath("/p/.venv"))
+}
+
+func TestValidateRejectsBadPackedDirectoriesConfig(t *testing.T) {
+	config := NewDefaultConfig()
+	config.LogRootPath = "/var/log/irodsfs-pool"
+	config.RecoveryEncryptionKey = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+	config.PackedDirectories.Enabled = true
+	config.PackedDirectories.Compression = "lz4"
+
+	err := config.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid packed_directories configuration")
+}
+
+// NewConfigFromYAML and NewConfigFromJSON used to unmarshal into a local copy
+// and then return the untouched base config, so every parsed value was
+// discarded. The file-based variants were always correct; these two were not.
+func TestNewConfigFromBytesReturnsTheParsedConfig(t *testing.T) {
+	t.Run("yaml", func(t *testing.T) {
+		base := NewDefaultConfig()
+		parsed, err := NewConfigFromYAML(base, []byte("data_root_path: /custom/root\n"))
+		require.NoError(t, err)
+		assert.Equal(t, "/custom/root", parsed.DataRootPath)
+		assert.Equal(t, DataRootPathDefault, base.DataRootPath, "the base config is left alone")
+	})
+
+	t.Run("json", func(t *testing.T) {
+		base := NewDefaultConfig()
+		parsed, err := NewConfigFromJSON(base, []byte(`{"data_root_path":"/custom/root"}`))
+		require.NoError(t, err)
+		assert.Equal(t, "/custom/root", parsed.DataRootPath)
+		assert.Equal(t, DataRootPathDefault, base.DataRootPath)
+	})
 }

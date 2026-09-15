@@ -61,6 +61,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		maxCacheFileSize:                      config.MaxCacheFileSize,
 		stagingDataGracePeriod:                time.Duration(config.StagingDataGracePeriod),
 		sessionCloseGracePeriod:               time.Duration(config.SessionCloseGracePeriod),
+		packedDirectories:                     config.PackedDirectories.ToPackedFSConfig(),
 		logRootPath:                           config.GetLogRootPath(),
 	}
 

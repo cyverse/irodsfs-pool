@@ -9,6 +9,7 @@ import (
 	"time"
 
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
+	irodsfs_common_packedfs "github.com/cyverse/irodsfs-common/irods/packedfs"
 	"github.com/cyverse/irodsfs-pool/commons"
 )
 
@@ -116,6 +117,10 @@ type SessionInfo struct {
 	Clients         []SessionClientInfo     `json:"clients"`
 	OpenFileHandles []SessionFileHandleInfo `json:"open_file_handles"`
 	StagedFiles     []SessionStagedFileInfo `json:"staged_files"`
+	// PackedDirectories reports directories held locally as extracted trees and
+	// uploaded as a single archive. They carry no entry in StagedFiles, so this
+	// is the only place their pending data is visible.
+	PackedDirectories []irodsfs_common_packedfs.Status `json:"packed_directories"`
 }
 
 type apiErrorResponse struct {
@@ -251,6 +256,8 @@ func (h *RESTAPIHandler) getStagingInfo() StagingInfo {
 		session.mutex.RLock()
 		if bufferedClient, ok := session.fsClient.(*irodsfs_common_irods.IRODSFSClientBuffered); ok {
 			if stagingFS := bufferedClient.GetStagingFS(); stagingFS != nil {
+				// GetCurrentDataSize already covers packed trees: they are
+				// charged against the same quota through ReserveSpace.
 				usedBytes += stagingFS.GetCurrentDataSize()
 				fileCount += len(stagingFS.GetAll())
 			}
@@ -475,6 +482,8 @@ func snapshotSessionInfo(session *PoolSession) SessionInfo {
 				})
 			}
 		}
+
+		info.PackedDirectories = bufferedClient.GetPackedFS().Statuses()
 	}
 
 	sort.Slice(info.Clients, func(i, j int) bool { return info.Clients[i].ConnectionID < info.Clients[j].ConnectionID })
@@ -485,6 +494,9 @@ func snapshotSessionInfo(session *PoolSession) SessionInfo {
 		return info.OpenFileHandles[i].Path < info.OpenFileHandles[j].Path
 	})
 	sort.Slice(info.StagedFiles, func(i, j int) bool { return info.StagedFiles[i].Path < info.StagedFiles[j].Path })
+	sort.Slice(info.PackedDirectories, func(i, j int) bool {
+		return info.PackedDirectories[i].Root < info.PackedDirectories[j].Root
+	})
 	return info
 }
 

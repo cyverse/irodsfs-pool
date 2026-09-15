@@ -26,4 +26,26 @@ max_staging_data_size: 536870912000 #500GB
 
 operation_timeout: 5m
 
+# Directories stored in iRODS as a single archive data object instead of as a
+# collection. Uploading a tree of tens of thousands of small files costs one
+# round trip per file; packing makes it one transfer.
+#
+# While a session uses such a directory it is held extracted on staging disk and
+# every operation is served from there. It crosses the wire on first access, on
+# each snapshot, and at session release. The directory is not browsable in iRODS
+# on its own, so pack only directories that are not read directly there.
+packed_directories:
+  enabled: true
+  names: [".git", ".venv", ".claude", ".codex"]
+  suffix: ".mount.tar"
+  # none keeps the archive seekable and costs no CPU. The files in these
+  # directories are usually already compressed, so gzip or zstd saves little.
+  compression: none
+  # A directory larger than this is refused rather than filling staging.
+  max_packed_dir_size: 5368709120  # 5GB
+  # Bounds how much work a crash can lose. A negative value uploads at session
+  # release only.
+  snapshot_interval: 30m
+  concurrent_pack_limit: 2
+
 management_service_endpoint: 0.0.0.0:12021  # HTTP; `http://` is optional

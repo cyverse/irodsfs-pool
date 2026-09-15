@@ -9,6 +9,7 @@ import (
 	"github.com/cockroachdb/errors"
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	irodsfs_common_packedfs "github.com/cyverse/irodsfs-common/irods/packedfs"
 	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
@@ -39,6 +40,7 @@ type PoolServerConfig struct {
 	maxCacheFileSize                      int64
 	stagingDataGracePeriod                time.Duration
 	sessionCloseGracePeriod               time.Duration
+	packedDirectories                     *irodsfs_common_packedfs.Config
 	logRootPath                           string
 	logger                                *log.Entry
 }

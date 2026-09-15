@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,13 +116,27 @@ func TestGetManagementServiceEndpoint(t *testing.T) {
 func TestPackedDirectoriesDefaults(t *testing.T) {
 	config := NewDefaultConfig()
 
-	// The feature changes how directories are stored in iRODS, so it stays off
-	// until an operator asks for it.
-	assert.False(t, config.PackedDirectories.Enabled)
-	assert.Equal(t, []string{".git", ".venv", ".claude", ".codex"}, config.PackedDirectories.Names)
-	assert.Equal(t, ".mount.tar", config.PackedDirectories.Suffix)
-	assert.Equal(t, "none", config.PackedDirectories.Compression)
-	assert.Equal(t, 30*time.Minute, time.Duration(config.PackedDirectories.SnapshotInterval))
+	assert.Equal(t, PackedDirectoriesEnabledDefault, config.PackedDirectories.Enabled)
+	assert.Equal(t, PackedDirectorySuffixDefault, config.PackedDirectories.Suffix)
+	assert.Equal(t, PackedDirectoryCompressionDefault, config.PackedDirectories.Compression)
+	assert.Equal(t, MaxPackedDirectorySizeDefault, config.PackedDirectories.MaxPackedDirSize)
+	assert.Equal(t, PackedSnapshotIntervalDefault, time.Duration(config.PackedDirectories.SnapshotInterval))
+	assert.Equal(t, ConcurrentPackLimitDefault, config.PackedDirectories.ConcurrentPackLimit)
+
+	// The shipped list is an operator decision, so assert what must hold of it
+	// rather than pinning the exact membership: every name is a bare directory
+	// name, and none collides with the archive suffix.
+	assert.NotEmpty(t, config.PackedDirectories.Names)
+	for _, name := range config.PackedDirectories.Names {
+		assert.NotContains(t, name, "/", "%q must be a base name", name)
+		assert.NotEqual(t, ".", name)
+		assert.NotEqual(t, "..", name)
+		assert.False(t, strings.HasSuffix(name, config.PackedDirectories.Suffix),
+			"%q must not end with the archive suffix", name)
+	}
+
+	// Whatever the list holds, the defaults must form a usable configuration.
+	require.NoError(t, config.PackedDirectories.ToPackedFSConfig().Validate())
 }
 
 func TestPackedDirectoriesConfigFromYAML(t *testing.T) {

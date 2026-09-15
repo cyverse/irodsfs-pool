@@ -6,9 +6,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	irodsfs_common_packedfs "github.com/cyverse/irodsfs-common/irods/packedfs"
 	"github.com/cyverse/irodsfs-pool/commons"
 	log "github.com/sirupsen/logrus"
 )
@@ -268,5 +270,233 @@ func TestMonitoringPathTablesWrapWithinTheSessionModal(t *testing.T) {
 	// modal, so none may be emitted without a wrapping class.
 	if strings.Contains(body, `<table><tr><th>Path</th>`) {
 		t.Fatalf("a path table is rendered without the fixed layout that keeps it inside the modal")
+	}
+}
+
+// A packed directory's contents are held as a local tree and sent as one
+// archive, so its files carry no staging metadata and never appear under Staged
+// Files. The modal reports the directory and the data object it becomes
+// instead, which is what says whether it has reached iRODS.
+func TestMonitoringSessionDetailReportsPackedDirectories(t *testing.T) {
+	session := &PoolSession{
+		id: "session-1234",
+		irodsAccount: &irodsclient_types.IRODSAccount{
+			Host:       "irods.example.org",
+			Port:       1247,
+			ClientUser: "rods",
+			ClientZone: "tempZone",
+		},
+		connections:     map[string]connInfo{},
+		poolFileHandles: map[string]*PoolFileHandle{},
+	}
+	server := &PoolServer{
+		sessionManager: &PoolSessionManager{
+			sessions: map[string]*PoolSession{session.id: session},
+		},
+	}
+
+	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
+
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		`<h3>Packed Directories (0)</h3>`,
+		`No packed directories.`,
+		// Both paths in this table are long, so it needs the same fixed layout
+		// that keeps the other path tables inside the modal.
+		`.packed-dirs-table { table-layout: fixed; }`,
+		`.packed-dirs-table th, .packed-dirs-table td { overflow-wrap: anywhere; word-break: break-word; white-space: normal; }`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("monitor response does not contain %q", expected)
+		}
+	}
+}
+
+func TestRenderPackedDirectoriesShowsTheDirectoryAndItsArchive(t *testing.T) {
+	packedAt := time.Date(2026, 9, 15, 21, 35, 15, 0, time.UTC)
+	entries := []irodsfs_common_packedfs.Status{
+		{
+			Root:         "/iplant/home/iychoi/irods-csi-driver/.git",
+			ArchivePath:  "/iplant/home/iychoi/irods-csi-driver/.git.mount.tar",
+			LocalPath:    "/irodsfs_pool/staging/session-1234-packed/iplant/home/iychoi/irods-csi-driver/.git",
+			State:        "MOUNTED",
+			Dirty:        true,
+			SizeBytes:    3 * 1024 * 1024,
+			LastPackedAt: packedAt,
+		},
+		{
+			Root:        "/iplant/home/iychoi/proj/.venv",
+			ArchivePath: "/iplant/home/iychoi/proj/.venv.mount.tar",
+			State:       "MOUNTED",
+			Dirty:       false,
+			SizeBytes:   512 * 1024 * 1024,
+		},
+	}
+
+	var buffer bytes.Buffer
+	renderPackedDirectories(&buffer, entries)
+	body := buffer.String()
+
+	for _, expected := range []string{
+		`<h3>Packed Directories (2)</h3>`,
+		// The directory a user sees, and the data object iRODS actually holds.
+		`/iplant/home/iychoi/irods-csi-driver/.git`,
+		`/iplant/home/iychoi/irods-csi-driver/.git.mount.tar`,
+		`/iplant/home/iychoi/proj/.venv.mount.tar`,
+		// An unsent directory is called out; one already uploaded is not.
+		`class="dirty">pending`,
+		`class="cached">synced`,
+		`21:35:15`,
+		`never`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("packed directory table does not contain %q", expected)
+		}
+	}
+
+	// The files inside a packed directory must not be enumerated: that is the
+	// point of reporting the archive instead.
+	if strings.Contains(body, "<th>Action</th>") || strings.Contains(body, "<th>Sync Status</th>") {
+		t.Fatalf("packed directories are listed as individual staged files")
+	}
+}
+
+func TestRenderPackedDirectoriesShowsAMountFailure(t *testing.T) {
+	var buffer bytes.Buffer
+	renderPackedDirectories(&buffer, []irodsfs_common_packedfs.Status{{
+		Root:        "/iplant/home/iychoi/proj/.venv",
+		ArchivePath: "/iplant/home/iychoi/proj/.venv.mount.tar",
+		State:       "FAILED",
+		Error:       "packed directory exceeds the configured size limit",
+	}})
+
+	body := buffer.String()
+	for _, expected := range []string{"FAILED", "exceeds the configured size limit"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("packed directory table does not contain %q", expected)
+		}
+	}
+}
+
+// Paths and error text reach this table from iRODS, so they are data, not
+// markup.
+func TestRenderPackedDirectoriesEscapesItsContent(t *testing.T) {
+	var buffer bytes.Buffer
+	renderPackedDirectories(&buffer, []irodsfs_common_packedfs.Status{{
+		Root:        `/z/home/u/<img src=x onerror=alert(1)>/.venv`,
+		ArchivePath: `/z/home/u/<img src=x onerror=alert(1)>/.venv.mount.tar`,
+		State:       "MOUNTED",
+		Error:       `<script>alert(2)</script>`,
+	}})
+
+	body := buffer.String()
+	for _, injected := range []string{"<img src=x", "<script>alert(2)</script>"} {
+		if strings.Contains(body, injected) {
+			t.Fatalf("packed directory table renders %q as markup", injected)
+		}
+	}
+	if !strings.Contains(body, "&lt;img src=x") {
+		t.Fatalf("packed directory table does not escape the path")
+	}
+}
+
+// Paths, client application names and descriptions all reach the monitoring
+// page from outside: a user names the files, and a client sends whatever it
+// likes at login. The page is served to operators, so all of it is data.
+func TestMonitoringEscapesSessionContent(t *testing.T) {
+	const injectedPath = `/tempZone/home/rods/<img src=x onerror=alert(1)>.dat`
+	const injectedApp = `<script>alert('app')</script>`
+	const injectedDesc = `"><script>alert('desc')</script>`
+
+	handle, err := NewPoolFileHandle("session-1234", &stubFileHandle{
+		id:    "handle-1",
+		entry: &irodsclient_fs.Entry{Path: injectedPath},
+		mode:  irodsclient_types.FileOpenModeReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("failed to create pool file handle: %v", err)
+	}
+
+	session := &PoolSession{
+		id: "session-1234",
+		irodsAccount: &irodsclient_types.IRODSAccount{
+			Host:       `<b>irods.example.org</b>`,
+			Port:       1247,
+			ClientUser: `<i>rods</i>`,
+			ClientZone: "tempZone",
+		},
+		connections: map[string]connInfo{
+			"conn-<1>": {appName: injectedApp, description: injectedDesc},
+		},
+		poolFileHandles: map[string]*PoolFileHandle{"handle-1": handle},
+	}
+	server := &PoolServer{
+		sessionManager: &PoolSessionManager{
+			sessions: map[string]*PoolSession{session.id: session},
+		},
+	}
+
+	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
+
+	body := recorder.Body.String()
+	for _, injected := range []string{
+		`<img src=x onerror=alert(1)>`,
+		`<script>alert('app')</script>`,
+		`"><script>alert('desc')</script>`,
+		`<b>irods.example.org</b>`,
+		`<i>rods</i>`,
+	} {
+		if strings.Contains(body, injected) {
+			t.Fatalf("monitor response renders %q as markup", injected)
+		}
+	}
+
+	// The content is still shown, just escaped.
+	if !strings.Contains(body, `&lt;img src=x onerror=alert(1)&gt;`) {
+		t.Fatalf("monitor response does not show the escaped path")
+	}
+	if !strings.Contains(body, `&lt;script&gt;alert(&#39;app&#39;)&lt;/script&gt;`) {
+		t.Fatalf("monitor response does not show the escaped application name")
+	}
+}
+
+func TestRenderStagedFilesEscapesItsContent(t *testing.T) {
+	var buffer bytes.Buffer
+	renderStagedFiles(&buffer, []stagedFileEntry{{
+		path:      `/z/home/u/<img src=x onerror=alert(1)>.dat`,
+		oldPath:   `/z/home/u/<svg onload=alert(2)>.dat`,
+		action:    "RENAME",
+		fileState: "DIRTY",
+		modified:  time.Date(2026, 9, 15, 21, 35, 15, 0, time.UTC),
+	}})
+
+	body := buffer.String()
+	for _, injected := range []string{`<img src=x`, `<svg onload=alert(2)>`} {
+		if strings.Contains(body, injected) {
+			t.Fatalf("staged files table renders %q as markup", injected)
+		}
+	}
+
+	// The row is still rendered, with its rename arrow and dirty marker intact.
+	for _, expected := range []string{`&lt;img src=x`, `&lt;svg onload=alert(2)&gt;`, `class="dirty"`, `←`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("staged files table does not contain %q", expected)
+		}
+	}
+}
+
+func TestRenderStagedFilesEmptyState(t *testing.T) {
+	var buffer bytes.Buffer
+	renderStagedFiles(&buffer, nil)
+
+	body := buffer.String()
+	if !strings.Contains(body, `<h3>Staged Files (0)</h3>`) || !strings.Contains(body, `No staged files.`) {
+		t.Fatalf("staged files table does not render its empty state: %s", body)
 	}
 }

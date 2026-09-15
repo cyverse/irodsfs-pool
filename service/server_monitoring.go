@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"html/template"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
+	irodsfs_common_packedfs "github.com/cyverse/irodsfs-common/irods/packedfs"
 
 	"github.com/cyverse/irodsfs-pool/commons"
 )
@@ -61,6 +63,14 @@ th, td { border: 1px solid #333; padding: 6px 10px; text-align: left; }
 .handles-table th, .handles-table td { overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
 .handles-table th:nth-child(1) { width: 85%; }
 .handles-table th:nth-child(2) { width: 15%; }
+.packed-dirs-table { table-layout: fixed; }
+.packed-dirs-table th, .packed-dirs-table td { overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
+.packed-dirs-table th:nth-child(1) { width: 30%; }
+.packed-dirs-table th:nth-child(2) { width: 30%; }
+.packed-dirs-table th:nth-child(3) { width: 12%; }
+.packed-dirs-table th:nth-child(4) { width: 10%; }
+.packed-dirs-table th:nth-child(5) { width: 9%; }
+.packed-dirs-table th:nth-child(6) { width: 9%; }
 th { background: #16213e; }
 tr:nth-child(even) { background: #1a1a2e; }
 tr:nth-child(odd) { background: #0f3460; }
@@ -320,13 +330,18 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 				if e.desc != "" {
 					tooltip = e.app + ": " + e.desc
 				}
-				fmt.Fprintf(&sb, `<span class="badge" title="%s">%s(%s)</span>`, tooltip, e.id, e.app)
+				fmt.Fprintf(&sb, `<span class="badge" title="%s">%s(%s)</span>`,
+					html.EscapeString(tooltip), html.EscapeString(e.id), html.EscapeString(e.app))
 			}
 			clientsCell = sb.String()
 		}
 
+		// clientsCell is markup this function built from already-escaped parts,
+		// so it is the one value here that must not be escaped again.
 		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('%s')"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td></tr>`,
-			session.id, session.id[:12]+"…", userInfo, hostInfo, lastAccess.Format("15:04:05"), clientsCell, handleCount, irodsConns)
+			template.JSEscapeString(session.id), html.EscapeString(session.id[:12]+"…"),
+			html.EscapeString(userInfo), html.EscapeString(hostInfo),
+			lastAccess.Format("15:04:05"), clientsCell, handleCount, irodsConns)
 	}
 	fmt.Fprint(w, `</table>`)
 	fmt.Fprint(w, `<p class="info">Click a row to see staged files, sync status, and open file handles.</p>`)
@@ -469,20 +484,12 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	sort.Slice(handleEntries, func(i, j int) bool { return handleEntries[i].path < handleEntries[j].path })
 
 	// Collect staging data
-	type stagingEntry struct {
-		path      string
-		oldPath   string
-		action    string
-		fileState string
-		modified  time.Time
-		failCount int
-	}
-	var stagingEntries []stagingEntry
+	var stagingEntries []stagedFileEntry
 	if session.fsClient != nil {
 		if bufferedClient, ok := session.fsClient.(*irodsfs_common_irods.IRODSFSClientBuffered); ok {
 			if stagingFS := bufferedClient.GetStagingFS(); stagingFS != nil {
 				for _, meta := range stagingFS.GetAll() {
-					stagingEntries = append(stagingEntries, stagingEntry{
+					stagingEntries = append(stagingEntries, stagedFileEntry{
 						path:      meta.Path,
 						oldPath:   meta.OldPath,
 						action:    meta.Action.String(),
@@ -496,16 +503,28 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	}
 	sort.Slice(stagingEntries, func(i, j int) bool { return stagingEntries[i].path < stagingEntries[j].path })
 
+	// Packed directories carry no staging metadata: their contents are held as
+	// a local tree and sent as one archive, so the files inside them never
+	// appear above. Report the directory and the data object it becomes
+	// instead, which is what tells an operator whether it has reached iRODS.
+	var packedEntries []irodsfs_common_packedfs.Status
+	if session.fsClient != nil {
+		if bufferedClient, ok := session.fsClient.(*irodsfs_common_irods.IRODSFSClientBuffered); ok {
+			packedEntries = bufferedClient.GetPackedFS().Statuses()
+		}
+	}
+	sort.Slice(packedEntries, func(i, j int) bool { return packedEntries[i].Root < packedEntries[j].Root })
+
 	account := session.irodsAccount
 	userInfo := fmt.Sprintf("%s@%s", account.ClientUser, account.ClientZone)
 	hostInfo := fmt.Sprintf("%s:%d", account.Host, account.Port)
 
-	fmt.Fprintf(w, `<div id="detail-%s" style="display:none">`, session.id)
+	fmt.Fprintf(w, `<div id="detail-%s" style="display:none">`, html.EscapeString(session.id))
 	fmt.Fprintf(w, `<h3>Session Detail</h3>`)
 	fmt.Fprint(w, `<table>`)
-	fmt.Fprintf(w, `<tr><th>ID</th><td>%s</td></tr>`, session.id)
-	fmt.Fprintf(w, `<tr><th>User</th><td>%s</td></tr>`, userInfo)
-	fmt.Fprintf(w, `<tr><th>Host</th><td>%s</td></tr>`, hostInfo)
+	fmt.Fprintf(w, `<tr><th>ID</th><td>%s</td></tr>`, html.EscapeString(session.id))
+	fmt.Fprintf(w, `<tr><th>User</th><td>%s</td></tr>`, html.EscapeString(userInfo))
+	fmt.Fprintf(w, `<tr><th>Host</th><td>%s</td></tr>`, html.EscapeString(hostInfo))
 	fmt.Fprintf(w, `<tr><th>Last Access</th><td>%s</td></tr>`, lastAccess.Format("2006-01-02 15:04:05"))
 	fmt.Fprint(w, `</table>`)
 
@@ -520,31 +539,16 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 			if e.desc != "" {
 				tooltip = e.app + ": " + e.desc
 			}
-			fmt.Fprintf(w, `<tr><td>%s</td><td title="%s">%s</td><td>%s</td></tr>`, e.id, tooltip, e.app, e.desc)
+			fmt.Fprintf(w, `<tr><td>%s</td><td title="%s">%s</td><td>%s</td></tr>`,
+				html.EscapeString(e.id), html.EscapeString(tooltip),
+				html.EscapeString(e.app), html.EscapeString(e.desc))
 		}
 		fmt.Fprint(w, `</table>`)
 	}
 
-	// Staged files
-	fmt.Fprintf(w, `<h3>Staged Files (%d)</h3>`, len(stagingEntries))
-	if len(stagingEntries) == 0 {
-		fmt.Fprint(w, `<p>No staged files.</p>`)
-	} else {
-		fmt.Fprint(w, `<table class="staged-files-table"><tr><th>Path</th><th>Action</th><th>Sync Status</th><th>Modified</th><th>Failures</th></tr>`)
-		for _, e := range stagingEntries {
-			stateClass := "cached"
-			if e.fileState == "DIRTY" {
-				stateClass = "dirty"
-			}
-			pathCell := e.path
-			if e.oldPath != "" {
-				pathCell = fmt.Sprintf("%s<br><span style='color:#888;font-size:11px'>← %s</span>", e.path, e.oldPath)
-			}
-			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td class="%s">%s</td><td>%s</td><td>%d</td></tr>`,
-				pathCell, e.action, stateClass, e.fileState, e.modified.Format("15:04:05"), e.failCount)
-		}
-		fmt.Fprint(w, `</table>`)
-	}
+	renderStagedFiles(w, stagingEntries)
+
+	renderPackedDirectories(w, packedEntries)
 
 	// Open file handles
 	fmt.Fprintf(w, `<h3>Open File Handles (%d)</h3>`, len(handleEntries))
@@ -553,7 +557,8 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	} else {
 		fmt.Fprint(w, `<table class="handles-table"><tr><th>Path</th><th>Mode</th></tr>`)
 		for _, e := range handleEntries {
-			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td></tr>`, e.path, e.mode)
+			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td></tr>`,
+				html.EscapeString(e.path), html.EscapeString(e.mode))
 		}
 		fmt.Fprint(w, `</table>`)
 	}
@@ -592,6 +597,88 @@ func renderBar(pct float64) string {
 		pct = 100
 	}
 	return fmt.Sprintf(`<div class="bar"><div class="bar-fill" style="width:%.1f%%"></div><span class="bar-text">%.1f%%</span></div>`, pct, pct)
+}
+
+// stagedFileEntry is one row of the staged files table.
+type stagedFileEntry struct {
+	path      string
+	oldPath   string
+	action    string
+	fileState string
+	modified  time.Time
+	failCount int
+}
+
+// renderStagedFiles lists the files a session has staged but not yet synced.
+//
+// Every string here comes from iRODS or from a client, so all of it is escaped:
+// a path is whatever a user named a file, and this page is served to operators.
+func renderStagedFiles(w io.Writer, entries []stagedFileEntry) {
+	fmt.Fprintf(w, `<h3>Staged Files (%d)</h3>`, len(entries))
+	if len(entries) == 0 {
+		fmt.Fprint(w, `<p>No staged files.</p>`)
+		return
+	}
+
+	fmt.Fprint(w, `<table class="staged-files-table"><tr><th>Path</th><th>Action</th><th>Sync Status</th><th>Modified</th><th>Failures</th></tr>`)
+	for _, entry := range entries {
+		stateClass := "cached"
+		if entry.fileState == "DIRTY" {
+			stateClass = "dirty"
+		}
+
+		// pathCell is assembled from escaped pieces, so it is the one value
+		// below that carries markup of its own.
+		pathCell := html.EscapeString(entry.path)
+		if entry.oldPath != "" {
+			pathCell = fmt.Sprintf("%s<br><span style='color:#888;font-size:11px'>← %s</span>",
+				pathCell, html.EscapeString(entry.oldPath))
+		}
+
+		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td class="%s">%s</td><td>%s</td><td>%d</td></tr>`,
+			pathCell, html.EscapeString(entry.action), stateClass, html.EscapeString(entry.fileState),
+			entry.modified.Format("15:04:05"), entry.failCount)
+	}
+	fmt.Fprint(w, `</table>`)
+}
+
+// renderPackedDirectories lists the packed directories of a session.
+//
+// It reports the directory and the data object it becomes rather than the files
+// inside it. Those files are held as a local tree and sent as one archive, so
+// they carry no staging metadata, listing them would be tens of thousands of
+// rows, and what an operator needs to know is whether the archive has reached
+// iRODS.
+func renderPackedDirectories(w io.Writer, entries []irodsfs_common_packedfs.Status) {
+	fmt.Fprintf(w, `<h3>Packed Directories (%d)</h3>`, len(entries))
+	if len(entries) == 0 {
+		fmt.Fprint(w, `<p>No packed directories.</p>`)
+		return
+	}
+
+	fmt.Fprint(w, `<table class="packed-dirs-table"><tr><th>Directory</th><th>Archive in iRODS</th><th>State</th><th>Pending</th><th>Size</th><th>Last Packed</th></tr>`)
+	for _, entry := range entries {
+		pendingClass, pendingText := "cached", "synced"
+		if entry.Dirty {
+			pendingClass, pendingText = "dirty", "pending"
+		}
+
+		lastPacked := "never"
+		if !entry.LastPackedAt.IsZero() {
+			lastPacked = entry.LastPackedAt.Format("15:04:05")
+		}
+
+		directoryCell := html.EscapeString(entry.Root)
+		if entry.Error != "" {
+			directoryCell = fmt.Sprintf("%s<br><span style='color:#f44;font-size:11px'>%s</span>",
+				directoryCell, html.EscapeString(entry.Error))
+		}
+
+		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td class="%s">%s</td><td>%s</td><td>%s</td></tr>`,
+			directoryCell, html.EscapeString(entry.ArchivePath), html.EscapeString(entry.State),
+			pendingClass, pendingText, formatBytes(entry.SizeBytes), lastPacked)
+	}
+	fmt.Fprint(w, `</table>`)
 }
 
 func formatBytes(b int64) string {

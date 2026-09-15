@@ -50,6 +50,17 @@ th, td { border: 1px solid #333; padding: 6px 10px; text-align: left; }
 .clients-table th:nth-child(1) { width: 25%; }
 .clients-table th:nth-child(2) { width: 25%; }
 .clients-table th:nth-child(3) { width: 50%; }
+.staged-files-table { table-layout: fixed; }
+.staged-files-table th, .staged-files-table td { overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
+.staged-files-table th:nth-child(1) { width: 48%; }
+.staged-files-table th:nth-child(2) { width: 14%; }
+.staged-files-table th:nth-child(3) { width: 14%; }
+.staged-files-table th:nth-child(4) { width: 14%; }
+.staged-files-table th:nth-child(5) { width: 10%; }
+.handles-table { table-layout: fixed; }
+.handles-table th, .handles-table td { overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
+.handles-table th:nth-child(1) { width: 85%; }
+.handles-table th:nth-child(2) { width: 15%; }
 th { background: #16213e; }
 tr:nth-child(even) { background: #1a1a2e; }
 tr:nth-child(odd) { background: #0f3460; }
@@ -519,7 +530,7 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	if len(stagingEntries) == 0 {
 		fmt.Fprint(w, `<p>No staged files.</p>`)
 	} else {
-		fmt.Fprint(w, `<table><tr><th>Path</th><th>Action</th><th>Sync Status</th><th>Modified</th><th>Failures</th></tr>`)
+		fmt.Fprint(w, `<table class="staged-files-table"><tr><th>Path</th><th>Action</th><th>Sync Status</th><th>Modified</th><th>Failures</th></tr>`)
 		for _, e := range stagingEntries {
 			stateClass := "cached"
 			if e.fileState == "DIRTY" {
@@ -540,7 +551,7 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	if len(handleEntries) == 0 {
 		fmt.Fprint(w, `<p>No open file handles.</p>`)
 	} else {
-		fmt.Fprint(w, `<table><tr><th>Path</th><th>Mode</th></tr>`)
+		fmt.Fprint(w, `<table class="handles-table"><tr><th>Path</th><th>Mode</th></tr>`)
 		for _, e := range handleEntries {
 			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td></tr>`, e.path, e.mode)
 		}

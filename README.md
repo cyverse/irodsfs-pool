@@ -57,7 +57,7 @@ directory in iRODS as a single archive data object — `.venv` becomes
 ```yaml
 packed_directories:
   enabled: true
-  names: [".git", ".venv", ".claude", ".codex"]
+  names: [".git", ".venv", ".claude", ".codex", ".copilot", ".ansible", ".cache", ".docker", ".vscode", ".vscode-shared"]
   suffix: ".mount.tar"
   compression: none              # none | gzip | zstd
   max_packed_dir_size: 5368709120  # 5GB

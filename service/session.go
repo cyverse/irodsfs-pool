@@ -52,6 +52,13 @@ type PoolSessionManager struct {
 	// protected by mutex.
 	pendingReleases map[string]*time.Timer
 
+	// releasingSessions holds sessions whose asynchronous release is still
+	// running.  They leave sessions as soon as the release starts, so a new
+	// login never reuses one, but their staging upload can take minutes and
+	// their resources are still held, so monitoring has to keep reporting them
+	// until the release actually finishes.  Access is protected by mutex.
+	releasingSessions map[string]*PoolSession
+
 	mutex         sync.RWMutex
 	releaseWg     sync.WaitGroup // tracks in-progress async session releases
 	terminateChan chan bool
@@ -89,7 +96,8 @@ func NewPoolSessionManager(config *PoolServerConfig) (*PoolSessionManager, error
 		connMap:      map[string]string{},
 		logger:       myLogger,
 
-		pendingReleases: map[string]*time.Timer{},
+		pendingReleases:   map[string]*time.Timer{},
+		releasingSessions: map[string]*PoolSession{},
 
 		mutex:         sync.RWMutex{},
 		terminateChan: make(chan bool),
@@ -164,6 +172,7 @@ func (manager *PoolSessionManager) Release() {
 			} else {
 				<-sess.releaseDone
 			}
+			manager.finishAsyncRelease(sess.id)
 		}(session)
 	}
 
@@ -363,6 +372,7 @@ func (manager *PoolSessionManager) ReleaseAllSessions() {
 	sessions := make([]*PoolSession, 0, len(manager.sessions))
 	for _, session := range manager.sessions {
 		sessions = append(sessions, session)
+		manager.releasingSessions[session.id] = session
 	}
 	manager.sessions = map[string]*PoolSession{}
 	manager.connMap = map[string]string{}
@@ -393,6 +403,7 @@ func (manager *PoolSessionManager) ReleaseAllSessions() {
 			} else {
 				<-sess.releaseDone
 			}
+			manager.finishAsyncRelease(sess.id)
 		}(session)
 	}
 	wg.Wait()
@@ -485,7 +496,7 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 	session.releaseDone = make(chan struct{})
 	session.mutex.Unlock()
 
-	delete(manager.sessions, sessionID)
+	manager.beginAsyncReleaseUnlocked(session)
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Releasing pool session %q asynchronously (no more connections)", sessionID)
@@ -500,6 +511,7 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 			manager.onBeforeSessionRelease(session)
 		}
 		manager.releaseSessionResources(session)
+		manager.finishAsyncRelease(sessionID)
 		close(session.releaseDone)
 	}()
 }
@@ -532,7 +544,7 @@ func (manager *PoolSessionManager) startSessionRelease(sessionID string) {
 	session.releaseDone = make(chan struct{})
 	session.mutex.Unlock()
 
-	delete(manager.sessions, sessionID)
+	manager.beginAsyncReleaseUnlocked(session)
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Releasing pool session %q asynchronously after grace period (no more connections)", sessionID)
@@ -545,6 +557,7 @@ func (manager *PoolSessionManager) startSessionRelease(sessionID string) {
 			manager.onBeforeSessionRelease(session)
 		}
 		manager.releaseSessionResources(session)
+		manager.finishAsyncRelease(sessionID)
 		close(session.releaseDone)
 	}()
 }
@@ -599,7 +612,7 @@ func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
 	session.releaseDone = make(chan struct{})
 	session.mutex.Unlock()
 
-	delete(manager.sessions, sessionID)
+	manager.beginAsyncReleaseUnlocked(session)
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Force releasing stale pool session %q asynchronously", sessionID)
@@ -612,8 +625,37 @@ func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
 			manager.onBeforeSessionRelease(session)
 		}
 		manager.releaseSessionResources(session)
+		manager.finishAsyncRelease(sessionID)
 		close(session.releaseDone)
 	}()
+}
+
+// beginAsyncRelease moves a session out of the live map and into the releasing
+// one, so it can no longer be reused while staying visible to monitoring. The
+// caller must hold manager.mutex.
+func (manager *PoolSessionManager) beginAsyncReleaseUnlocked(session *PoolSession) {
+	delete(manager.sessions, session.id)
+	manager.releasingSessions[session.id] = session
+}
+
+// finishAsyncRelease drops a session once its release has completed.
+func (manager *PoolSessionManager) finishAsyncRelease(sessionID string) {
+	manager.mutex.Lock()
+	delete(manager.releasingSessions, sessionID)
+	manager.mutex.Unlock()
+}
+
+// allSessionsUnlocked returns the live sessions followed by the ones still
+// releasing. The caller must hold manager.mutex.
+func (manager *PoolSessionManager) allSessionsUnlocked() []*PoolSession {
+	sessions := make([]*PoolSession, 0, len(manager.sessions)+len(manager.releasingSessions))
+	for _, session := range manager.sessions {
+		sessions = append(sessions, session)
+	}
+	for _, session := range manager.releasingSessions {
+		sessions = append(sessions, session)
+	}
+	return sessions
 }
 
 func (manager *PoolSessionManager) GetSession(sessionID string) (*PoolSession, error) {
@@ -621,6 +663,12 @@ func (manager *PoolSessionManager) GetSession(sessionID string) (*PoolSession, e
 	defer manager.mutex.RUnlock()
 
 	if session, ok := manager.sessions[sessionID]; ok {
+		return session, nil
+	}
+	// A session that is still uploading is reported rather than hidden. The
+	// actions that take a session already refuse a releasing one, so they fail
+	// with "unavailable" instead of the misleading "not found".
+	if session, ok := manager.releasingSessions[sessionID]; ok {
 		return session, nil
 	}
 
@@ -653,25 +701,23 @@ func (manager *PoolSessionManager) GetAllSessions() []*PoolSession {
 	manager.mutex.RLock()
 	defer manager.mutex.RUnlock()
 
-	sessions := make([]*PoolSession, 0, len(manager.sessions))
-	for _, session := range manager.sessions {
-		sessions = append(sessions, session)
-	}
-	return sessions
+	return manager.allSessionsUnlocked()
 }
 
 func (manager *PoolSessionManager) GetTotalSessions() int {
 	manager.mutex.RLock()
 	defer manager.mutex.RUnlock()
 
-	return len(manager.sessions)
+	// A releasing session still holds its connections and its staging data, so
+	// counting only the live ones understates what the server is doing.
+	return len(manager.sessions) + len(manager.releasingSessions)
 }
 
 func (manager *PoolSessionManager) GetTotalIRODSFSClientInstances() int {
 	manager.mutex.RLock()
 	defer manager.mutex.RUnlock()
 
-	return len(manager.sessions)
+	return len(manager.sessions) + len(manager.releasingSessions)
 }
 
 func (manager *PoolSessionManager) GetTotalIRODSFSClientConnections() int {
@@ -679,7 +725,7 @@ func (manager *PoolSessionManager) GetTotalIRODSFSClientConnections() int {
 	defer manager.mutex.RUnlock()
 
 	total := 0
-	for _, session := range manager.sessions {
+	for _, session := range manager.allSessionsUnlocked() {
 		if session.fsClient != nil {
 			total += session.fsClient.GetOpenConnections()
 		}

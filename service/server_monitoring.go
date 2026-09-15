@@ -81,6 +81,7 @@ tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 .info { color: #888; }
 .badge { display: inline-block; background: #1e3a5f; color: #8cf; padding: 1px 6px; border-radius: 3px; font-size: 11px; margin: 1px; font-family: monospace; }
 .grace { background: #3d2600; color: #ffc875; }
+.releasing { background: #1f2d4d; color: #8ab4ff; }
 .dirty { color: #f84; font-weight: bold; }
 .cached { color: #4c4; }
 #modal-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); z-index:100; overflow:auto; }
@@ -306,6 +307,7 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 			connEntries = append(connEntries, connEntry{id, ci.appName, ci.description})
 		}
 		lastAccess := session.lastAccessTime
+		releasing := session.releasing
 		session.mutex.RUnlock()
 
 		var irodsConns int
@@ -320,7 +322,12 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 		hostInfo := fmt.Sprintf("%s:%d", account.Host, account.Port)
 
 		var clientsCell string
-		if len(connEntries) == 0 {
+		if releasing {
+			// Past the grace period and still working: the staging upload runs
+			// long after the last client is gone, and the session stays listed
+			// until it finishes.
+			clientsCell = `<span class="badge releasing">&#x1F504; releasing — syncing to iRODS</span>`
+		} else if len(connEntries) == 0 {
 			clientsCell = `<span class="badge grace">⏳ grace period</span>`
 		} else {
 			var sb strings.Builder
@@ -478,6 +485,7 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 		handleEntries = append(handleEntries, handleEntry{h2.GetEntryPath(), string(h2.GetOpenMode())})
 	}
 	lastAccess := session.lastAccessTime
+	releasing := session.releasing
 	session.mutex.RUnlock()
 
 	sort.Slice(connEntries, func(i, j int) bool { return connEntries[i].id < connEntries[j].id })
@@ -530,7 +538,9 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 
 	// Clients
 	fmt.Fprintf(w, `<h3>Clients (%d)</h3>`, len(connEntries))
-	if len(connEntries) == 0 {
+	if releasing {
+		fmt.Fprint(w, `<p><span class="badge releasing">&#x1F504; releasing — syncing staged data to iRODS</span></p>`)
+	} else if len(connEntries) == 0 {
 		fmt.Fprint(w, `<p><span class="badge grace">⏳ grace period — no connected clients</span></p>`)
 	} else {
 		fmt.Fprint(w, `<table class="clients-table"><tr><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)

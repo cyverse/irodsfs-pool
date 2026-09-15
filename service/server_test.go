@@ -500,3 +500,101 @@ func TestRenderStagedFilesEmptyState(t *testing.T) {
 		t.Fatalf("staged files table does not render its empty state: %s", body)
 	}
 }
+
+// A session's staging upload runs long after its last client is gone. It used
+// to be dropped from the session map the moment the release started, so it
+// vanished from the monitoring page while minutes of uploading were still
+// ahead of it, with nothing anywhere showing that work was in flight.
+func TestMonitoringKeepsReleasingSessionsVisible(t *testing.T) {
+	session := &PoolSession{
+		id: "session-releasing",
+		irodsAccount: &irodsclient_types.IRODSAccount{
+			Host:       "irods.example.org",
+			Port:       1247,
+			ClientUser: "rods",
+			ClientZone: "tempZone",
+		},
+		connections:     map[string]connInfo{},
+		poolFileHandles: map[string]*PoolFileHandle{},
+		releasing:       true,
+	}
+
+	manager := &PoolSessionManager{
+		sessions:          map[string]*PoolSession{},
+		releasingSessions: map[string]*PoolSession{session.id: session},
+	}
+	server := &PoolServer{sessionManager: manager}
+
+	if got := manager.GetTotalSessions(); got != 1 {
+		t.Fatalf("GetTotalSessions() = %d, want 1: a releasing session still holds its resources", got)
+	}
+
+	if _, err := manager.GetSession(session.id); err != nil {
+		t.Fatalf("GetSession() on a releasing session: %v", err)
+	}
+
+	sessions := manager.GetAllSessions()
+	if len(sessions) != 1 || sessions[0].id != session.id {
+		t.Fatalf("GetAllSessions() = %v, want the releasing session", sessions)
+	}
+
+	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
+
+	body := recorder.Body.String()
+	if !strings.Contains(body, session.id) {
+		t.Fatalf("monitor response does not list the releasing session")
+	}
+	// It is past the grace period, so calling it that would be wrong.
+	if !strings.Contains(body, "releasing — syncing to iRODS") {
+		t.Fatalf("monitor response does not mark the session as releasing")
+	}
+}
+
+// Once the release finishes the session must disappear, or the page would grow
+// a permanent row for every session the server ever had.
+func TestReleasedSessionsAreDropped(t *testing.T) {
+	session := &PoolSession{id: "session-done", connections: map[string]connInfo{}}
+	manager := &PoolSessionManager{
+		sessions:          map[string]*PoolSession{},
+		releasingSessions: map[string]*PoolSession{session.id: session},
+	}
+
+	manager.finishAsyncRelease(session.id)
+
+	if got := manager.GetTotalSessions(); got != 0 {
+		t.Fatalf("GetTotalSessions() = %d, want 0 after the release finished", got)
+	}
+	if _, err := manager.GetSession(session.id); err == nil {
+		t.Fatalf("GetSession() still finds a session whose release has finished")
+	}
+	if sessions := manager.GetAllSessions(); len(sessions) != 0 {
+		t.Fatalf("GetAllSessions() = %v, want none", sessions)
+	}
+}
+
+func TestBeginAsyncReleaseMovesTheSessionOutOfReuse(t *testing.T) {
+	session := &PoolSession{id: "session-1234", connections: map[string]connInfo{}}
+	manager := &PoolSessionManager{
+		sessions:          map[string]*PoolSession{session.id: session},
+		releasingSessions: map[string]*PoolSession{},
+	}
+
+	manager.mutex.Lock()
+	manager.beginAsyncReleaseUnlocked(session)
+	manager.mutex.Unlock()
+
+	// A new login must not pick up a session that is being torn down.
+	manager.mutex.RLock()
+	_, reusable := manager.sessions[session.id]
+	manager.mutex.RUnlock()
+	if reusable {
+		t.Fatalf("a releasing session is still offered for reuse")
+	}
+
+	// It stays reportable though.
+	if sessions := manager.GetAllSessions(); len(sessions) != 1 {
+		t.Fatalf("GetAllSessions() = %v, want the releasing session", sessions)
+	}
+}

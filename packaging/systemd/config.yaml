@@ -41,7 +41,9 @@ packed_directories:
   # none keeps the archive seekable and costs no CPU. The files in these
   # directories are usually already compressed, so gzip or zstd saves little.
   compression: none
-  # A directory larger than this is refused rather than filling staging.
+  # Caps one packed directory. A larger archive is refused at mount, and a
+  # write that would cross the line fails, which keeps the directory readable:
+  # growing past the limit would make the next session unable to mount it.
   max_packed_dir_size: 5368709120  # 5GB
   # Bounds how much work a crash can lose. A negative value uploads at session
   # release only.

@@ -54,6 +54,9 @@ dominates the transfer for trees like `.venv` or `.git`. Packing stores such a
 directory in iRODS as a single archive data object — `.venv` becomes
 `.venv.mount.tar` — so it crosses the wire once instead of once per file.
 
+It is on by default for the tool directories listed below. Removing a name is
+how a deployment keeps that directory a normal iRODS collection.
+
 ```yaml
 packed_directories:
   enabled: true
@@ -68,25 +71,32 @@ packed_directories:
 How it behaves:
 
 - **First access** downloads the archive and extracts it under
-  `{staging}/{sessionID}/packed`. Everything after that — listing, stat, read,
+  `{staging}/{sessionID}-packed`. Everything after that — listing, stat, read,
   write, rename, delete — is served from local disk with no iRODS round trip.
+  That directory is deliberately a sibling of `{staging}/{sessionID}`, which
+  staging deletes once its own uploads have synced.
 - **Every `snapshot_interval`** a directory with unsaved changes is packed and
   uploaded, which bounds how much work a crash can lose. A negative value
   uploads at session release only.
 - **Session release** packs each directory one last time and removes the local
-  tree. The archive is uploaded under a temporary name and renamed into place,
-  so a failed transfer never destroys the previous archive.
+  tree, skipping the upload when nothing changed since the last pack. The
+  archive is uploaded under a temporary name and renamed into place, so a
+  failed transfer never destroys the previous archive. A tree whose archive did
+  not reach iRODS is kept on disk rather than deleted with the session.
 - **Existing collections** are migrated on first access: the collection is
   downloaded, and the first successful pack replaces it with the archive.
 
-Things to know before enabling it:
+Things to know about it:
 
 - A packed directory is **not browsable in iRODS** on its own — `ils` shows the
   archive. Pack only directories that are not read directly there.
 - The extracted tree occupies staging disk for the whole session and is never
   evicted, so a full staging area makes writes fail rather than silently
-  falling back to slow per-file uploads. Size `max_staging_data_size`
-  accordingly.
+  falling back to slow per-file uploads. It shares `max_staging_data_size` with
+  the staged files, so size that for both.
+- A single packed directory may not exceed `max_packed_dir_size`. A write that
+  would cross the line fails, which keeps the directory readable; letting it
+  grow past the limit would make the next session refuse to mount it.
 - `compression: none` is the default on purpose: these directories hold
   already-compressed data, so a codec costs CPU without saving much, and an
   uncompressed archive stays seekable.

@@ -24,8 +24,11 @@ const (
 	SessionCloseGracePeriodDefault               time.Duration = 30 * time.Second
 	OperationTimeoutDefault                      time.Duration = 5 * time.Minute
 
-	// Packed directory defaults. Packing is off unless an operator enables it,
-	// because it changes how the directories it covers are stored in iRODS.
+	// Packed directory defaults. Packing is on: the directories it covers hold
+	// tens of thousands of small files that each cost a round trip through the
+	// per-file staging path, and none of them is meant to be browsed in iRODS.
+	// It does change how they are stored there, into one data object per
+	// directory, so the name list is worth reviewing for a given deployment.
 	PackedDirectoriesEnabledDefault   bool          = true
 	PackedDirectorySuffixDefault      string        = ".mount.tar"
 	PackedDirectoryCompressionDefault string        = "none"

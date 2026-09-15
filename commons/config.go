@@ -137,8 +137,10 @@ func NewDefaultConfig() *Config {
 
 		PackedDirectories: PackedDirectoriesConfig{
 			Enabled: PackedDirectoriesEnabledDefault,
-			// Listed even while disabled so that turning the feature on is a
-			// one-line change for the directories it is meant for.
+			// Tool directories that are rebuilt rather than read: an editor or
+			// agent workspace, a virtualenv, a package cache. Removing a name
+			// here is how a deployment keeps that directory a normal iRODS
+			// collection.
 			Names:               []string{".git", ".venv", ".claude", ".codex", ".copilot", ".ansible", ".cache", ".docker", ".vscode", ".vscode-shared"},
 			Suffix:              PackedDirectorySuffixDefault,
 			Compression:         PackedDirectoryCompressionDefault,

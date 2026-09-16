@@ -60,7 +60,15 @@ how a deployment keeps that directory a normal iRODS collection.
 ```yaml
 packed_directories:
   enabled: true
-  names: [".git", ".venv", ".claude", ".codex", ".copilot", ".ansible", ".cache", ".docker", ".vscode", ".vscode-shared"]
+  names: [
+    ".git", ".venv", ".claude", ".codex", ".copilot", ".ansible", ".cache", ".docker", ".vscode", ".vscode-shared",
+    ".ipynb_checkpoints", ".virtual_documents", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".nox",
+    ".pixi", ".conda", ".Rproj.user", ".spyproject", ".julia", ".dvc", ".nextflow", ".datalad", ".hydra", ".metaflow",
+    ".idea", ".vs", ".metadata", ".history", ".gradle", ".m2", ".cargo", ".rustup", ".npm", ".yarn", ".pnpm-store",
+    ".terraform", ".vagrant", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache", ".svn", ".hg", ".jj",
+    ".local", ".apptainer", ".singularity", ".spack", ".lmod.d",
+    "node_modules", "__pycache__", "mlruns", "wandb", "lightning_logs", "catboost_info", "site-packages"
+  ]
   suffix: ".mount.tar"
   compression: none              # none | gzip | zstd
   max_packed_dir_size: 5368709120  # 5GB

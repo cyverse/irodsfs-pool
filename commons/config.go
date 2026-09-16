@@ -141,7 +141,51 @@ func NewDefaultConfig() *Config {
 			// agent workspace, a virtualenv, a package cache. Removing a name
 			// here is how a deployment keeps that directory a normal iRODS
 			// collection.
-			Names:               []string{".git", ".venv", ".claude", ".codex", ".copilot", ".ansible", ".cache", ".docker", ".vscode", ".vscode-shared"},
+			Names: []string{
+				// git
+				".git",
+				// venv
+				".venv",
+				// Ai tools
+				".claude", ".codex", ".copilot",
+				// development
+				".ansible", ".cache", ".docker", ".vscode", ".vscode-shared",
+				// Jupyter
+				".ipynb_checkpoints",
+				// JupyterLab LSP
+				".virtual_documents",
+				// mypy, ruff
+				".mypy_cache",
+				".pytest_cache",
+				".ruff_cache",
+				".tox", ".nox",
+				// pixi
+				".pixi",
+				// conda
+				".conda",
+				// RStudio
+				".Rproj.user",
+				// Spyder
+				".spyproject",
+				// Julia
+				".julia",
+				// DVC
+				".dvc",
+				// Snakemake
+				".nextflow",
+				// DataLad
+				".datalad",
+				// Hydra
+				".hydra",
+				// Metaflow
+				".metaflow",
+				// development tools
+				".idea", ".vs", ".metadata", ".history", ".gradle", ".m2", ".cargo", ".rustup", ".npm", ".yarn", ".pnpm-store", ".terraform", ".vagrant", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache", ".svn", ".hg", ".jj",
+				// HPC
+				".local", ".apptainer", ".singularity", ".spack", ".lmod.d",
+				// others
+				"node_modules", "__pycache__", "mlruns", "wandb", "lightning_logs", "catboost_info", "site-packages",
+			},
 			Suffix:              PackedDirectorySuffixDefault,
 			Compression:         PackedDirectoryCompressionDefault,
 			MaxPackedDirSize:    MaxPackedDirectorySizeDefault,

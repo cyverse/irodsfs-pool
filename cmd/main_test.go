@@ -106,6 +106,10 @@ func TestLifecycleCommandRejectsArguments(t *testing.T) {
 	}
 }
 
+// testRecoveryEncryptionKey is a base64-encoded 32-byte key, the only shape the
+// config accepts
+const testRecoveryEncryptionKey = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+
 func writeTestConfig(t *testing.T, pid int) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -115,7 +119,9 @@ func writeTestConfig(t *testing.T, pid int) string {
 	}
 
 	configPath := filepath.Join(dir, "config.yaml")
-	config := fmt.Sprintf("service_endpoint: tcp://127.0.0.1:12020\ndata_root_path: %s\npid_file: %s\n", dir, pidPath)
+	// the recovery encryption key is required, it encrypts the stored credentials
+	// a session is recovered with
+	config := fmt.Sprintf("service_endpoint: tcp://127.0.0.1:12020\ndata_root_path: %s\npid_file: %s\nrecovery_encryption_key: %s\n", dir, pidPath, testRecoveryEncryptionKey)
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

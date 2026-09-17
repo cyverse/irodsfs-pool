@@ -38,8 +38,27 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// integrationTestEnvVar opts in to the tests in this package. They need a pool
+// server that is already running and an account file holding working iRODS
+// credentials, and the write tests create and remove data objects in a real
+// collection, so they stay off unless they are asked for.
+const integrationTestEnvVar = "IRODSFS_POOL_INTEGRATION_TEST"
+
+// requireIntegrationEnvironment skips the test unless the caller opted in.
+// Once opted in the test fails rather than skips, so a pool server that is down
+// or credentials that stopped working are reported instead of passing quietly.
+func requireIntegrationEnvironment(t *testing.T) {
+	t.Helper()
+
+	if os.Getenv(integrationTestEnvVar) == "" {
+		t.Skipf("set %s=1 to run against a pool server (-pool %s) with credentials in %q", integrationTestEnvVar, poolAddr, accountFile)
+	}
+}
+
 func setupSession(t *testing.T) (irodsfs_common_irods.IRODSFSClient, func()) {
 	t.Helper()
+
+	requireIntegrationEnvironment(t)
 
 	logger := log.WithFields(log.Fields{})
 

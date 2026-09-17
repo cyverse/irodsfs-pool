@@ -82,40 +82,51 @@ func (handle *PoolFileHandle) Flush() error {
 
 // Getlk returns a lock that conflicts with the given lock, or nil if the lock
 // can be acquired
-func (handle *PoolFileHandle) Getlk(lock *irodsfs_common_irods.FileLock) (*irodsfs_common_irods.FileLock, error) {
+func (handle *PoolFileHandle) Getlk(callerID string, lock *irodsfs_common_irods.FileLock) (*irodsfs_common_irods.FileLock, error) {
 	if handle.fileLockManager == nil {
 		return nil, errNoFileLockManager
 	}
 
-	return handle.fileLockManager.Test(handle.GetEntryPath(), handle.ownedLock(lock)), nil
+	return handle.fileLockManager.Test(handle.GetEntryPath(), handle.ownedLock(callerID, lock)), nil
 }
 
 // Setlk acquires or releases a lock without waiting. It returns an error
 // wrapping irods.ErrFileLockConflict if another owner holds a conflicting lock.
-func (handle *PoolFileHandle) Setlk(lock *irodsfs_common_irods.FileLock) error {
+func (handle *PoolFileHandle) Setlk(callerID string, lock *irodsfs_common_irods.FileLock) error {
 	if handle.fileLockManager == nil {
 		return errNoFileLockManager
 	}
 
-	return handle.fileLockManager.Lock(handle.GetEntryPath(), handle.ownedLock(lock))
+	return handle.fileLockManager.Lock(handle.GetEntryPath(), handle.ownedLock(callerID, lock))
 }
 
 // Setlkw acquires a lock, waiting until it becomes available or the context is
 // canceled. The context is the one of the gRPC call, so a client that gives up
 // or disconnects gives up the wait.
-func (handle *PoolFileHandle) Setlkw(ctx context.Context, lock *irodsfs_common_irods.FileLock) error {
+func (handle *PoolFileHandle) Setlkw(ctx context.Context, callerID string, lock *irodsfs_common_irods.FileLock) error {
 	if handle.fileLockManager == nil {
 		return errNoFileLockManager
 	}
 
-	return handle.fileLockManager.LockWait(ctx, handle.GetEntryPath(), handle.ownedLock(lock))
+	return handle.fileLockManager.LockWait(ctx, handle.GetEntryPath(), handle.ownedLock(callerID, lock))
 }
 
-// ownedLock returns a copy of the lock owned by this handle. The lock owner a
-// client reports is only unique within that client, so the session scopes it.
-func (handle *PoolFileHandle) ownedLock(lock *irodsfs_common_irods.FileLock) *irodsfs_common_irods.FileLock {
+// ownedLock returns a copy of the lock owned by this handle.
+//
+// The lock owner a client reports is only unique within that client, so it is
+// scoped by the caller. The session cannot serve as that scope: sessions are
+// keyed by iRODS account and shared, so two mounts of the same account would
+// land in one scope and their unrelated lock owners could collide.
+func (handle *PoolFileHandle) ownedLock(callerID string, lock *irodsfs_common_irods.FileLock) *irodsfs_common_irods.FileLock {
+	scope := callerID
+	if scope == "" {
+		// nothing identified the caller, keep the locks of this session apart
+		// from the other sessions at least
+		scope = handle.poolSessionID
+	}
+
 	owned := *lock
-	owned.Owner.Scope = handle.poolSessionID
+	owned.Owner.Scope = scope
 	owned.Owner.Handle = handle.GetID()
 	return &owned
 }

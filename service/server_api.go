@@ -93,6 +93,7 @@ type SessionSummary struct {
 
 type SessionClientInfo struct {
 	ConnectionID string `json:"connection_id"`
+	ClientID     string `json:"client_id,omitempty"`
 	Application  string `json:"application"`
 	Description  string `json:"description,omitempty"`
 }
@@ -457,6 +458,7 @@ func snapshotSessionInfo(session *PoolSession) SessionInfo {
 	for connectionID, client := range session.connections {
 		info.Clients = append(info.Clients, SessionClientInfo{
 			ConnectionID: connectionID,
+			ClientID:     client.clientID,
 			Application:  client.appName,
 			Description:  client.description,
 		})

@@ -176,7 +176,7 @@ func (server *PoolServer) Login(ctx context.Context, request *api.LoginRequest) 
 
 	connID := ConnIDFromContext(ctx)
 	if connID != "" {
-		server.sessionManager.AddConnection(connID, session.GetID(), request.ApplicationName, request.Description)
+		server.sessionManager.AddConnection(connID, ClientIDFromContext(ctx), session.GetID(), request.ApplicationName, request.Description)
 	}
 
 	response := &api.LoginResponse{
@@ -1052,7 +1052,7 @@ func (server *PoolServer) Getlk(ctx context.Context, request *api.GetlkRequest) 
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	conflict, err := handle.Getlk(lock)
+	conflict, err := handle.Getlk(CallerIDFromContext(ctx), lock)
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -1079,7 +1079,7 @@ func (server *PoolServer) Setlk(ctx context.Context, request *api.SetlkRequest) 
 	sessionLogger.Debugf("Setlk request")
 	defer sessionLogger.Debugf("Setlk response")
 
-	if err := handle.Setlk(lock); err != nil {
+	if err := handle.Setlk(CallerIDFromContext(ctx), lock); err != nil {
 		// a conflict is an ordinary answer to a non-blocking lock request, the
 		// client turns it into EAGAIN
 		sessionLogger.Debugf("Setlk denied: %v", err)
@@ -1102,7 +1102,7 @@ func (server *PoolServer) Setlkw(ctx context.Context, request *api.SetlkRequest)
 
 	// the call context ends the wait when the client cancels the request or
 	// the connection goes away
-	if err := handle.Setlkw(ctx, lock); err != nil {
+	if err := handle.Setlkw(ctx, CallerIDFromContext(ctx), lock); err != nil {
 		sessionLogger.Debugf("Setlkw gave up: %v", err)
 		return nil, commons.ErrorToStatus(err)
 	}

@@ -414,7 +414,7 @@ func (manager *PoolSessionManager) ReleaseAllSessions() {
 	wg.Wait()
 }
 
-func (manager *PoolSessionManager) AddConnection(connID string, sessionID string, appName string, description string) {
+func (manager *PoolSessionManager) AddConnection(connID string, clientID string, sessionID string, appName string, description string) {
 	defer irodsfs_common_util.StackTraceFromPanic(manager.logger)
 
 	manager.mutex.Lock()
@@ -441,9 +441,9 @@ func (manager *PoolSessionManager) AddConnection(connID string, sessionID string
 			delete(manager.pendingReleases, sessionID)
 			manager.logger.Infof("Cancelled pending grace-period release for session %q (connection %q added)", sessionID, connID)
 		}
-		session.addConnection(connID, appName, description)
+		session.addConnection(connID, clientID, appName, description)
 		manager.checkpointSession(session)
-		manager.logger.Infof("Added connection %q (app=%q) to session %q (connections=%d)", connID, appName, sessionID, session.getConnectionCount())
+		manager.logger.Infof("Added connection %q (client=%q, app=%q) to session %q (connections=%d)", connID, clientID, appName, sessionID, session.getConnectionCount())
 	}
 }
 
@@ -745,6 +745,7 @@ func (manager *PoolSessionManager) releaseSessionResources(session *PoolSession)
 
 // connInfo holds per-connection metadata supplied at Login time.
 type connInfo struct {
+	clientID    string // the id the client sent, empty for a client that sends none
 	appName     string
 	description string
 }
@@ -870,11 +871,11 @@ func (session *PoolSession) release() error {
 	return releaseErr
 }
 
-func (session *PoolSession) addConnection(connID string, appName string, description string) {
+func (session *PoolSession) addConnection(connID string, clientID string, appName string, description string) {
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
-	session.connections[connID] = connInfo{appName: appName, description: description}
+	session.connections[connID] = connInfo{clientID: clientID, appName: appName, description: description}
 }
 
 func (session *PoolSession) removeConnection(connID string) int {

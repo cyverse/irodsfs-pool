@@ -6,9 +6,11 @@ import (
 	"sync/atomic"
 
 	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
+	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/rs/xid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 )
@@ -17,11 +19,50 @@ type connIDKeyType struct{}
 
 var connIDKey = connIDKeyType{}
 
+type clientIDKeyType struct{}
+
+var clientIDKey = clientIDKeyType{}
+
 func ConnIDFromContext(ctx context.Context) string {
 	if id, ok := ctx.Value(connIDKey).(string); ok {
 		return id
 	}
 	return ""
+}
+
+// ClientIDFromContext returns the id the caller sent, or an empty string when
+// it sent none
+func ClientIDFromContext(ctx context.Context) string {
+	if id, ok := ctx.Value(clientIDKey).(string); ok {
+		return id
+	}
+	return ""
+}
+
+// withClientIDFromMetadata copies the caller's id out of the request metadata
+func withClientIDFromMetadata(ctx context.Context) context.Context {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return ctx
+	}
+
+	values := md.Get(commons.ClientIDMetadataKey)
+	if len(values) == 0 || values[0] == "" {
+		return ctx
+	}
+
+	return context.WithValue(ctx, clientIDKey, values[0])
+}
+
+// CallerIDFromContext names the caller for the purposes that must survive a
+// reconnect. It prefers the id the caller sent and falls back to the connection
+// id, which older clients that send no id still get.
+func CallerIDFromContext(ctx context.Context) string {
+	if clientID := ClientIDFromContext(ctx); clientID != "" {
+		return clientID
+	}
+
+	return ConnIDFromContext(ctx)
 }
 
 type PoolServiceStatHandler struct {
@@ -77,6 +118,8 @@ func (handler *PoolServiceStatHandler) HandleConn(ctx context.Context, s stats.C
 func (handler *PoolServiceStatHandler) UnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, uhandler grpc.UnaryHandler) (interface{}, error) {
 	// request
 	promCounterForGRPCRequests.Inc()
+
+	ctx = withClientIDFromMetadata(ctx)
 
 	// Create channels for the response and error
 	respChan := make(chan interface{}, 1)

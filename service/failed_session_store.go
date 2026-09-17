@@ -37,6 +37,7 @@ type FailedSessionInfo struct {
 
 type FailedSessionConnectionInfo struct {
 	ConnectionID string `json:"connection_id"`
+	ClientID     string `json:"client_id,omitempty"`
 	Application  string `json:"application"`
 	Description  string `json:"description,omitempty"`
 }
@@ -110,6 +111,7 @@ func (manager *PoolSessionManager) snapshotFailedSession(session *PoolSession, s
 	for connectionID, connection := range session.connections {
 		info.Connections = append(info.Connections, FailedSessionConnectionInfo{
 			ConnectionID: connectionID,
+			ClientID:     connection.clientID,
 			Application:  connection.appName,
 			Description:  connection.description,
 		})

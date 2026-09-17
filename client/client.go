@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -101,8 +102,17 @@ type PoolServiceSession struct {
 }
 
 // NewPoolServiceClient creates a new pool service client
-func NewPoolServiceClient(address string, operationTimeout time.Duration, autoReconnect bool, logger *log.Entry) *PoolServiceClient {
-	clientID := xid.New().String()
+// NewPoolServiceClient creates a client of the pool service.
+//
+// clientID names this client to the server for as long as it lives, across
+// reconnects, and scopes the file lock owners it reports. Callers that have an
+// id of their own - a mount instance id, say - should pass it so that one id
+// identifies them in their own logs and in the server's. An empty id gets a
+// generated one.
+func NewPoolServiceClient(address string, operationTimeout time.Duration, autoReconnect bool, clientID string, logger *log.Entry) *PoolServiceClient {
+	if clientID == "" {
+		clientID = xid.New().String()
+	}
 
 	if logger == nil {
 		logger = log.WithFields(log.Fields{
@@ -244,6 +254,26 @@ func (client *PoolServiceClient) backgroundReconnect(parent context.Context, seq
 	}
 }
 
+// GetID returns the id this client is known by, in its own logs and in the
+// server's
+func (client *PoolServiceClient) GetID() string {
+	return client.id
+}
+
+// clientIDUnaryInterceptor sends the client id along with every call, so that
+// the server can tell this client apart from the others sharing its session
+func (client *PoolServiceClient) clientIDUnaryInterceptor(ctx context.Context, method string, req any, reply any, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	return invoker(client.withClientID(ctx), method, req, reply, conn, opts...)
+}
+
+func (client *PoolServiceClient) clientIDStreamInterceptor(ctx context.Context, desc *grpc.StreamDesc, conn *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	return streamer(client.withClientID(ctx), desc, conn, method, opts...)
+}
+
+func (client *PoolServiceClient) withClientID(ctx context.Context) context.Context {
+	return metadata.AppendToOutgoingContext(ctx, commons.ClientIDMetadataKey, client.id)
+}
+
 // newConnection creates a gRPC connection for the configured service endpoint.
 func (client *PoolServiceClient) newConnection() (*grpc.ClientConn, api.PoolAPIClient, string, error) {
 	scheme, endpoint, err := commons.ParsePoolServiceEndpoint(client.address)
@@ -267,6 +297,8 @@ func (client *PoolServiceClient) newConnection() (*grpc.ClientConn, api.PoolAPIC
 		"passthrough:///"+endpoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(grpcDialer),
+		grpc.WithUnaryInterceptor(client.clientIDUnaryInterceptor),
+		grpc.WithStreamInterceptor(client.clientIDStreamInterceptor),
 	)
 	if err != nil {
 		return nil, nil, "", errors.Wrapf(err, "failed to create gRPC client for %q", client.address)

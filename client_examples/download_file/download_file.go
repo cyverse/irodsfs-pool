@@ -37,7 +37,7 @@ func main() {
 	account := cfg.ToIRODSAccount()
 	logger.Debugf("Account : %v", account.GetRedacted())
 
-	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, false, logger)
+	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, false, "download_file_example", logger)
 	err = poolClient.Connect()
 	if err != nil {
 		logger.Error(err)

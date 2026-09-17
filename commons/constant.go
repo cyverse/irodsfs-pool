@@ -37,4 +37,11 @@ const (
 	ConcurrentPackLimitDefault        int           = 2
 
 	ManagementServiceEndpointDefault string = "http://0.0.0.0:12021"
+
+	// ClientIDMetadataKey is the gRPC metadata a client sends its own id in.
+	// The server makes a connection id of its own, but that one changes
+	// whenever the transport reconnects, so it cannot name a client for
+	// anything that has to outlive a reconnect - the owner of a file lock,
+	// most of all.
+	ClientIDMetadataKey string = "x-irodsfs-client-id"
 )

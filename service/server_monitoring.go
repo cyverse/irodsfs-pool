@@ -301,10 +301,10 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 	for _, session := range sessions {
 		session.mutex.RLock()
 		handleCount := len(session.poolFileHandles)
-		type connEntry struct{ id, app, desc string }
+		type connEntry struct{ id, clientID, app, desc string }
 		connEntries := make([]connEntry, 0, len(session.connections))
 		for id, ci := range session.connections {
-			connEntries = append(connEntries, connEntry{id, ci.appName, ci.description})
+			connEntries = append(connEntries, connEntry{id, ci.clientID, ci.appName, ci.description})
 		}
 		lastAccess := session.lastAccessTime
 		releasing := session.releasing
@@ -453,9 +453,9 @@ func (h *MonitoringHandler) renderOneFailedSessionDetail(w http.ResponseWriter, 
 	if len(session.Connections) == 0 {
 		fmt.Fprint(w, `<p>No recorded clients.</p>`)
 	} else {
-		fmt.Fprint(w, `<table class="clients-table"><tr><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
+		fmt.Fprint(w, `<table class="clients-table"><tr><th>Client ID</th><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
 		for _, connection := range session.Connections {
-			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td></tr>`, escape(connection.ConnectionID), escape(connection.Application), escape(connection.Description))
+			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`, escape(connection.ClientID), escape(connection.ConnectionID), escape(connection.Application), escape(connection.Description))
 		}
 		fmt.Fprint(w, `</table>`)
 	}
@@ -474,10 +474,10 @@ func (h *MonitoringHandler) renderOneFailedSessionDetail(w http.ResponseWriter, 
 func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, session *PoolSession) {
 	// Collect data under lock
 	session.mutex.RLock()
-	type connEntry struct{ id, app, desc string }
+	type connEntry struct{ id, clientID, app, desc string }
 	connEntries := make([]connEntry, 0, len(session.connections))
 	for id, ci := range session.connections {
-		connEntries = append(connEntries, connEntry{id, ci.appName, ci.description})
+		connEntries = append(connEntries, connEntry{id, ci.clientID, ci.appName, ci.description})
 	}
 	type handleEntry struct{ path, mode string }
 	handleEntries := make([]handleEntry, 0, len(session.poolFileHandles))
@@ -543,14 +543,14 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	} else if len(connEntries) == 0 {
 		fmt.Fprint(w, `<p><span class="badge grace">⏳ grace period — no connected clients</span></p>`)
 	} else {
-		fmt.Fprint(w, `<table class="clients-table"><tr><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
+		fmt.Fprint(w, `<table class="clients-table"><tr><th>Client ID</th><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
 		for _, e := range connEntries {
 			tooltip := e.app
 			if e.desc != "" {
 				tooltip = e.app + ": " + e.desc
 			}
-			fmt.Fprintf(w, `<tr><td>%s</td><td title="%s">%s</td><td>%s</td></tr>`,
-				html.EscapeString(e.id), html.EscapeString(tooltip),
+			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td title="%s">%s</td><td>%s</td></tr>`,
+				html.EscapeString(e.clientID), html.EscapeString(e.id), html.EscapeString(tooltip),
 				html.EscapeString(e.app), html.EscapeString(e.desc))
 		}
 		fmt.Fprint(w, `</table>`)

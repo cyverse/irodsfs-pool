@@ -12,7 +12,13 @@ import (
 	"github.com/cyverse/irodsfs-pool/service/api"
 )
 
-const lockTestPath = "/tempZone/home/rods/locked.txt"
+const (
+	lockTestPath = "/tempZone/home/rods/locked.txt"
+
+	// two mounts, each with an id of its own
+	callerA = "client-a"
+	callerB = "client-b"
+)
 
 func isFileLockConflict(err error) bool {
 	return err != nil && errors.Is(err, irodsfs_common_irods.ErrFileLockConflict)
@@ -54,11 +60,11 @@ func TestPoolFileHandleLocksAreSharedAcrossSessions(t *testing.T) {
 	first := newLockTestHandle(t, "session-a", "handle-a", manager)
 	second := newLockTestHandle(t, "session-b", "handle-b", manager)
 
-	if err := first.Setlk(wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 100, false)); err != nil {
+	if err := first.Setlk(callerA, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 100, false)); err != nil {
 		t.Fatalf("first handle failed to lock: %v", err)
 	}
 
-	err := second.Setlk(wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 200, false))
+	err := second.Setlk(callerB, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 200, false))
 	if err == nil {
 		t.Fatal("the second session acquired a lock the first session holds")
 	}
@@ -66,7 +72,7 @@ func TestPoolFileHandleLocksAreSharedAcrossSessions(t *testing.T) {
 		t.Fatalf("expected a lock conflict, got %v", err)
 	}
 
-	conflict, err := second.Getlk(wholeFileLock(irodsfs_common_irods.FileLockTypeRead, 1, 200, false))
+	conflict, err := second.Getlk(callerB, wholeFileLock(irodsfs_common_irods.FileLockTypeRead, 1, 200, false))
 	if err != nil {
 		t.Fatalf("Getlk failed: %v", err)
 	}
@@ -78,26 +84,59 @@ func TestPoolFileHandleLocksAreSharedAcrossSessions(t *testing.T) {
 	}
 }
 
-// The lock owner a client reports is only unique within that client, so two
-// sessions reporting the same owner id must not be taken for one owner.
-func TestPoolFileHandleScopesLockOwnersBySession(t *testing.T) {
+// A session is keyed by iRODS account and shared, so two mounts of one account
+// arrive in the same session. The lock owner each of them reports is only
+// unique within that mount, so the caller - not the session - has to scope it,
+// or two unrelated owners that happen to report the same id would be taken for
+// one and both would hold the same write lock.
+func TestPoolFileHandleScopesLockOwnersByCaller(t *testing.T) {
 	manager := irodsfs_common_irods.NewFileLockManager()
 
-	sameSessionFirst := newLockTestHandle(t, "session-a", "handle-1", manager)
-	sameSessionSecond := newLockTestHandle(t, "session-a", "handle-2", manager)
+	const sharedSession = "session-of-one-account"
+	firstMount := newLockTestHandle(t, sharedSession, "handle-1", manager)
+	secondMount := newLockTestHandle(t, sharedSession, "handle-2", manager)
 
-	if err := sameSessionFirst.Setlk(wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 7, 100, false)); err != nil {
+	if err := firstMount.Setlk(callerA, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 7, 100, false)); err != nil {
 		t.Fatalf("failed to lock: %v", err)
 	}
 
-	// one process of one session, two open files: one POSIX lock owner
-	if err := sameSessionSecond.Setlk(wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 7, 100, false)); err != nil {
-		t.Fatalf("the same owner in the same session conflicted with itself: %v", err)
+	// the same owner id, reported by another mount, is another owner
+	err := secondMount.Setlk(callerB, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 7, 100, false))
+	if !isFileLockConflict(err) {
+		t.Fatalf("expected a lock conflict between two mounts of one session, got %v", err)
+	}
+}
+
+// One mount, one process, two open files: the kernel reports one POSIX lock
+// owner and it must not conflict with itself.
+func TestPoolFileHandleKeepsOneCallerAsOneOwner(t *testing.T) {
+	manager := irodsfs_common_irods.NewFileLockManager()
+
+	first := newLockTestHandle(t, "session-a", "handle-1", manager)
+	second := newLockTestHandle(t, "session-a", "handle-2", manager)
+
+	if err := first.Setlk(callerA, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 7, 100, false)); err != nil {
+		t.Fatalf("failed to lock: %v", err)
+	}
+	if err := second.Setlk(callerA, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 7, 100, false)); err != nil {
+		t.Fatalf("the same caller conflicted with itself: %v", err)
+	}
+}
+
+// An older client sends no id of its own, and then the session is all there is
+// to keep its locks apart from the other sessions'
+func TestPoolFileHandleFallsBackToTheSessionScope(t *testing.T) {
+	manager := irodsfs_common_irods.NewFileLockManager()
+
+	first := newLockTestHandle(t, "session-a", "handle-1", manager)
+	second := newLockTestHandle(t, "session-b", "handle-2", manager)
+
+	if err := first.Setlk("", wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 7, 100, false)); err != nil {
+		t.Fatalf("failed to lock: %v", err)
 	}
 
-	// the same owner id from another session is another owner
-	otherSession := newLockTestHandle(t, "session-b", "handle-3", manager)
-	if err := otherSession.Setlk(wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 7, 100, false)); !isFileLockConflict(err) {
+	err := second.Setlk("", wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 7, 100, false))
+	if !isFileLockConflict(err) {
 		t.Fatalf("expected a lock conflict across sessions, got %v", err)
 	}
 }
@@ -108,7 +147,7 @@ func TestPoolFileHandleReleasesLocksOnRelease(t *testing.T) {
 	holder := newLockTestHandle(t, "session-a", "handle-a", manager)
 	other := newLockTestHandle(t, "session-b", "handle-b", manager)
 
-	if err := holder.Setlk(wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 100, true)); err != nil {
+	if err := holder.Setlk(callerA, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 100, true)); err != nil {
 		t.Fatalf("failed to lock: %v", err)
 	}
 
@@ -116,7 +155,7 @@ func TestPoolFileHandleReleasesLocksOnRelease(t *testing.T) {
 		t.Fatalf("failed to release the handle: %v", err)
 	}
 
-	if err := other.Setlk(wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 200, true)); err != nil {
+	if err := other.Setlk(callerB, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 200, true)); err != nil {
 		t.Fatalf("the lock outlived the handle that took it: %v", err)
 	}
 }
@@ -127,7 +166,7 @@ func TestPoolFileHandleSetlkwWaitsAndHonorsCancel(t *testing.T) {
 	holder := newLockTestHandle(t, "session-a", "handle-a", manager)
 	waiter := newLockTestHandle(t, "session-b", "handle-b", manager)
 
-	if err := holder.Setlk(wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 100, true)); err != nil {
+	if err := holder.Setlk(callerA, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 100, true)); err != nil {
 		t.Fatalf("failed to lock: %v", err)
 	}
 
@@ -135,18 +174,18 @@ func TestPoolFileHandleSetlkwWaitsAndHonorsCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	if err := waiter.Setlkw(ctx, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 200, true)); err == nil {
+	if err := waiter.Setlkw(ctx, callerB, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 200, true)); err == nil {
 		t.Fatal("Setlkw acquired a lock that another session holds")
 	}
 
 	// and it returns as soon as the holder lets go
 	acquired := make(chan error, 1)
 	go func() {
-		acquired <- waiter.Setlkw(context.Background(), wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 200, true))
+		acquired <- waiter.Setlkw(context.Background(), callerB, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 200, true))
 	}()
 
 	time.Sleep(50 * time.Millisecond)
-	if err := holder.Setlk(wholeFileLock(irodsfs_common_irods.FileLockTypeUnlock, 1, 100, true)); err != nil {
+	if err := holder.Setlk(callerA, wholeFileLock(irodsfs_common_irods.FileLockTypeUnlock, 1, 100, true)); err != nil {
 		t.Fatalf("failed to unlock: %v", err)
 	}
 
@@ -163,7 +202,7 @@ func TestPoolFileHandleSetlkwWaitsAndHonorsCancel(t *testing.T) {
 func TestPoolFileHandleWithoutLockManagerFails(t *testing.T) {
 	handle := newLockTestHandle(t, "session-a", "handle-a", nil)
 
-	if err := handle.Setlk(wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 100, false)); err == nil {
+	if err := handle.Setlk(callerA, wholeFileLock(irodsfs_common_irods.FileLockTypeWrite, 1, 100, false)); err == nil {
 		t.Fatal("expected a handle without a lock manager to fail")
 	}
 }

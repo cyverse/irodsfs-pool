@@ -84,7 +84,7 @@ func TestMonitoringClientDescriptionsWrapWithinTheirTable(t *testing.T) {
 			ClientZone: "tempZone",
 		},
 		connections: map[string]connInfo{
-			"connection-1": {appName: "irodsfs", description: strings.Repeat("long-description-", 20)},
+			"connection-1": {clientID: "client-1", appName: "irodsfs", description: strings.Repeat("long-description-", 20)},
 		},
 		poolFileHandles: map[string]*PoolFileHandle{},
 	}
@@ -102,7 +102,8 @@ func TestMonitoringClientDescriptionsWrapWithinTheirTable(t *testing.T) {
 	for _, expected := range []string{
 		`.clients-table { table-layout: fixed; }`,
 		`overflow-wrap: anywhere`,
-		`<table class="clients-table"><tr><th>Connection ID</th><th>Application</th><th>Description</th></tr>`,
+		`<table class="clients-table"><tr><th>Client ID</th><th>Connection ID</th><th>Application</th><th>Description</th></tr>`,
+		`<td>client-1</td>`,
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("monitor response does not contain %q", expected)

@@ -33,7 +33,7 @@ type writeAtPoolAPIClient struct {
 }
 
 func TestPoolServiceClientGetContextWithDeadline(t *testing.T) {
-	client := NewPoolServiceClient("tcp://test.invalid:12020", time.Second, false, nil)
+	client := NewPoolServiceClient("tcp://test.invalid:12020", time.Second, false, "", nil)
 	ctx, cancel := client.getContextWithDeadline()
 	defer cancel()
 	if _, ok := ctx.Deadline(); !ok {

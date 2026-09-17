@@ -22,6 +22,42 @@ func (writer *trackingWriteCloser) Close() error {
 	return nil
 }
 
+// newValidatableConfig returns a config that passes Validate, so that a test
+// can change the one field it is about
+func newValidatableConfig(t *testing.T) *Config {
+	t.Helper()
+
+	dataRootPath := t.TempDir()
+
+	config := NewDefaultConfig()
+	config.DataRootPath = dataRootPath
+	config.StagingRootPath = filepath.Join(dataRootPath, "staging")
+	config.PIDFile = filepath.Join(dataRootPath, "irodsfs-pool.pid")
+	// a base64-encoded 32-byte key, the only shape the config accepts
+	config.RecoveryEncryptionKey = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+
+	return config
+}
+
+// log_root_path is documented as optional and falls back to the data root path,
+// so a config that leaves it out has to validate
+func TestValidateAcceptsUnsetLogRootPath(t *testing.T) {
+	config := newValidatableConfig(t)
+
+	require.Empty(t, config.LogRootPath)
+	require.NoError(t, config.Validate())
+	assert.Equal(t, config.DataRootPath, config.GetLogRootPath())
+}
+
+func TestValidateRejectsRelativeLogRootPath(t *testing.T) {
+	config := newValidatableConfig(t)
+	config.LogRootPath = "relative/logs"
+
+	err := config.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "log_root_path")
+}
+
 func TestNonClosingWriter(t *testing.T) {
 	underlying := &trackingWriteCloser{}
 	writer := NewMultiWriteCloser(nonClosingWriter{Writer: underlying})

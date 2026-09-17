@@ -477,9 +477,11 @@ func (config *Config) Validate() error {
 	}
 
 	paths := map[string]string{
-		"data_root_path":    config.DataRootPath,
-		"pid_file":          config.PIDFile,
-		"log_root_path":     config.LogRootPath,
+		"data_root_path": config.DataRootPath,
+		"pid_file":       config.PIDFile,
+		// an unset log root path falls back to the data root path, so the
+		// effective path is what has to be absolute, not the field
+		"log_root_path":     config.GetLogRootPath(),
 		"staging_root_path": config.StagingRootPath,
 	}
 

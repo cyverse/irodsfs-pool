@@ -102,8 +102,12 @@ func TestMonitoringClientDescriptionsWrapWithinTheirTable(t *testing.T) {
 	for _, expected := range []string{
 		`.clients-table { table-layout: fixed; }`,
 		`overflow-wrap: anywhere`,
-		`<table class="clients-table"><tr><th>Client ID</th><th>Connection ID</th><th>Application</th><th>Description</th></tr>`,
-		`<td>client-1</td>`,
+		// a fixed layout gives a column with no width of its own none at all,
+		// so every column of the table needs one
+		`.clients-table th:nth-child(3) { width: 60%; }`,
+		`<table class="clients-table"><tr><th>Client</th><th>Application</th><th>Description</th></tr>`,
+		// the client names itself; the server's connection id is a tooltip
+		`<td title="connection connection-1">client-1</td>`,
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("monitor response does not contain %q", expected)
@@ -607,5 +611,37 @@ func TestBeginAsyncReleaseMovesTheSessionOutOfReuse(t *testing.T) {
 	// It stays reportable though.
 	if sessions := manager.GetAllSessions(); len(sessions) != 1 {
 		t.Fatalf("GetAllSessions() = %v, want the releasing session", sessions)
+	}
+}
+
+// A client that sends no id of its own - an older one - has nothing but the
+// connection id to identify it, so the row falls back to that
+func TestMonitoringNamesAClientWithoutAnIDByItsConnection(t *testing.T) {
+	session := &PoolSession{
+		id: "session-1234",
+		irodsAccount: &irodsclient_types.IRODSAccount{
+			Host:       "irods.example.org",
+			Port:       1247,
+			ClientUser: "rods",
+			ClientZone: "tempZone",
+		},
+		connections: map[string]connInfo{
+			"connection-1": {appName: "irodsfs"},
+		},
+		poolFileHandles: map[string]*PoolFileHandle{},
+	}
+	server := &PoolServer{
+		sessionManager: &PoolSessionManager{
+			sessions: map[string]*PoolSession{session.id: session},
+		},
+	}
+	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
+
+	body := recorder.Body.String()
+	if !strings.Contains(body, `<td title="connection connection-1">connection-1</td>`) {
+		t.Fatalf("monitor response does not name the client by its connection: %q", body)
 	}
 }

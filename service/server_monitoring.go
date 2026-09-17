@@ -50,8 +50,8 @@ th, td { border: 1px solid #333; padding: 6px 10px; text-align: left; }
 .clients-table { table-layout: fixed; }
 .clients-table th, .clients-table td { overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
 .clients-table th:nth-child(1) { width: 25%; }
-.clients-table th:nth-child(2) { width: 25%; }
-.clients-table th:nth-child(3) { width: 50%; }
+.clients-table th:nth-child(2) { width: 15%; }
+.clients-table th:nth-child(3) { width: 60%; }
 .staged-files-table { table-layout: fixed; }
 .staged-files-table th, .staged-files-table td { overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
 .staged-files-table th:nth-child(1) { width: 48%; }
@@ -453,9 +453,11 @@ func (h *MonitoringHandler) renderOneFailedSessionDetail(w http.ResponseWriter, 
 	if len(session.Connections) == 0 {
 		fmt.Fprint(w, `<p>No recorded clients.</p>`)
 	} else {
-		fmt.Fprint(w, `<table class="clients-table"><tr><th>Client ID</th><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
+		fmt.Fprint(w, `<table class="clients-table"><tr><th>Client</th><th>Application</th><th>Description</th></tr>`)
 		for _, connection := range session.Connections {
-			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`, escape(connection.ClientID), escape(connection.ConnectionID), escape(connection.Application), escape(connection.Description))
+			fmt.Fprintf(w, `<tr><td title="connection %s">%s</td><td>%s</td><td>%s</td></tr>`,
+				escape(connection.ConnectionID), escape(clientLabel(connection.ClientID, connection.ConnectionID)),
+				escape(connection.Application), escape(connection.Description))
 		}
 		fmt.Fprint(w, `</table>`)
 	}
@@ -543,15 +545,15 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	} else if len(connEntries) == 0 {
 		fmt.Fprint(w, `<p><span class="badge grace">⏳ grace period — no connected clients</span></p>`)
 	} else {
-		fmt.Fprint(w, `<table class="clients-table"><tr><th>Client ID</th><th>Connection ID</th><th>Application</th><th>Description</th></tr>`)
+		fmt.Fprint(w, `<table class="clients-table"><tr><th>Client</th><th>Application</th><th>Description</th></tr>`)
 		for _, e := range connEntries {
 			tooltip := e.app
 			if e.desc != "" {
 				tooltip = e.app + ": " + e.desc
 			}
-			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td title="%s">%s</td><td>%s</td></tr>`,
-				html.EscapeString(e.clientID), html.EscapeString(e.id), html.EscapeString(tooltip),
-				html.EscapeString(e.app), html.EscapeString(e.desc))
+			fmt.Fprintf(w, `<tr><td title="connection %s">%s</td><td title="%s">%s</td><td>%s</td></tr>`,
+				html.EscapeString(e.id), html.EscapeString(clientLabel(e.clientID, e.id)),
+				html.EscapeString(tooltip), html.EscapeString(e.app), html.EscapeString(e.desc))
 		}
 		fmt.Fprint(w, `</table>`)
 	}
@@ -623,6 +625,18 @@ type stagedFileEntry struct {
 //
 // Every string here comes from iRODS or from a client, so all of it is escaped:
 // a path is whatever a user named a file, and this page is served to operators.
+// clientLabel names a client row. The connection id is the server's own and
+// means nothing to whoever runs the client, so the row carries it as a tooltip
+// and shows it outright only for a client that sent no id of its own - an older
+// one, which nothing else identifies. The server log keys on it either way.
+func clientLabel(clientID string, connectionID string) string {
+	if clientID != "" {
+		return clientID
+	}
+
+	return connectionID
+}
+
 func renderStagedFiles(w io.Writer, entries []stagedFileEntry) {
 	fmt.Fprintf(w, `<h3>Staged Files (%d)</h3>`, len(entries))
 	if len(entries) == 0 {

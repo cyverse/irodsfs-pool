@@ -6,6 +6,7 @@ import (
 
 	irodsclient_common "github.com/cyverse/go-irodsclient/irods/common"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -96,6 +97,16 @@ func TestIRODSErrorRoundTrip(t *testing.T) {
 	assert.Equal(t, irodsclient_common.CAT_NO_ROWS_FOUND, irodsError.Code)
 	assert.Equal(t, "no rows; found", irodsError.ContextualMessage)
 	assert.Equal(t, origin.Error(), restored.Error())
+}
+
+func TestFileLockConflictRoundTrip(t *testing.T) {
+	origin := fmt.Errorf("write lock on %q [0, 10] conflicts with a write lock held by pid 42: %w", "/zone/home/file", irodsfs_common_irods.ErrFileLockConflict)
+	restored := StatusToError(ErrorToStatus(origin))
+
+	// the client turns a conflict into EAGAIN, so it has to survive the wire
+	assert.ErrorIs(t, restored, irodsfs_common_irods.ErrFileLockConflict)
+	assert.Equal(t, origin.Error(), restored.Error())
+	assert.Equal(t, codes.FailedPrecondition, status.Code(ErrorToStatus(origin)))
 }
 
 func TestSessionNotFoundRoundTrip(t *testing.T) {

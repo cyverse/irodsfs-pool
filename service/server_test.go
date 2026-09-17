@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	irodsfs_common_packedfs "github.com/cyverse/irodsfs-common/irods/packedfs"
 	"github.com/cyverse/irodsfs-pool/commons"
 	log "github.com/sirupsen/logrus"
@@ -207,6 +209,14 @@ func (h *stubFileHandle) Truncate(int64) error                        { return n
 func (h *stubFileHandle) Flush() error                                { return nil }
 func (h *stubFileHandle) Close() error                                { return nil }
 
+func (h *stubFileHandle) Getlk(*irodsfs_common_irods.FileLock) (*irodsfs_common_irods.FileLock, error) {
+	return nil, nil
+}
+func (h *stubFileHandle) Setlk(*irodsfs_common_irods.FileLock) error { return nil }
+func (h *stubFileHandle) Setlkw(context.Context, *irodsfs_common_irods.FileLock) error {
+	return nil
+}
+
 // A deeply nested iRODS path has no spaces to break on, so an auto-layout table
 // grows as wide as the longest path and pushes past the session modal, which is
 // capped at 960px. Fixed layout plus break-anywhere keeps it inside.
@@ -217,7 +227,7 @@ func TestMonitoringPathTablesWrapWithinTheSessionModal(t *testing.T) {
 		id:    "handle-1",
 		entry: &irodsclient_fs.Entry{Path: longPath},
 		mode:  irodsclient_types.FileOpenModeReadOnly,
-	})
+	}, irodsfs_common_irods.NewFileLockManager())
 	if err != nil {
 		t.Fatalf("failed to create pool file handle: %v", err)
 	}
@@ -415,7 +425,7 @@ func TestMonitoringEscapesSessionContent(t *testing.T) {
 		id:    "handle-1",
 		entry: &irodsclient_fs.Entry{Path: injectedPath},
 		mode:  irodsclient_types.FileOpenModeReadOnly,
-	})
+	}, irodsfs_common_irods.NewFileLockManager())
 	if err != nil {
 		t.Fatalf("failed to create pool file handle: %v", err)
 	}

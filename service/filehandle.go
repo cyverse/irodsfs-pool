@@ -1,28 +1,46 @@
 package service
 
 import (
+	"context"
+
+	"github.com/cockroachdb/errors"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	log "github.com/sirupsen/logrus"
 )
+
+// errNoFileLockManager is returned when a handle was created without a lock
+// manager, so it has nowhere to record locks
+var errNoFileLockManager = errors.New("file lock manager is unavailable")
 
 // PoolFileHandle is a file handle managed by iRODSFS-Pool
 type PoolFileHandle struct {
 	poolSessionID string
 
 	irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle
+
+	// fileLockManager is shared by every session of the server, so that two
+	// mounts locking the same file are told about each other
+	fileLockManager *irodsfs_common_irods.FileLockManager
 }
 
 // NewPoolFileHandle creates a new pool file handle
-func NewPoolFileHandle(poolSessionID string, irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle) (*PoolFileHandle, error) {
+func NewPoolFileHandle(poolSessionID string, irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle, fileLockManager *irodsfs_common_irods.FileLockManager) (*PoolFileHandle, error) {
 	return &PoolFileHandle{
 		poolSessionID:     poolSessionID,
 		irodsFsFileHandle: irodsFsFileHandle,
+		fileLockManager:   fileLockManager,
 	}, nil
 }
 
 func (handle *PoolFileHandle) Release() error {
 	if handle.irodsFsFileHandle != nil {
+		// locks go away with the handle that took them, as they do for flock()
+		// and OFD locks
+		if handle.fileLockManager != nil {
+			handle.fileLockManager.Release(handle.irodsFsFileHandle.GetID())
+		}
+
 		err := handle.irodsFsFileHandle.Close()
 		handle.irodsFsFileHandle = nil
 		return err
@@ -60,6 +78,46 @@ func (handle *PoolFileHandle) Truncate(size int64) error {
 
 func (handle *PoolFileHandle) Flush() error {
 	return handle.irodsFsFileHandle.Flush()
+}
+
+// Getlk returns a lock that conflicts with the given lock, or nil if the lock
+// can be acquired
+func (handle *PoolFileHandle) Getlk(lock *irodsfs_common_irods.FileLock) (*irodsfs_common_irods.FileLock, error) {
+	if handle.fileLockManager == nil {
+		return nil, errNoFileLockManager
+	}
+
+	return handle.fileLockManager.Test(handle.GetEntryPath(), handle.ownedLock(lock)), nil
+}
+
+// Setlk acquires or releases a lock without waiting. It returns an error
+// wrapping irods.ErrFileLockConflict if another owner holds a conflicting lock.
+func (handle *PoolFileHandle) Setlk(lock *irodsfs_common_irods.FileLock) error {
+	if handle.fileLockManager == nil {
+		return errNoFileLockManager
+	}
+
+	return handle.fileLockManager.Lock(handle.GetEntryPath(), handle.ownedLock(lock))
+}
+
+// Setlkw acquires a lock, waiting until it becomes available or the context is
+// canceled. The context is the one of the gRPC call, so a client that gives up
+// or disconnects gives up the wait.
+func (handle *PoolFileHandle) Setlkw(ctx context.Context, lock *irodsfs_common_irods.FileLock) error {
+	if handle.fileLockManager == nil {
+		return errNoFileLockManager
+	}
+
+	return handle.fileLockManager.LockWait(ctx, handle.GetEntryPath(), handle.ownedLock(lock))
+}
+
+// ownedLock returns a copy of the lock owned by this handle. The lock owner a
+// client reports is only unique within that client, so the session scopes it.
+func (handle *PoolFileHandle) ownedLock(lock *irodsfs_common_irods.FileLock) *irodsfs_common_irods.FileLock {
+	owned := *lock
+	owned.Owner.Scope = handle.poolSessionID
+	owned.Owner.Handle = handle.GetID()
+	return &owned
 }
 
 // stagingSyncer is the optional interface implemented by IRODSFSClientBuffered.

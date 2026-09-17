@@ -2924,6 +2924,286 @@ func (x *SyncRequest) GetSessionId() string {
 	return ""
 }
 
+// FileLock is a byte-range lock. start and end are both inclusive, and an end
+// of 0xFFFFFFFFFFFFFFFF means the end of the file. A whole-file lock, as
+// flock() takes, covers [0, 0xFFFFFFFFFFFFFFFF].
+type FileLock struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 0 = read (shared), 1 = write (exclusive), 2 = unlock
+	Type  uint32 `protobuf:"varint,1,opt,name=type,proto3" json:"type,omitempty"`
+	Start uint64 `protobuf:"varint,2,opt,name=start,proto3" json:"start,omitempty"`
+	End   uint64 `protobuf:"varint,3,opt,name=end,proto3" json:"end,omitempty"`
+	// pid of the requesting process, reported back by Getlk
+	Pid           uint32 `protobuf:"varint,4,opt,name=pid,proto3" json:"pid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileLock) Reset() {
+	*x = FileLock{}
+	mi := &file_service_api_pool_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileLock) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileLock) ProtoMessage() {}
+
+func (x *FileLock) ProtoReflect() protoreflect.Message {
+	mi := &file_service_api_pool_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileLock.ProtoReflect.Descriptor instead.
+func (*FileLock) Descriptor() ([]byte, []int) {
+	return file_service_api_pool_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *FileLock) GetType() uint32 {
+	if x != nil {
+		return x.Type
+	}
+	return 0
+}
+
+func (x *FileLock) GetStart() uint64 {
+	if x != nil {
+		return x.Start
+	}
+	return 0
+}
+
+func (x *FileLock) GetEnd() uint64 {
+	if x != nil {
+		return x.End
+	}
+	return 0
+}
+
+func (x *FileLock) GetPid() uint32 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+type GetlkRequest struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	SessionId    string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	FileHandleId string                 `protobuf:"bytes,2,opt,name=file_handle_id,json=fileHandleId,proto3" json:"file_handle_id,omitempty"`
+	// lock owner reported by the client's kernel
+	Owner uint64 `protobuf:"varint,3,opt,name=owner,proto3" json:"owner,omitempty"`
+	// the request came from flock(), not from fcntl()
+	Flock         bool      `protobuf:"varint,4,opt,name=flock,proto3" json:"flock,omitempty"`
+	Lock          *FileLock `protobuf:"bytes,5,opt,name=lock,proto3" json:"lock,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetlkRequest) Reset() {
+	*x = GetlkRequest{}
+	mi := &file_service_api_pool_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetlkRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetlkRequest) ProtoMessage() {}
+
+func (x *GetlkRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_service_api_pool_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetlkRequest.ProtoReflect.Descriptor instead.
+func (*GetlkRequest) Descriptor() ([]byte, []int) {
+	return file_service_api_pool_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *GetlkRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *GetlkRequest) GetFileHandleId() string {
+	if x != nil {
+		return x.FileHandleId
+	}
+	return ""
+}
+
+func (x *GetlkRequest) GetOwner() uint64 {
+	if x != nil {
+		return x.Owner
+	}
+	return 0
+}
+
+func (x *GetlkRequest) GetFlock() bool {
+	if x != nil {
+		return x.Flock
+	}
+	return false
+}
+
+func (x *GetlkRequest) GetLock() *FileLock {
+	if x != nil {
+		return x.Lock
+	}
+	return nil
+}
+
+type GetlkResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// false means the lock can be acquired and lock is unset
+	Conflict      bool      `protobuf:"varint,1,opt,name=conflict,proto3" json:"conflict,omitempty"`
+	Lock          *FileLock `protobuf:"bytes,2,opt,name=lock,proto3" json:"lock,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetlkResponse) Reset() {
+	*x = GetlkResponse{}
+	mi := &file_service_api_pool_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetlkResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetlkResponse) ProtoMessage() {}
+
+func (x *GetlkResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_service_api_pool_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetlkResponse.ProtoReflect.Descriptor instead.
+func (*GetlkResponse) Descriptor() ([]byte, []int) {
+	return file_service_api_pool_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *GetlkResponse) GetConflict() bool {
+	if x != nil {
+		return x.Conflict
+	}
+	return false
+}
+
+func (x *GetlkResponse) GetLock() *FileLock {
+	if x != nil {
+		return x.Lock
+	}
+	return nil
+}
+
+type SetlkRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	FileHandleId  string                 `protobuf:"bytes,2,opt,name=file_handle_id,json=fileHandleId,proto3" json:"file_handle_id,omitempty"`
+	Owner         uint64                 `protobuf:"varint,3,opt,name=owner,proto3" json:"owner,omitempty"`
+	Flock         bool                   `protobuf:"varint,4,opt,name=flock,proto3" json:"flock,omitempty"`
+	Lock          *FileLock              `protobuf:"bytes,5,opt,name=lock,proto3" json:"lock,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetlkRequest) Reset() {
+	*x = SetlkRequest{}
+	mi := &file_service_api_pool_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetlkRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetlkRequest) ProtoMessage() {}
+
+func (x *SetlkRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_service_api_pool_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetlkRequest.ProtoReflect.Descriptor instead.
+func (*SetlkRequest) Descriptor() ([]byte, []int) {
+	return file_service_api_pool_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *SetlkRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *SetlkRequest) GetFileHandleId() string {
+	if x != nil {
+		return x.FileHandleId
+	}
+	return ""
+}
+
+func (x *SetlkRequest) GetOwner() uint64 {
+	if x != nil {
+		return x.Owner
+	}
+	return 0
+}
+
+func (x *SetlkRequest) GetFlock() bool {
+	if x != nil {
+		return x.Flock
+	}
+	return false
+}
+
+func (x *SetlkRequest) GetLock() *FileLock {
+	if x != nil {
+		return x.Lock
+	}
+	return nil
+}
+
 var File_service_api_pool_proto protoreflect.FileDescriptor
 
 const file_service_api_pool_proto_rawDesc = "" +
@@ -3194,7 +3474,29 @@ const file_service_api_pool_proto_rawDesc = "" +
 	"\x05async\x18\x03 \x01(\bR\x05async\",\n" +
 	"\vSyncRequest\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId2\xa5\x15\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"X\n" +
+	"\bFileLock\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\rR\x04type\x12\x14\n" +
+	"\x05start\x18\x02 \x01(\x04R\x05start\x12\x10\n" +
+	"\x03end\x18\x03 \x01(\x04R\x03end\x12\x10\n" +
+	"\x03pid\x18\x04 \x01(\rR\x03pid\"\xb6\x01\n" +
+	"\fGetlkRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12$\n" +
+	"\x0efile_handle_id\x18\x02 \x01(\tR\ffileHandleId\x12\x14\n" +
+	"\x05owner\x18\x03 \x01(\x04R\x05owner\x12\x14\n" +
+	"\x05flock\x18\x04 \x01(\bR\x05flock\x125\n" +
+	"\x04lock\x18\x05 \x01(\v2!.cyverse.irodsfs.pool.v1.FileLockR\x04lock\"b\n" +
+	"\rGetlkResponse\x12\x1a\n" +
+	"\bconflict\x18\x01 \x01(\bR\bconflict\x125\n" +
+	"\x04lock\x18\x02 \x01(\v2!.cyverse.irodsfs.pool.v1.FileLockR\x04lock\"\xb6\x01\n" +
+	"\fSetlkRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12$\n" +
+	"\x0efile_handle_id\x18\x02 \x01(\tR\ffileHandleId\x12\x14\n" +
+	"\x05owner\x18\x03 \x01(\x04R\x05owner\x12\x14\n" +
+	"\x05flock\x18\x04 \x01(\bR\x05flock\x125\n" +
+	"\x04lock\x18\x05 \x01(\v2!.cyverse.irodsfs.pool.v1.FileLockR\x04lock2\xa4\x17\n" +
 	"\aPoolAPI\x12X\n" +
 	"\x05Login\x12%.cyverse.irodsfs.pool.v1.LoginRequest\x1a&.cyverse.irodsfs.pool.v1.LoginResponse\"\x00\x12R\n" +
 	"\x06Logout\x12&.cyverse.irodsfs.pool.v1.LogoutRequest\x1a\x1e.cyverse.irodsfs.pool.v1.Empty\"\x00\x12X\n" +
@@ -3227,7 +3529,10 @@ const file_service_api_pool_proto_rawDesc = "" +
 	"\x12ReadStreamParallel\x122.cyverse.irodsfs.pool.v1.ReadStreamParallelRequest\x1a3.cyverse.irodsfs.pool.v1.ReadStreamParallelResponse\"\x000\x01\x12l\n" +
 	"\vWriteStream\x12+.cyverse.irodsfs.pool.v1.WriteStreamRequest\x1a,.cyverse.irodsfs.pool.v1.WriteStreamResponse\"\x00(\x01\x12X\n" +
 	"\tCacheFile\x12).cyverse.irodsfs.pool.v1.CacheFileRequest\x1a\x1e.cyverse.irodsfs.pool.v1.Empty\"\x00\x12N\n" +
-	"\x04Sync\x12$.cyverse.irodsfs.pool.v1.SyncRequest\x1a\x1e.cyverse.irodsfs.pool.v1.Empty\"\x00B1Z/github.com/cyverse/irodsfs-pool/service/api;apib\x06proto3"
+	"\x04Sync\x12$.cyverse.irodsfs.pool.v1.SyncRequest\x1a\x1e.cyverse.irodsfs.pool.v1.Empty\"\x00\x12X\n" +
+	"\x05Getlk\x12%.cyverse.irodsfs.pool.v1.GetlkRequest\x1a&.cyverse.irodsfs.pool.v1.GetlkResponse\"\x00\x12P\n" +
+	"\x05Setlk\x12%.cyverse.irodsfs.pool.v1.SetlkRequest\x1a\x1e.cyverse.irodsfs.pool.v1.Empty\"\x00\x12Q\n" +
+	"\x06Setlkw\x12%.cyverse.irodsfs.pool.v1.SetlkRequest\x1a\x1e.cyverse.irodsfs.pool.v1.Empty\"\x00B1Z/github.com/cyverse/irodsfs-pool/service/api;apib\x06proto3"
 
 var (
 	file_service_api_pool_proto_rawDescOnce sync.Once
@@ -3241,7 +3546,7 @@ func file_service_api_pool_proto_rawDescGZIP() []byte {
 	return file_service_api_pool_proto_rawDescData
 }
 
-var file_service_api_pool_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
+var file_service_api_pool_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
 var file_service_api_pool_proto_goTypes = []any{
 	(*Empty)(nil),                      // 0: cyverse.irodsfs.pool.v1.Empty
 	(*Account)(nil),                    // 1: cyverse.irodsfs.pool.v1.Account
@@ -3291,12 +3596,16 @@ var file_service_api_pool_proto_goTypes = []any{
 	(*CloseRequest)(nil),               // 45: cyverse.irodsfs.pool.v1.CloseRequest
 	(*CacheFileRequest)(nil),           // 46: cyverse.irodsfs.pool.v1.CacheFileRequest
 	(*SyncRequest)(nil),                // 47: cyverse.irodsfs.pool.v1.SyncRequest
-	(*timestamppb.Timestamp)(nil),      // 48: google.protobuf.Timestamp
+	(*FileLock)(nil),                   // 48: cyverse.irodsfs.pool.v1.FileLock
+	(*GetlkRequest)(nil),               // 49: cyverse.irodsfs.pool.v1.GetlkRequest
+	(*GetlkResponse)(nil),              // 50: cyverse.irodsfs.pool.v1.GetlkResponse
+	(*SetlkRequest)(nil),               // 51: cyverse.irodsfs.pool.v1.SetlkRequest
+	(*timestamppb.Timestamp)(nil),      // 52: google.protobuf.Timestamp
 }
 var file_service_api_pool_proto_depIdxs = []int32{
-	48, // 0: cyverse.irodsfs.pool.v1.Entry.create_time:type_name -> google.protobuf.Timestamp
-	48, // 1: cyverse.irodsfs.pool.v1.Entry.modify_time:type_name -> google.protobuf.Timestamp
-	48, // 2: cyverse.irodsfs.pool.v1.Entry.access_time:type_name -> google.protobuf.Timestamp
+	52, // 0: cyverse.irodsfs.pool.v1.Entry.create_time:type_name -> google.protobuf.Timestamp
+	52, // 1: cyverse.irodsfs.pool.v1.Entry.modify_time:type_name -> google.protobuf.Timestamp
+	52, // 2: cyverse.irodsfs.pool.v1.Entry.access_time:type_name -> google.protobuf.Timestamp
 	1,  // 3: cyverse.irodsfs.pool.v1.LoginRequest.account:type_name -> cyverse.irodsfs.pool.v1.Account
 	2,  // 4: cyverse.irodsfs.pool.v1.ListResponse.entries:type_name -> cyverse.irodsfs.pool.v1.Entry
 	2,  // 5: cyverse.irodsfs.pool.v1.StatResponse.entry:type_name -> cyverse.irodsfs.pool.v1.Entry
@@ -3306,67 +3615,76 @@ var file_service_api_pool_proto_depIdxs = []int32{
 	2,  // 9: cyverse.irodsfs.pool.v1.OpenFileBulkResponse.entry:type_name -> cyverse.irodsfs.pool.v1.Entry
 	39, // 10: cyverse.irodsfs.pool.v1.WriteStreamRequest.header:type_name -> cyverse.irodsfs.pool.v1.WriteStreamHeader
 	40, // 11: cyverse.irodsfs.pool.v1.WriteStreamRequest.block:type_name -> cyverse.irodsfs.pool.v1.WriteStreamBlock
-	3,  // 12: cyverse.irodsfs.pool.v1.PoolAPI.Login:input_type -> cyverse.irodsfs.pool.v1.LoginRequest
-	5,  // 13: cyverse.irodsfs.pool.v1.PoolAPI.Logout:input_type -> cyverse.irodsfs.pool.v1.LogoutRequest
-	6,  // 14: cyverse.irodsfs.pool.v1.PoolAPI.KeepAlive:input_type -> cyverse.irodsfs.pool.v1.KeepAliveRequest
-	7,  // 15: cyverse.irodsfs.pool.v1.PoolAPI.List:input_type -> cyverse.irodsfs.pool.v1.ListRequest
-	9,  // 16: cyverse.irodsfs.pool.v1.PoolAPI.Stat:input_type -> cyverse.irodsfs.pool.v1.StatRequest
-	11, // 17: cyverse.irodsfs.pool.v1.PoolAPI.ExistsDir:input_type -> cyverse.irodsfs.pool.v1.ExistsDirRequest
-	13, // 18: cyverse.irodsfs.pool.v1.PoolAPI.ExistsFile:input_type -> cyverse.irodsfs.pool.v1.ExistsFileRequest
-	15, // 19: cyverse.irodsfs.pool.v1.PoolAPI.RemoveFile:input_type -> cyverse.irodsfs.pool.v1.RemoveFileRequest
-	16, // 20: cyverse.irodsfs.pool.v1.PoolAPI.RemoveDir:input_type -> cyverse.irodsfs.pool.v1.RemoveDirRequest
-	17, // 21: cyverse.irodsfs.pool.v1.PoolAPI.MakeDir:input_type -> cyverse.irodsfs.pool.v1.MakeDirRequest
-	18, // 22: cyverse.irodsfs.pool.v1.PoolAPI.RenameDirToDir:input_type -> cyverse.irodsfs.pool.v1.RenameDirToDirRequest
-	19, // 23: cyverse.irodsfs.pool.v1.PoolAPI.RenameFileToFile:input_type -> cyverse.irodsfs.pool.v1.RenameFileToFileRequest
-	20, // 24: cyverse.irodsfs.pool.v1.PoolAPI.CreateFile:input_type -> cyverse.irodsfs.pool.v1.CreateFileRequest
-	22, // 25: cyverse.irodsfs.pool.v1.PoolAPI.OpenFile:input_type -> cyverse.irodsfs.pool.v1.OpenFileRequest
-	24, // 26: cyverse.irodsfs.pool.v1.PoolAPI.CreateFileBulk:input_type -> cyverse.irodsfs.pool.v1.CreateFileBulkRequest
-	26, // 27: cyverse.irodsfs.pool.v1.PoolAPI.OpenFileBulk:input_type -> cyverse.irodsfs.pool.v1.OpenFileBulkRequest
-	28, // 28: cyverse.irodsfs.pool.v1.PoolAPI.TruncateFile:input_type -> cyverse.irodsfs.pool.v1.TruncateFileRequest
-	29, // 29: cyverse.irodsfs.pool.v1.PoolAPI.ReadAt:input_type -> cyverse.irodsfs.pool.v1.ReadAtRequest
-	31, // 30: cyverse.irodsfs.pool.v1.PoolAPI.WriteAt:input_type -> cyverse.irodsfs.pool.v1.WriteAtRequest
-	33, // 31: cyverse.irodsfs.pool.v1.PoolAPI.GetAvailable:input_type -> cyverse.irodsfs.pool.v1.GetAvailableRequest
-	43, // 32: cyverse.irodsfs.pool.v1.PoolAPI.Truncate:input_type -> cyverse.irodsfs.pool.v1.TruncateRequest
-	44, // 33: cyverse.irodsfs.pool.v1.PoolAPI.Flush:input_type -> cyverse.irodsfs.pool.v1.FlushRequest
-	45, // 34: cyverse.irodsfs.pool.v1.PoolAPI.Close:input_type -> cyverse.irodsfs.pool.v1.CloseRequest
-	35, // 35: cyverse.irodsfs.pool.v1.PoolAPI.ReadStream:input_type -> cyverse.irodsfs.pool.v1.ReadStreamRequest
-	37, // 36: cyverse.irodsfs.pool.v1.PoolAPI.ReadStreamParallel:input_type -> cyverse.irodsfs.pool.v1.ReadStreamParallelRequest
-	41, // 37: cyverse.irodsfs.pool.v1.PoolAPI.WriteStream:input_type -> cyverse.irodsfs.pool.v1.WriteStreamRequest
-	46, // 38: cyverse.irodsfs.pool.v1.PoolAPI.CacheFile:input_type -> cyverse.irodsfs.pool.v1.CacheFileRequest
-	47, // 39: cyverse.irodsfs.pool.v1.PoolAPI.Sync:input_type -> cyverse.irodsfs.pool.v1.SyncRequest
-	4,  // 40: cyverse.irodsfs.pool.v1.PoolAPI.Login:output_type -> cyverse.irodsfs.pool.v1.LoginResponse
-	0,  // 41: cyverse.irodsfs.pool.v1.PoolAPI.Logout:output_type -> cyverse.irodsfs.pool.v1.Empty
-	0,  // 42: cyverse.irodsfs.pool.v1.PoolAPI.KeepAlive:output_type -> cyverse.irodsfs.pool.v1.Empty
-	8,  // 43: cyverse.irodsfs.pool.v1.PoolAPI.List:output_type -> cyverse.irodsfs.pool.v1.ListResponse
-	10, // 44: cyverse.irodsfs.pool.v1.PoolAPI.Stat:output_type -> cyverse.irodsfs.pool.v1.StatResponse
-	12, // 45: cyverse.irodsfs.pool.v1.PoolAPI.ExistsDir:output_type -> cyverse.irodsfs.pool.v1.ExistsDirResponse
-	14, // 46: cyverse.irodsfs.pool.v1.PoolAPI.ExistsFile:output_type -> cyverse.irodsfs.pool.v1.ExistsFileResponse
-	0,  // 47: cyverse.irodsfs.pool.v1.PoolAPI.RemoveFile:output_type -> cyverse.irodsfs.pool.v1.Empty
-	0,  // 48: cyverse.irodsfs.pool.v1.PoolAPI.RemoveDir:output_type -> cyverse.irodsfs.pool.v1.Empty
-	0,  // 49: cyverse.irodsfs.pool.v1.PoolAPI.MakeDir:output_type -> cyverse.irodsfs.pool.v1.Empty
-	0,  // 50: cyverse.irodsfs.pool.v1.PoolAPI.RenameDirToDir:output_type -> cyverse.irodsfs.pool.v1.Empty
-	0,  // 51: cyverse.irodsfs.pool.v1.PoolAPI.RenameFileToFile:output_type -> cyverse.irodsfs.pool.v1.Empty
-	21, // 52: cyverse.irodsfs.pool.v1.PoolAPI.CreateFile:output_type -> cyverse.irodsfs.pool.v1.CreateFileResponse
-	23, // 53: cyverse.irodsfs.pool.v1.PoolAPI.OpenFile:output_type -> cyverse.irodsfs.pool.v1.OpenFileResponse
-	25, // 54: cyverse.irodsfs.pool.v1.PoolAPI.CreateFileBulk:output_type -> cyverse.irodsfs.pool.v1.CreateFileBulkResponse
-	27, // 55: cyverse.irodsfs.pool.v1.PoolAPI.OpenFileBulk:output_type -> cyverse.irodsfs.pool.v1.OpenFileBulkResponse
-	0,  // 56: cyverse.irodsfs.pool.v1.PoolAPI.TruncateFile:output_type -> cyverse.irodsfs.pool.v1.Empty
-	30, // 57: cyverse.irodsfs.pool.v1.PoolAPI.ReadAt:output_type -> cyverse.irodsfs.pool.v1.ReadAtResponse
-	32, // 58: cyverse.irodsfs.pool.v1.PoolAPI.WriteAt:output_type -> cyverse.irodsfs.pool.v1.WriteAtResponse
-	34, // 59: cyverse.irodsfs.pool.v1.PoolAPI.GetAvailable:output_type -> cyverse.irodsfs.pool.v1.GetAvailableResponse
-	0,  // 60: cyverse.irodsfs.pool.v1.PoolAPI.Truncate:output_type -> cyverse.irodsfs.pool.v1.Empty
-	0,  // 61: cyverse.irodsfs.pool.v1.PoolAPI.Flush:output_type -> cyverse.irodsfs.pool.v1.Empty
-	0,  // 62: cyverse.irodsfs.pool.v1.PoolAPI.Close:output_type -> cyverse.irodsfs.pool.v1.Empty
-	36, // 63: cyverse.irodsfs.pool.v1.PoolAPI.ReadStream:output_type -> cyverse.irodsfs.pool.v1.ReadStreamResponse
-	38, // 64: cyverse.irodsfs.pool.v1.PoolAPI.ReadStreamParallel:output_type -> cyverse.irodsfs.pool.v1.ReadStreamParallelResponse
-	42, // 65: cyverse.irodsfs.pool.v1.PoolAPI.WriteStream:output_type -> cyverse.irodsfs.pool.v1.WriteStreamResponse
-	0,  // 66: cyverse.irodsfs.pool.v1.PoolAPI.CacheFile:output_type -> cyverse.irodsfs.pool.v1.Empty
-	0,  // 67: cyverse.irodsfs.pool.v1.PoolAPI.Sync:output_type -> cyverse.irodsfs.pool.v1.Empty
-	40, // [40:68] is the sub-list for method output_type
-	12, // [12:40] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	48, // 12: cyverse.irodsfs.pool.v1.GetlkRequest.lock:type_name -> cyverse.irodsfs.pool.v1.FileLock
+	48, // 13: cyverse.irodsfs.pool.v1.GetlkResponse.lock:type_name -> cyverse.irodsfs.pool.v1.FileLock
+	48, // 14: cyverse.irodsfs.pool.v1.SetlkRequest.lock:type_name -> cyverse.irodsfs.pool.v1.FileLock
+	3,  // 15: cyverse.irodsfs.pool.v1.PoolAPI.Login:input_type -> cyverse.irodsfs.pool.v1.LoginRequest
+	5,  // 16: cyverse.irodsfs.pool.v1.PoolAPI.Logout:input_type -> cyverse.irodsfs.pool.v1.LogoutRequest
+	6,  // 17: cyverse.irodsfs.pool.v1.PoolAPI.KeepAlive:input_type -> cyverse.irodsfs.pool.v1.KeepAliveRequest
+	7,  // 18: cyverse.irodsfs.pool.v1.PoolAPI.List:input_type -> cyverse.irodsfs.pool.v1.ListRequest
+	9,  // 19: cyverse.irodsfs.pool.v1.PoolAPI.Stat:input_type -> cyverse.irodsfs.pool.v1.StatRequest
+	11, // 20: cyverse.irodsfs.pool.v1.PoolAPI.ExistsDir:input_type -> cyverse.irodsfs.pool.v1.ExistsDirRequest
+	13, // 21: cyverse.irodsfs.pool.v1.PoolAPI.ExistsFile:input_type -> cyverse.irodsfs.pool.v1.ExistsFileRequest
+	15, // 22: cyverse.irodsfs.pool.v1.PoolAPI.RemoveFile:input_type -> cyverse.irodsfs.pool.v1.RemoveFileRequest
+	16, // 23: cyverse.irodsfs.pool.v1.PoolAPI.RemoveDir:input_type -> cyverse.irodsfs.pool.v1.RemoveDirRequest
+	17, // 24: cyverse.irodsfs.pool.v1.PoolAPI.MakeDir:input_type -> cyverse.irodsfs.pool.v1.MakeDirRequest
+	18, // 25: cyverse.irodsfs.pool.v1.PoolAPI.RenameDirToDir:input_type -> cyverse.irodsfs.pool.v1.RenameDirToDirRequest
+	19, // 26: cyverse.irodsfs.pool.v1.PoolAPI.RenameFileToFile:input_type -> cyverse.irodsfs.pool.v1.RenameFileToFileRequest
+	20, // 27: cyverse.irodsfs.pool.v1.PoolAPI.CreateFile:input_type -> cyverse.irodsfs.pool.v1.CreateFileRequest
+	22, // 28: cyverse.irodsfs.pool.v1.PoolAPI.OpenFile:input_type -> cyverse.irodsfs.pool.v1.OpenFileRequest
+	24, // 29: cyverse.irodsfs.pool.v1.PoolAPI.CreateFileBulk:input_type -> cyverse.irodsfs.pool.v1.CreateFileBulkRequest
+	26, // 30: cyverse.irodsfs.pool.v1.PoolAPI.OpenFileBulk:input_type -> cyverse.irodsfs.pool.v1.OpenFileBulkRequest
+	28, // 31: cyverse.irodsfs.pool.v1.PoolAPI.TruncateFile:input_type -> cyverse.irodsfs.pool.v1.TruncateFileRequest
+	29, // 32: cyverse.irodsfs.pool.v1.PoolAPI.ReadAt:input_type -> cyverse.irodsfs.pool.v1.ReadAtRequest
+	31, // 33: cyverse.irodsfs.pool.v1.PoolAPI.WriteAt:input_type -> cyverse.irodsfs.pool.v1.WriteAtRequest
+	33, // 34: cyverse.irodsfs.pool.v1.PoolAPI.GetAvailable:input_type -> cyverse.irodsfs.pool.v1.GetAvailableRequest
+	43, // 35: cyverse.irodsfs.pool.v1.PoolAPI.Truncate:input_type -> cyverse.irodsfs.pool.v1.TruncateRequest
+	44, // 36: cyverse.irodsfs.pool.v1.PoolAPI.Flush:input_type -> cyverse.irodsfs.pool.v1.FlushRequest
+	45, // 37: cyverse.irodsfs.pool.v1.PoolAPI.Close:input_type -> cyverse.irodsfs.pool.v1.CloseRequest
+	35, // 38: cyverse.irodsfs.pool.v1.PoolAPI.ReadStream:input_type -> cyverse.irodsfs.pool.v1.ReadStreamRequest
+	37, // 39: cyverse.irodsfs.pool.v1.PoolAPI.ReadStreamParallel:input_type -> cyverse.irodsfs.pool.v1.ReadStreamParallelRequest
+	41, // 40: cyverse.irodsfs.pool.v1.PoolAPI.WriteStream:input_type -> cyverse.irodsfs.pool.v1.WriteStreamRequest
+	46, // 41: cyverse.irodsfs.pool.v1.PoolAPI.CacheFile:input_type -> cyverse.irodsfs.pool.v1.CacheFileRequest
+	47, // 42: cyverse.irodsfs.pool.v1.PoolAPI.Sync:input_type -> cyverse.irodsfs.pool.v1.SyncRequest
+	49, // 43: cyverse.irodsfs.pool.v1.PoolAPI.Getlk:input_type -> cyverse.irodsfs.pool.v1.GetlkRequest
+	51, // 44: cyverse.irodsfs.pool.v1.PoolAPI.Setlk:input_type -> cyverse.irodsfs.pool.v1.SetlkRequest
+	51, // 45: cyverse.irodsfs.pool.v1.PoolAPI.Setlkw:input_type -> cyverse.irodsfs.pool.v1.SetlkRequest
+	4,  // 46: cyverse.irodsfs.pool.v1.PoolAPI.Login:output_type -> cyverse.irodsfs.pool.v1.LoginResponse
+	0,  // 47: cyverse.irodsfs.pool.v1.PoolAPI.Logout:output_type -> cyverse.irodsfs.pool.v1.Empty
+	0,  // 48: cyverse.irodsfs.pool.v1.PoolAPI.KeepAlive:output_type -> cyverse.irodsfs.pool.v1.Empty
+	8,  // 49: cyverse.irodsfs.pool.v1.PoolAPI.List:output_type -> cyverse.irodsfs.pool.v1.ListResponse
+	10, // 50: cyverse.irodsfs.pool.v1.PoolAPI.Stat:output_type -> cyverse.irodsfs.pool.v1.StatResponse
+	12, // 51: cyverse.irodsfs.pool.v1.PoolAPI.ExistsDir:output_type -> cyverse.irodsfs.pool.v1.ExistsDirResponse
+	14, // 52: cyverse.irodsfs.pool.v1.PoolAPI.ExistsFile:output_type -> cyverse.irodsfs.pool.v1.ExistsFileResponse
+	0,  // 53: cyverse.irodsfs.pool.v1.PoolAPI.RemoveFile:output_type -> cyverse.irodsfs.pool.v1.Empty
+	0,  // 54: cyverse.irodsfs.pool.v1.PoolAPI.RemoveDir:output_type -> cyverse.irodsfs.pool.v1.Empty
+	0,  // 55: cyverse.irodsfs.pool.v1.PoolAPI.MakeDir:output_type -> cyverse.irodsfs.pool.v1.Empty
+	0,  // 56: cyverse.irodsfs.pool.v1.PoolAPI.RenameDirToDir:output_type -> cyverse.irodsfs.pool.v1.Empty
+	0,  // 57: cyverse.irodsfs.pool.v1.PoolAPI.RenameFileToFile:output_type -> cyverse.irodsfs.pool.v1.Empty
+	21, // 58: cyverse.irodsfs.pool.v1.PoolAPI.CreateFile:output_type -> cyverse.irodsfs.pool.v1.CreateFileResponse
+	23, // 59: cyverse.irodsfs.pool.v1.PoolAPI.OpenFile:output_type -> cyverse.irodsfs.pool.v1.OpenFileResponse
+	25, // 60: cyverse.irodsfs.pool.v1.PoolAPI.CreateFileBulk:output_type -> cyverse.irodsfs.pool.v1.CreateFileBulkResponse
+	27, // 61: cyverse.irodsfs.pool.v1.PoolAPI.OpenFileBulk:output_type -> cyverse.irodsfs.pool.v1.OpenFileBulkResponse
+	0,  // 62: cyverse.irodsfs.pool.v1.PoolAPI.TruncateFile:output_type -> cyverse.irodsfs.pool.v1.Empty
+	30, // 63: cyverse.irodsfs.pool.v1.PoolAPI.ReadAt:output_type -> cyverse.irodsfs.pool.v1.ReadAtResponse
+	32, // 64: cyverse.irodsfs.pool.v1.PoolAPI.WriteAt:output_type -> cyverse.irodsfs.pool.v1.WriteAtResponse
+	34, // 65: cyverse.irodsfs.pool.v1.PoolAPI.GetAvailable:output_type -> cyverse.irodsfs.pool.v1.GetAvailableResponse
+	0,  // 66: cyverse.irodsfs.pool.v1.PoolAPI.Truncate:output_type -> cyverse.irodsfs.pool.v1.Empty
+	0,  // 67: cyverse.irodsfs.pool.v1.PoolAPI.Flush:output_type -> cyverse.irodsfs.pool.v1.Empty
+	0,  // 68: cyverse.irodsfs.pool.v1.PoolAPI.Close:output_type -> cyverse.irodsfs.pool.v1.Empty
+	36, // 69: cyverse.irodsfs.pool.v1.PoolAPI.ReadStream:output_type -> cyverse.irodsfs.pool.v1.ReadStreamResponse
+	38, // 70: cyverse.irodsfs.pool.v1.PoolAPI.ReadStreamParallel:output_type -> cyverse.irodsfs.pool.v1.ReadStreamParallelResponse
+	42, // 71: cyverse.irodsfs.pool.v1.PoolAPI.WriteStream:output_type -> cyverse.irodsfs.pool.v1.WriteStreamResponse
+	0,  // 72: cyverse.irodsfs.pool.v1.PoolAPI.CacheFile:output_type -> cyverse.irodsfs.pool.v1.Empty
+	0,  // 73: cyverse.irodsfs.pool.v1.PoolAPI.Sync:output_type -> cyverse.irodsfs.pool.v1.Empty
+	50, // 74: cyverse.irodsfs.pool.v1.PoolAPI.Getlk:output_type -> cyverse.irodsfs.pool.v1.GetlkResponse
+	0,  // 75: cyverse.irodsfs.pool.v1.PoolAPI.Setlk:output_type -> cyverse.irodsfs.pool.v1.Empty
+	0,  // 76: cyverse.irodsfs.pool.v1.PoolAPI.Setlkw:output_type -> cyverse.irodsfs.pool.v1.Empty
+	46, // [46:77] is the sub-list for method output_type
+	15, // [15:46] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_service_api_pool_proto_init() }
@@ -3385,7 +3703,7 @@ func file_service_api_pool_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_service_api_pool_proto_rawDesc), len(file_service_api_pool_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   48,
+			NumMessages:   52,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

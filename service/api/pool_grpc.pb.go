@@ -47,6 +47,9 @@ const (
 	PoolAPI_WriteStream_FullMethodName        = "/cyverse.irodsfs.pool.v1.PoolAPI/WriteStream"
 	PoolAPI_CacheFile_FullMethodName          = "/cyverse.irodsfs.pool.v1.PoolAPI/CacheFile"
 	PoolAPI_Sync_FullMethodName               = "/cyverse.irodsfs.pool.v1.PoolAPI/Sync"
+	PoolAPI_Getlk_FullMethodName              = "/cyverse.irodsfs.pool.v1.PoolAPI/Getlk"
+	PoolAPI_Setlk_FullMethodName              = "/cyverse.irodsfs.pool.v1.PoolAPI/Setlk"
+	PoolAPI_Setlkw_FullMethodName             = "/cyverse.irodsfs.pool.v1.PoolAPI/Setlkw"
 )
 
 // PoolAPIClient is the client API for PoolAPI service.
@@ -89,6 +92,12 @@ type PoolAPIClient interface {
 	CacheFile(ctx context.Context, in *CacheFileRequest, opts ...grpc.CallOption) (*Empty, error)
 	// Sync
 	Sync(ctx context.Context, in *SyncRequest, opts ...grpc.CallOption) (*Empty, error)
+	// File locks (flock and fcntl, told apart by the flock flag)
+	Getlk(ctx context.Context, in *GetlkRequest, opts ...grpc.CallOption) (*GetlkResponse, error)
+	Setlk(ctx context.Context, in *SetlkRequest, opts ...grpc.CallOption) (*Empty, error)
+	// Setlkw waits until the lock can be taken. Canceling the call, or losing
+	// the connection, gives up the wait.
+	Setlkw(ctx context.Context, in *SetlkRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type poolAPIClient struct {
@@ -400,6 +409,36 @@ func (c *poolAPIClient) Sync(ctx context.Context, in *SyncRequest, opts ...grpc.
 	return out, nil
 }
 
+func (c *poolAPIClient) Getlk(ctx context.Context, in *GetlkRequest, opts ...grpc.CallOption) (*GetlkResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetlkResponse)
+	err := c.cc.Invoke(ctx, PoolAPI_Getlk_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *poolAPIClient) Setlk(ctx context.Context, in *SetlkRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, PoolAPI_Setlk_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *poolAPIClient) Setlkw(ctx context.Context, in *SetlkRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, PoolAPI_Setlkw_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PoolAPIServer is the server API for PoolAPI service.
 // All implementations must embed UnimplementedPoolAPIServer
 // for forward compatibility.
@@ -440,6 +479,12 @@ type PoolAPIServer interface {
 	CacheFile(context.Context, *CacheFileRequest) (*Empty, error)
 	// Sync
 	Sync(context.Context, *SyncRequest) (*Empty, error)
+	// File locks (flock and fcntl, told apart by the flock flag)
+	Getlk(context.Context, *GetlkRequest) (*GetlkResponse, error)
+	Setlk(context.Context, *SetlkRequest) (*Empty, error)
+	// Setlkw waits until the lock can be taken. Canceling the call, or losing
+	// the connection, gives up the wait.
+	Setlkw(context.Context, *SetlkRequest) (*Empty, error)
 	mustEmbedUnimplementedPoolAPIServer()
 }
 
@@ -533,6 +578,15 @@ func (UnimplementedPoolAPIServer) CacheFile(context.Context, *CacheFileRequest) 
 }
 func (UnimplementedPoolAPIServer) Sync(context.Context, *SyncRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Sync not implemented")
+}
+func (UnimplementedPoolAPIServer) Getlk(context.Context, *GetlkRequest) (*GetlkResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Getlk not implemented")
+}
+func (UnimplementedPoolAPIServer) Setlk(context.Context, *SetlkRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method Setlk not implemented")
+}
+func (UnimplementedPoolAPIServer) Setlkw(context.Context, *SetlkRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method Setlkw not implemented")
 }
 func (UnimplementedPoolAPIServer) mustEmbedUnimplementedPoolAPIServer() {}
 func (UnimplementedPoolAPIServer) testEmbeddedByValue()                 {}
@@ -1034,6 +1088,60 @@ func _PoolAPI_Sync_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PoolAPI_Getlk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetlkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).Getlk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PoolAPI_Getlk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).Getlk(ctx, req.(*GetlkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PoolAPI_Setlk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetlkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).Setlk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PoolAPI_Setlk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).Setlk(ctx, req.(*SetlkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PoolAPI_Setlkw_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetlkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PoolAPIServer).Setlkw(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PoolAPI_Setlkw_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PoolAPIServer).Setlkw(ctx, req.(*SetlkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PoolAPI_ServiceDesc is the grpc.ServiceDesc for PoolAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1140,6 +1248,18 @@ var PoolAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Sync",
 			Handler:    _PoolAPI_Sync_Handler,
+		},
+		{
+			MethodName: "Getlk",
+			Handler:    _PoolAPI_Getlk_Handler,
+		},
+		{
+			MethodName: "Setlk",
+			Handler:    _PoolAPI_Setlk_Handler,
+		},
+		{
+			MethodName: "Setlkw",
+			Handler:    _PoolAPI_Setlkw_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

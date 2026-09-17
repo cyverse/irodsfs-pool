@@ -298,6 +298,42 @@ message SyncRequest {
 	string session_id = 1;
 }
 
+// FileLock is a byte-range lock. start and end are both inclusive, and an end
+// of 0xFFFFFFFFFFFFFFFF means the end of the file. A whole-file lock, as
+// flock() takes, covers [0, 0xFFFFFFFFFFFFFFFF].
+message FileLock {
+	// 0 = read (shared), 1 = write (exclusive), 2 = unlock
+	uint32 type = 1;
+	uint64 start = 2;
+	uint64 end = 3;
+	// pid of the requesting process, reported back by Getlk
+	uint32 pid = 4;
+}
+
+message GetlkRequest {
+	string session_id = 1;
+	string file_handle_id = 2;
+	// lock owner reported by the client's kernel
+	uint64 owner = 3;
+	// the request came from flock(), not from fcntl()
+	bool flock = 4;
+	FileLock lock = 5;
+}
+
+message GetlkResponse {
+	// false means the lock can be acquired and lock is unset
+	bool conflict = 1;
+	FileLock lock = 2;
+}
+
+message SetlkRequest {
+	string session_id = 1;
+	string file_handle_id = 2;
+	uint64 owner = 3;
+	bool flock = 4;
+	FileLock lock = 5;
+}
+
 service PoolAPI {
 	// Session
 	rpc Login(LoginRequest) returns (LoginResponse) {}
@@ -340,4 +376,11 @@ service PoolAPI {
 
 	// Sync
 	rpc Sync(SyncRequest) returns (Empty) {}
+
+	// File locks (flock and fcntl, told apart by the flock flag)
+	rpc Getlk(GetlkRequest) returns (GetlkResponse) {}
+	rpc Setlk(SetlkRequest) returns (Empty) {}
+	// Setlkw waits until the lock can be taken. Canceling the call, or losing
+	// the connection, gives up the wait.
+	rpc Setlkw(SetlkRequest) returns (Empty) {}
 }

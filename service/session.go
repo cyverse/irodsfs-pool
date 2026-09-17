@@ -47,6 +47,10 @@ type PoolSessionManager struct {
 
 	onBeforeSessionRelease func(session *PoolSession)
 
+	// fileLockManager holds the file locks of every session, so that two mounts
+	// locking the same file conflict with each other
+	fileLockManager *irodsfs_common_irods.FileLockManager
+
 	// pendingReleases holds a grace-period timer for sessions whose last
 	// connection was removed but have not yet been released.  Access is
 	// protected by mutex.
@@ -98,6 +102,7 @@ func NewPoolSessionManager(config *PoolServerConfig) (*PoolSessionManager, error
 
 		pendingReleases:   map[string]*time.Timer{},
 		releasingSessions: map[string]*PoolSession{},
+		fileLockManager:   irodsfs_common_irods.NewFileLockManager(),
 
 		mutex:         sync.RWMutex{},
 		terminateChan: make(chan bool),
@@ -936,6 +941,11 @@ func (session *PoolSession) GetPoolFileHandle(poolFileHandleID string) (*PoolFil
 	}
 
 	return nil, commons.NewFileHandleNotFoundError(poolFileHandleID)
+}
+
+// GetFileLockManager returns the file lock manager shared by every session
+func (manager *PoolSessionManager) GetFileLockManager() *irodsfs_common_irods.FileLockManager {
+	return manager.fileLockManager
 }
 
 // makeAccountKey creates a unique key for an iRODS account

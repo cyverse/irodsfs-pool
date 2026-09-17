@@ -2242,6 +2242,119 @@ func (handle *PoolServiceFileHandle) Flush() error {
 }
 
 // Close closes iRODS data object handle
+// toAPIFileLock converts a lock to the wire format. The lock owner is scoped by
+// the session on the server, so only the raw owner id goes over the wire.
+func toAPIFileLock(lock *irodsfs_common_irods.FileLock) *api.FileLock {
+	return &api.FileLock{
+		Type:  uint32(lock.Type),
+		Start: lock.Start,
+		End:   lock.End,
+		Pid:   lock.Pid,
+	}
+}
+
+// Getlk returns a lock that conflicts with the given lock, or nil if the lock
+// can be acquired
+func (handle *PoolServiceFileHandle) Getlk(lock *irodsfs_common_irods.FileLock) (*irodsfs_common_irods.FileLock, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(handle.logger)
+
+	getlkFunc := func() (interface{}, error) {
+		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		request := &api.GetlkRequest{
+			SessionId:    handle.poolServiceSession.id,
+			FileHandleId: handle.id,
+			Owner:        lock.Owner.Owner,
+			Flock:        lock.Owner.Flock,
+			Lock:         toAPIFileLock(lock),
+		}
+
+		apiClient, err := handle.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Getlk(ctx, request)
+	}
+
+	res, err := handle.poolServiceSession.doWithRelogin(getlkFunc)
+	if err != nil {
+		handle.logger.Error(err)
+		return nil, commons.StatusToError(err)
+	}
+
+	response, ok := res.(*api.GetlkResponse)
+	if !ok {
+		return nil, errors.New("failed to convert interface to GetlkResponse")
+	}
+
+	if !response.Conflict || response.Lock == nil {
+		return nil, nil
+	}
+
+	return &irodsfs_common_irods.FileLock{
+		Type:  irodsfs_common_irods.FileLockType(response.Lock.Type),
+		Pid:   response.Lock.Pid,
+		Start: response.Lock.Start,
+		End:   response.Lock.End,
+	}, nil
+}
+
+// Setlk acquires or releases a lock without waiting. It returns an error
+// wrapping irods.ErrFileLockConflict if the lock is held by another owner.
+func (handle *PoolServiceFileHandle) Setlk(lock *irodsfs_common_irods.FileLock) error {
+	defer irodsfs_common_util.StackTraceFromPanic(handle.logger)
+
+	setlkFunc := func() (interface{}, error) {
+		ctx, cancel := handle.poolServiceClient.getContextWithDeadline()
+		defer cancel()
+
+		apiClient, err := handle.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Setlk(ctx, handle.newSetlkRequest(lock))
+	}
+
+	if _, err := handle.poolServiceSession.doWithRelogin(setlkFunc); err != nil {
+		return commons.StatusToError(err)
+	}
+
+	return nil
+}
+
+// Setlkw acquires a lock, waiting until it becomes available or the context is
+// canceled. The wait happens on the server, so the call carries the caller's
+// context rather than the client operation timeout: canceling it cancels the
+// gRPC call, which ends the wait on the server too.
+func (handle *PoolServiceFileHandle) Setlkw(ctx context.Context, lock *irodsfs_common_irods.FileLock) error {
+	defer irodsfs_common_util.StackTraceFromPanic(handle.logger)
+
+	setlkwFunc := func() (interface{}, error) {
+		apiClient, err := handle.poolServiceClient.getAPIClient()
+		if err != nil {
+			return nil, err
+		}
+		return apiClient.Setlkw(ctx, handle.newSetlkRequest(lock))
+	}
+
+	if _, err := handle.poolServiceSession.doWithRelogin(setlkwFunc); err != nil {
+		return commons.StatusToError(err)
+	}
+
+	return nil
+}
+
+func (handle *PoolServiceFileHandle) newSetlkRequest(lock *irodsfs_common_irods.FileLock) *api.SetlkRequest {
+	return &api.SetlkRequest{
+		SessionId:    handle.poolServiceSession.id,
+		FileHandleId: handle.id,
+		Owner:        lock.Owner.Owner,
+		Flock:        lock.Owner.Flock,
+		Lock:         toAPIFileLock(lock),
+	}
+}
+
 func (handle *PoolServiceFileHandle) Close() error {
 	defer irodsfs_common_util.StackTraceFromPanic(handle.logger)
 

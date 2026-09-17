@@ -9,6 +9,7 @@ import (
 	"github.com/cockroachdb/errors"
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	irodsfs_common_packedfs "github.com/cyverse/irodsfs-common/irods/packedfs"
 	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	"github.com/cyverse/irodsfs-pool/commons"
@@ -532,6 +533,9 @@ func (server *PoolServer) RenameFileToFile(ctx context.Context, request *api.Ren
 		return nil, commons.ErrorToStatus(err)
 	}
 
+	// locks are keyed by path, so they have to follow the file
+	server.sessionManager.GetFileLockManager().Move(request.SourcePath, request.DestinationPath)
+
 	return &api.Empty{}, nil
 }
 
@@ -559,7 +563,7 @@ func (server *PoolServer) CreateFile(ctx context.Context, request *api.CreateFil
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle)
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -614,7 +618,7 @@ func (server *PoolServer) OpenFile(ctx context.Context, request *api.OpenFileReq
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle)
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -669,7 +673,7 @@ func (server *PoolServer) CreateFileBulk(ctx context.Context, request *api.Creat
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle)
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -724,7 +728,7 @@ func (server *PoolServer) OpenFileBulk(ctx context.Context, request *api.OpenFil
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle)
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -978,6 +982,159 @@ func (server *PoolServer) Close(ctx context.Context, request *api.CloseRequest) 
 	}
 
 	return &api.Empty{}, nil
+}
+
+// toFileLock converts a lock in the wire format to the one the lock manager
+// takes. The session and the file handle are filled in by PoolFileHandle.
+func toFileLock(lock *api.FileLock, owner uint64, flock bool) (*irodsfs_common_irods.FileLock, error) {
+	if lock == nil {
+		return nil, errors.New("lock is required")
+	}
+
+	var lockType irodsfs_common_irods.FileLockType
+	switch lock.Type {
+	case uint32(irodsfs_common_irods.FileLockTypeRead):
+		lockType = irodsfs_common_irods.FileLockTypeRead
+	case uint32(irodsfs_common_irods.FileLockTypeWrite):
+		lockType = irodsfs_common_irods.FileLockTypeWrite
+	case uint32(irodsfs_common_irods.FileLockTypeUnlock):
+		lockType = irodsfs_common_irods.FileLockTypeUnlock
+	default:
+		return nil, errors.Errorf("unknown file lock type %d", lock.Type)
+	}
+
+	return &irodsfs_common_irods.FileLock{
+		Type: lockType,
+		Owner: irodsfs_common_irods.FileLockOwner{
+			Owner: owner,
+			Flock: flock,
+		},
+		Pid:   lock.Pid,
+		Start: lock.Start,
+		End:   lock.End,
+	}, nil
+}
+
+// toAPIFileLock converts a lock held by the manager to the wire format
+func toAPIFileLock(lock *irodsfs_common_irods.FileLock) *api.FileLock {
+	return &api.FileLock{
+		Type:  uint32(lock.Type),
+		Start: lock.Start,
+		End:   lock.End,
+		Pid:   lock.Pid,
+	}
+}
+
+func (server *PoolServer) Getlk(ctx context.Context, request *api.GetlkRequest) (*api.GetlkResponse, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	session, sessionLogger, err := server.getSessionAndLogger(request.SessionId, log.Fields{
+		"fileHandleID": request.FileHandleId,
+	})
+	if err != nil {
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	sessionLogger.Debugf("Getlk request")
+	defer sessionLogger.Debugf("Getlk response")
+
+	session.UpdateLastAccessTime()
+
+	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	if err != nil {
+		sessionLogger.Error(err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	lock, err := toFileLock(request.Lock, request.Owner, request.Flock)
+	if err != nil {
+		sessionLogger.Error(err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	conflict, err := handle.Getlk(lock)
+	if err != nil {
+		sessionLogger.Error(err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	if conflict == nil {
+		return &api.GetlkResponse{Conflict: false}, nil
+	}
+
+	return &api.GetlkResponse{
+		Conflict: true,
+		Lock:     toAPIFileLock(conflict),
+	}, nil
+}
+
+func (server *PoolServer) Setlk(ctx context.Context, request *api.SetlkRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	handle, lock, sessionLogger, err := server.getFileLockRequest(request)
+	if err != nil {
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	sessionLogger.Debugf("Setlk request")
+	defer sessionLogger.Debugf("Setlk response")
+
+	if err := handle.Setlk(lock); err != nil {
+		// a conflict is an ordinary answer to a non-blocking lock request, the
+		// client turns it into EAGAIN
+		sessionLogger.Debugf("Setlk denied: %v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	return &api.Empty{}, nil
+}
+
+func (server *PoolServer) Setlkw(ctx context.Context, request *api.SetlkRequest) (*api.Empty, error) {
+	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
+
+	handle, lock, sessionLogger, err := server.getFileLockRequest(request)
+	if err != nil {
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	sessionLogger.Debugf("Setlkw request")
+	defer sessionLogger.Debugf("Setlkw response")
+
+	// the call context ends the wait when the client cancels the request or
+	// the connection goes away
+	if err := handle.Setlkw(ctx, lock); err != nil {
+		sessionLogger.Debugf("Setlkw gave up: %v", err)
+		return nil, commons.ErrorToStatus(err)
+	}
+
+	return &api.Empty{}, nil
+}
+
+// getFileLockRequest resolves the handle and the lock a Setlk/Setlkw request
+// asks for
+func (server *PoolServer) getFileLockRequest(request *api.SetlkRequest) (*PoolFileHandle, *irodsfs_common_irods.FileLock, *log.Entry, error) {
+	session, sessionLogger, err := server.getSessionAndLogger(request.SessionId, log.Fields{
+		"fileHandleID": request.FileHandleId,
+	})
+	if err != nil {
+		return nil, nil, server.logger, err
+	}
+
+	session.UpdateLastAccessTime()
+
+	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	if err != nil {
+		sessionLogger.Error(err)
+		return nil, nil, sessionLogger, err
+	}
+
+	lock, err := toFileLock(request.Lock, request.Owner, request.Flock)
+	if err != nil {
+		sessionLogger.Error(err)
+		return nil, nil, sessionLogger, err
+	}
+
+	return handle, lock, sessionLogger, nil
 }
 
 func (server *PoolServer) ReadStream(request *api.ReadStreamRequest, stream api.PoolAPI_ReadStreamServer) error {

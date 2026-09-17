@@ -7,6 +7,7 @@ import (
 
 	irodsclient_common "github.com/cyverse/go-irodsclient/irods/common"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
+	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -26,6 +27,7 @@ const (
 	errorTypeTicketNotFound        string = "ticket_not_found"
 	errorTypeUserNotFound          string = "user_not_found"
 	errorTypeIRODSError            string = "irods_error"
+	errorTypeFileLockConflict      string = "file_lock_conflict"
 	errorTypeInternalError         string = "internal_error"
 )
 
@@ -235,6 +237,8 @@ func ErrorToStatus(err error) error {
 			return status.Error(codes.InvalidArgument, addErrorTypeToMessage(errorTypeUserNotFound, userNotFoundError.Name, message))
 		}
 		return status.Error(codes.InvalidArgument, addErrorTypeToMessage(errorTypeUserNotFound, message))
+	} else if errors.Is(err, irodsfs_common_irods.ErrFileLockConflict) {
+		return status.Error(codes.FailedPrecondition, addErrorTypeToMessage(errorTypeFileLockConflict, message))
 	} else if irodsclient_types.IsIRODSError(err) {
 		var irodsError *irodsclient_types.IRODSError
 		if errors.As(err, &irodsError) {
@@ -319,6 +323,8 @@ func StatusToError(err error) error {
 				return newRemoteError(irodsclient_types.NewIRODSErrorWithString(irodsclient_common.ErrorCode(c), errContent[1]), errMessage)
 			}
 			return newRemoteError(irodsclient_types.NewIRODSError(irodsclient_common.SYS_UNKNOWN_ERROR), errMessage)
+		case errorTypeFileLockConflict:
+			return newRemoteError(irodsfs_common_irods.ErrFileLockConflict, errMessage)
 		case errorTypeInternalError:
 			if len(errMessage) > 0 {
 				return errors.New(errMessage)

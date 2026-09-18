@@ -27,7 +27,7 @@ func isFileLockConflict(err error) bool {
 func newLockTestHandle(t *testing.T, sessionID string, handleID string, manager *irodsfs_common_irods.FileLockManager) *PoolFileHandle {
 	t.Helper()
 
-	handle, err := NewPoolFileHandle(sessionID, &stubFileHandle{
+	handle, err := NewPoolFileHandle(sessionID, "", &stubFileHandle{
 		id:    handleID,
 		entry: &irodsclient_fs.Entry{Path: lockTestPath},
 		mode:  irodsclient_types.FileOpenModeReadWrite,

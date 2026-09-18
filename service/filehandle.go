@@ -17,6 +17,14 @@ var errNoFileLockManager = errors.New("file lock manager is unavailable")
 type PoolFileHandle struct {
 	poolSessionID string
 
+	// clientID names the client that opened the handle. A session is shared by
+	// every mount of one iRODS account, and outlives the client that opened it,
+	// so the session alone does not say whose handle this is. The id a client
+	// reports stays the same across its reconnects, which is what lets a handle
+	// be kept for a client that comes back and collected once it is gone for
+	// good. It is empty for a client that reports no id of its own.
+	clientID string
+
 	irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle
 
 	// fileLockManager is shared by every session of the server, so that two
@@ -25,12 +33,29 @@ type PoolFileHandle struct {
 }
 
 // NewPoolFileHandle creates a new pool file handle
-func NewPoolFileHandle(poolSessionID string, irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle, fileLockManager *irodsfs_common_irods.FileLockManager) (*PoolFileHandle, error) {
+func NewPoolFileHandle(poolSessionID string, clientID string, irodsFsFileHandle irodsfs_common_irods.IRODSFSFileHandle, fileLockManager *irodsfs_common_irods.FileLockManager) (*PoolFileHandle, error) {
 	return &PoolFileHandle{
 		poolSessionID:     poolSessionID,
+		clientID:          clientID,
 		irodsFsFileHandle: irodsFsFileHandle,
 		fileLockManager:   fileLockManager,
 	}, nil
+}
+
+// GetClientID returns the id of the client that opened the handle, empty when
+// that client reported none.
+func (handle *PoolFileHandle) GetClientID() string {
+	return handle.clientID
+}
+
+// ownedBy reports whether callerID may act on the handle. A handle whose owner
+// is unknown, and a caller that reports no id, fall back to the session scope
+// they had before handles carried an owner.
+func (handle *PoolFileHandle) ownedBy(callerID string) bool {
+	if handle.clientID == "" || callerID == "" {
+		return true
+	}
+	return handle.clientID == callerID
 }
 
 func (handle *PoolFileHandle) Release() error {

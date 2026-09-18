@@ -316,7 +316,7 @@ func TestDrainClosesFileHandlesBeforeFlushingStagedData(t *testing.T) {
 		id:    "handle-1",
 		entry: &irodsclient_fs.Entry{Path: "/tempZone/home/rods/staged.dat"},
 	}}
-	poolFileHandle, err := NewPoolFileHandle(session.id, fileHandle, irodsfs_common_irods.NewFileLockManager())
+	poolFileHandle, err := NewPoolFileHandle(session.id, "", fileHandle, irodsfs_common_irods.NewFileLockManager())
 	if err != nil {
 		t.Fatalf("NewPoolFileHandle: %v", err)
 	}
@@ -409,7 +409,7 @@ func TestAStaleDrainLeavesTheNewClientsSessionAlone(t *testing.T) {
 		id:    "handle-of-the-new-client",
 		entry: &irodsclient_fs.Entry{Path: "/tempZone/home/rods/in-use.dat"},
 	}}
-	poolFileHandle, err := NewPoolFileHandle(session.id, fileHandle, irodsfs_common_irods.NewFileLockManager())
+	poolFileHandle, err := NewPoolFileHandle(session.id, "client-that-took-over", fileHandle, irodsfs_common_irods.NewFileLockManager())
 	if err != nil {
 		t.Fatalf("NewPoolFileHandle: %v", err)
 	}
@@ -435,4 +435,163 @@ func TestAStaleDrainLeavesTheNewClientsSessionAlone(t *testing.T) {
 		t.Fatalf("a release that was taken over uploaded through the session (drain %d, flush %d)",
 			client.drainCalls, client.syncCalls)
 	}
+}
+
+// A session is shared by every mount of one iRODS account, so a handle has to
+// name the client that opened it: another client asking for it is told it does
+// not exist rather than handed someone else's open file.
+func TestAFileHandleAnswersOnlyToTheClientThatOpenedIt(t *testing.T) {
+	session := &PoolSession{
+		id:              "session-owned-handles",
+		connections:     map[string]connInfo{},
+		poolFileHandles: map[string]*PoolFileHandle{},
+		logger:          log.NewEntry(log.StandardLogger()),
+	}
+
+	handle, err := NewPoolFileHandle(session.id, "client-a", &stubFileHandle{
+		id:    "handle-1",
+		entry: &irodsclient_fs.Entry{Path: "/tempZone/home/rods/a.dat"},
+	}, irodsfs_common_irods.NewFileLockManager())
+	if err != nil {
+		t.Fatalf("NewPoolFileHandle: %v", err)
+	}
+	session.AddPoolFileHandle(handle)
+
+	if _, err := session.GetPoolFileHandle("client-a", "handle-1"); err != nil {
+		t.Fatalf("the client that opened the handle cannot use it: %v", err)
+	}
+	if _, err := session.GetPoolFileHandle("client-b", "handle-1"); err == nil {
+		t.Fatal("another client was handed a file handle it did not open")
+	}
+	// A client that reports no id of its own - an older one - keeps the
+	// session-wide behaviour it had before handles carried an owner.
+	if _, err := session.GetPoolFileHandle("", "handle-1"); err != nil {
+		t.Fatalf("a client without an id of its own cannot use the handle: %v", err)
+	}
+}
+
+// The drain collects what a departed client left behind, and only that: the
+// handles of a client connected to the session are in use.
+func TestTheDrainCollectsOnlyTheHandlesOfDepartedClients(t *testing.T) {
+	session := &PoolSession{
+		id:              "session-mixed-handles",
+		connections:     map[string]connInfo{"conn-1": {clientID: "client-present"}},
+		poolFileHandles: map[string]*PoolFileHandle{},
+		logger:          log.NewEntry(log.StandardLogger()),
+	}
+
+	handles := map[string]*countingCloseFileHandle{}
+	for _, owner := range []string{"client-present", "client-gone"} {
+		fileHandle := &countingCloseFileHandle{stubFileHandle: stubFileHandle{
+			id:    "handle-of-" + owner,
+			entry: &irodsclient_fs.Entry{Path: "/tempZone/home/rods/" + owner + ".dat"},
+		}}
+		poolFileHandle, err := NewPoolFileHandle(session.id, owner, fileHandle, irodsfs_common_irods.NewFileLockManager())
+		if err != nil {
+			t.Fatalf("NewPoolFileHandle: %v", err)
+		}
+		session.AddPoolFileHandle(poolFileHandle)
+		handles[owner] = fileHandle
+	}
+
+	if err := session.releaseFileHandlesOfDepartedClients(); err != nil {
+		t.Fatalf("releaseFileHandlesOfDepartedClients: %v", err)
+	}
+
+	if handles["client-gone"].closed != 1 {
+		t.Fatalf("the departed client's handle was closed %d times, want once", handles["client-gone"].closed)
+	}
+	if handles["client-present"].closed != 0 {
+		t.Fatalf("the connected client's handle was closed %d times, want never", handles["client-present"].closed)
+	}
+
+	session.mutex.RLock()
+	defer session.mutex.RUnlock()
+	if _, kept := session.poolFileHandles["handle-of-client-present"]; !kept {
+		t.Fatal("the connected client's handle was forgotten")
+	}
+	if _, kept := session.poolFileHandles["handle-of-client-gone"]; kept {
+		t.Fatal("the departed client's handle is still registered")
+	}
+}
+
+// A logout says the client is done, so what it left open goes right away
+// instead of waiting for the session's release. A transport drop says nothing
+// of the sort, and is covered by TestADroppedConnectionKeepsItsFileHandles.
+func TestALogoutCollectsTheHandlesOfTheClientThatLeft(t *testing.T) {
+	manager, session := newConnectedTestSession(t, "session-logout")
+	leaving := openTestFileHandle(t, session, "client-leaving")
+	staying := openTestFileHandle(t, session, "client-staying")
+
+	manager.LogoutConnection("conn-of-client-leaving")
+	session.backgroundWg.Wait()
+
+	if leaving.closed != 1 {
+		t.Fatalf("the handle of the client that logged out was closed %d times, want once", leaving.closed)
+	}
+	if staying.closed != 0 {
+		t.Fatalf("the handle of a client that is still connected was closed %d times, want never", staying.closed)
+	}
+}
+
+// A connection can go away without a logout - a transport drop - and the client
+// reconnects and retries with the handle ids it holds, so the handles have to
+// survive until the session is released.
+func TestADroppedConnectionKeepsItsFileHandles(t *testing.T) {
+	manager, session := newConnectedTestSession(t, "session-dropped")
+	dropped := openTestFileHandle(t, session, "client-leaving")
+
+	manager.RemoveConnection("conn-of-client-leaving")
+	session.backgroundWg.Wait()
+
+	if dropped.closed != 0 {
+		t.Fatalf("the handle of a client that only lost its connection was closed %d times, want never", dropped.closed)
+	}
+	if _, err := session.GetPoolFileHandle("client-leaving", "handle-of-client-leaving"); err != nil {
+		t.Fatalf("a reconnecting client cannot reach its handle: %v", err)
+	}
+}
+
+// newConnectedTestSession builds a live session holding two clients, each on its
+// own connection.
+func newConnectedTestSession(t *testing.T, sessionID string) (*PoolSessionManager, *PoolSession) {
+	t.Helper()
+
+	session := &PoolSession{
+		id:         sessionID,
+		accountKey: sessionID,
+		connections: map[string]connInfo{
+			"conn-of-client-leaving": {clientID: "client-leaving"},
+			"conn-of-client-staying": {clientID: "client-staying"},
+		},
+		poolFileHandles: map[string]*PoolFileHandle{},
+		logger:          log.NewEntry(log.StandardLogger()),
+	}
+	manager := &PoolSessionManager{
+		sessions:          map[string]*PoolSession{sessionID: session},
+		releasingSessions: map[string]*PoolSession{},
+		pendingReleases:   map[string]*time.Timer{},
+		connMap: map[string]string{
+			"conn-of-client-leaving": sessionID,
+			"conn-of-client-staying": sessionID,
+		},
+		config: &PoolServerConfig{sessionCloseGracePeriod: time.Hour},
+		logger: log.NewEntry(log.StandardLogger()),
+	}
+	return manager, session
+}
+
+func openTestFileHandle(t *testing.T, session *PoolSession, clientID string) *countingCloseFileHandle {
+	t.Helper()
+
+	fileHandle := &countingCloseFileHandle{stubFileHandle: stubFileHandle{
+		id:    "handle-of-" + clientID,
+		entry: &irodsclient_fs.Entry{Path: "/tempZone/home/rods/" + clientID + ".dat"},
+	}}
+	poolFileHandle, err := NewPoolFileHandle(session.id, clientID, fileHandle, irodsfs_common_irods.NewFileLockManager())
+	if err != nil {
+		t.Fatalf("NewPoolFileHandle: %v", err)
+	}
+	session.AddPoolFileHandle(poolFileHandle)
+	return fileHandle
 }

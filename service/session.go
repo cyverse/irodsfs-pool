@@ -491,7 +491,22 @@ func (manager *PoolSessionManager) AddConnection(connID string, clientID string,
 	}
 }
 
+// RemoveConnection drops a connection that went away without a logout, a
+// transport drop for one. The client may be back, and its file handles are kept
+// for it until the session is released.
 func (manager *PoolSessionManager) RemoveConnection(connID string) {
+	manager.removeConnection(connID, false)
+}
+
+// LogoutConnection drops a connection whose client logged out. The client said
+// it was done, so what it left open is collected right away rather than held
+// until the session is released, which lets its staged data start going out
+// while the session is still in its grace period.
+func (manager *PoolSessionManager) LogoutConnection(connID string) {
+	manager.removeConnection(connID, true)
+}
+
+func (manager *PoolSessionManager) removeConnection(connID string, loggedOut bool) {
 	defer irodsfs_common_util.StackTraceFromPanic(manager.logger)
 
 	manager.mutex.Lock()
@@ -514,6 +529,10 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 	session.UpdateLastAccessTime()
 	manager.checkpointSession(session)
 	manager.logger.Infof("Removed connection %q from session %q (remaining connections=%d)", connID, sessionID, remaining)
+
+	if loggedOut {
+		collectFileHandlesOfDepartedClients(session)
+	}
 
 	if remaining > 0 {
 		manager.mutex.Unlock()
@@ -712,7 +731,7 @@ func (manager *PoolSessionManager) drainSessionForRelease(session *PoolSession, 
 		return
 	}
 
-	if err := session.releaseFileHandles(); err != nil {
+	if err := session.releaseFileHandlesOfDepartedClients(); err != nil {
 		session.logger.WithError(err).Warn("Failed to release some file handles before the session release")
 	}
 
@@ -1083,16 +1102,62 @@ func (session *PoolSession) GetLastAccessTime() time.Time {
 }
 
 // releaseFileHandles closes every file handle the session holds and forgets
-// them. The handles' owner is gone by the time this is called, and staging
-// refuses to sync while a write handle is open, so they have to go before the
-// session's staged data can be flushed.
+// them. It belongs to the teardown, where the session itself is going away.
 func (session *PoolSession) releaseFileHandles() error {
+	return session.releaseFileHandlesMatching(func(*PoolFileHandle) bool { return true })
+}
+
+// collectFileHandlesOfDepartedClients closes what clients that are no longer
+// connected left open, in the background so that a logout does not wait for the
+// files to close. It is tracked on the session, so a release that starts in the
+// meantime waits for it instead of racing it.
+func collectFileHandlesOfDepartedClients(session *PoolSession) {
+	session.backgroundWg.Add(1)
+	go func() {
+		defer session.backgroundWg.Done()
+
+		if err := session.releaseFileHandlesOfDepartedClients(); err != nil {
+			session.logger.WithError(err).Warn("Failed to release the file handles left by a client that logged out")
+		}
+	}()
+}
+
+// releaseFileHandlesOfDepartedClients closes the handles whose client is no
+// longer connected. A handle belongs to the client that opened it, and that id
+// survives the client's reconnects, so a client that comes back keeps its
+// handles while the ones left behind by a client that is gone are collected.
+// They have to go before the staged data can be flushed, because staging
+// refuses to sync at all while a write handle is open.
+//
+// A handle from a client that reported no id cannot be attributed to anyone, so
+// it is collected only when no client is connected at all.
+func (session *PoolSession) releaseFileHandlesOfDepartedClients() error {
+	session.mutex.RLock()
+	connected := make(map[string]bool, len(session.connections))
+	for _, connection := range session.connections {
+		connected[connection.clientID] = true
+	}
+	anyConnection := len(session.connections) > 0
+	session.mutex.RUnlock()
+
+	return session.releaseFileHandlesMatching(func(handle *PoolFileHandle) bool {
+		if handle.clientID == "" {
+			return !anyConnection
+		}
+		return !connected[handle.clientID]
+	})
+}
+
+func (session *PoolSession) releaseFileHandlesMatching(departed func(*PoolFileHandle) bool) error {
 	session.mutex.Lock()
 	handles := make([]*PoolFileHandle, 0, len(session.poolFileHandles))
-	for _, handle := range session.poolFileHandles {
+	for id, handle := range session.poolFileHandles {
+		if !departed(handle) {
+			continue
+		}
 		handles = append(handles, handle)
+		delete(session.poolFileHandles, id)
 	}
-	session.poolFileHandles = map[string]*PoolFileHandle{}
 	session.mutex.Unlock()
 
 	if len(handles) == 0 {
@@ -1134,11 +1199,15 @@ func (session *PoolSession) RemovePoolFileHandle(poolFileHandleID string) {
 	delete(session.poolFileHandles, poolFileHandleID)
 }
 
-func (session *PoolSession) GetPoolFileHandle(poolFileHandleID string) (*PoolFileHandle, error) {
+// GetPoolFileHandle returns the handle for callerID to act on. A handle belongs
+// to the client that opened it, and a session is shared by every mount of one
+// iRODS account, so another client asking for it is told the same thing as if it
+// did not exist rather than handed someone else's file.
+func (session *PoolSession) GetPoolFileHandle(callerID string, poolFileHandleID string) (*PoolFileHandle, error) {
 	session.mutex.RLock()
 	defer session.mutex.RUnlock()
 
-	if handle, ok := session.poolFileHandles[poolFileHandleID]; ok {
+	if handle, ok := session.poolFileHandles[poolFileHandleID]; ok && handle.ownedBy(callerID) {
 		return handle, nil
 	}
 

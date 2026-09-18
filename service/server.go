@@ -207,7 +207,7 @@ func (server *PoolServer) Logout(ctx context.Context, request *api.LogoutRequest
 
 	connID := ConnIDFromContext(ctx)
 	if connID != "" {
-		server.sessionManager.RemoveConnection(connID)
+		server.sessionManager.LogoutConnection(connID)
 	}
 
 	return &api.Empty{}, nil
@@ -563,7 +563,7 @@ func (server *PoolServer) CreateFile(ctx context.Context, request *api.CreateFil
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle, server.sessionManager.GetFileLockManager())
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, ClientIDFromContext(ctx), irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -618,7 +618,7 @@ func (server *PoolServer) OpenFile(ctx context.Context, request *api.OpenFileReq
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle, server.sessionManager.GetFileLockManager())
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, ClientIDFromContext(ctx), irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -673,7 +673,7 @@ func (server *PoolServer) CreateFileBulk(ctx context.Context, request *api.Creat
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle, server.sessionManager.GetFileLockManager())
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, ClientIDFromContext(ctx), irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -728,7 +728,7 @@ func (server *PoolServer) OpenFileBulk(ctx context.Context, request *api.OpenFil
 		return nil, commons.ErrorToStatus(err)
 	}
 
-	poolFileHandle, err := NewPoolFileHandle(request.SessionId, irodsFsFileHandle, server.sessionManager.GetFileLockManager())
+	poolFileHandle, err := NewPoolFileHandle(request.SessionId, ClientIDFromContext(ctx), irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -806,7 +806,7 @@ func (server *PoolServer) ReadAt(ctx context.Context, request *api.ReadAtRequest
 	session.backgroundWg.Add(1)
 	defer session.backgroundWg.Done()
 
-	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -845,7 +845,7 @@ func (server *PoolServer) WriteAt(ctx context.Context, request *api.WriteAtReque
 	session.backgroundWg.Add(1)
 	defer session.backgroundWg.Done()
 
-	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -878,7 +878,7 @@ func (server *PoolServer) GetAvailable(ctx context.Context, request *api.GetAvai
 
 	session.UpdateLastAccessTime()
 
-	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -907,7 +907,7 @@ func (server *PoolServer) Truncate(ctx context.Context, request *api.TruncateReq
 
 	session.UpdateLastAccessTime()
 
-	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -937,7 +937,7 @@ func (server *PoolServer) Flush(ctx context.Context, request *api.FlushRequest) 
 
 	session.UpdateLastAccessTime()
 
-	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -967,7 +967,7 @@ func (server *PoolServer) Close(ctx context.Context, request *api.CloseRequest) 
 
 	session.UpdateLastAccessTime()
 
-	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -1040,7 +1040,7 @@ func (server *PoolServer) Getlk(ctx context.Context, request *api.GetlkRequest) 
 
 	session.UpdateLastAccessTime()
 
-	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, commons.ErrorToStatus(err)
@@ -1071,7 +1071,7 @@ func (server *PoolServer) Getlk(ctx context.Context, request *api.GetlkRequest) 
 func (server *PoolServer) Setlk(ctx context.Context, request *api.SetlkRequest) (*api.Empty, error) {
 	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	handle, lock, sessionLogger, err := server.getFileLockRequest(request)
+	handle, lock, sessionLogger, err := server.getFileLockRequest(ClientIDFromContext(ctx), request)
 	if err != nil {
 		return nil, commons.ErrorToStatus(err)
 	}
@@ -1092,7 +1092,7 @@ func (server *PoolServer) Setlk(ctx context.Context, request *api.SetlkRequest) 
 func (server *PoolServer) Setlkw(ctx context.Context, request *api.SetlkRequest) (*api.Empty, error) {
 	defer irodsfs_common_util.StackTraceFromPanic(server.logger)
 
-	handle, lock, sessionLogger, err := server.getFileLockRequest(request)
+	handle, lock, sessionLogger, err := server.getFileLockRequest(ClientIDFromContext(ctx), request)
 	if err != nil {
 		return nil, commons.ErrorToStatus(err)
 	}
@@ -1112,7 +1112,7 @@ func (server *PoolServer) Setlkw(ctx context.Context, request *api.SetlkRequest)
 
 // getFileLockRequest resolves the handle and the lock a Setlk/Setlkw request
 // asks for
-func (server *PoolServer) getFileLockRequest(request *api.SetlkRequest) (*PoolFileHandle, *irodsfs_common_irods.FileLock, *log.Entry, error) {
+func (server *PoolServer) getFileLockRequest(callerID string, request *api.SetlkRequest) (*PoolFileHandle, *irodsfs_common_irods.FileLock, *log.Entry, error) {
 	session, sessionLogger, err := server.getSessionAndLogger(request.SessionId, log.Fields{
 		"fileHandleID": request.FileHandleId,
 	})
@@ -1122,7 +1122,7 @@ func (server *PoolServer) getFileLockRequest(request *api.SetlkRequest) (*PoolFi
 
 	session.UpdateLastAccessTime()
 
-	handle, err := session.GetPoolFileHandle(request.FileHandleId)
+	handle, err := session.GetPoolFileHandle(callerID, request.FileHandleId)
 	if err != nil {
 		sessionLogger.Error(err)
 		return nil, nil, sessionLogger, err

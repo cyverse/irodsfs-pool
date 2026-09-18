@@ -228,7 +228,7 @@ func (h *stubFileHandle) Setlkw(context.Context, *irodsfs_common_irods.FileLock)
 func TestMonitoringPathTablesWrapWithinTheSessionModal(t *testing.T) {
 	longPath := "/tempZone/home/rods/" + strings.Repeat("deeply-nested-directory-name/", 12) + "some-long-file-name.dat"
 
-	handle, err := NewPoolFileHandle("session-1234", &stubFileHandle{
+	handle, err := NewPoolFileHandle("session-1234", "", &stubFileHandle{
 		id:    "handle-1",
 		entry: &irodsclient_fs.Entry{Path: longPath},
 		mode:  irodsclient_types.FileOpenModeReadOnly,
@@ -426,7 +426,7 @@ func TestMonitoringEscapesSessionContent(t *testing.T) {
 	const injectedApp = `<script>alert('app')</script>`
 	const injectedDesc = `"><script>alert('desc')</script>`
 
-	handle, err := NewPoolFileHandle("session-1234", &stubFileHandle{
+	handle, err := NewPoolFileHandle("session-1234", "", &stubFileHandle{
 		id:    "handle-1",
 		entry: &irodsclient_fs.Entry{Path: injectedPath},
 		mode:  irodsclient_types.FileOpenModeReadOnly,

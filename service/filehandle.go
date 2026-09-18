@@ -138,14 +138,32 @@ type stagingSyncer interface {
 	Sync() error
 }
 
+// stagingDrainer is the optional interface implemented by IRODSFSClientBuffered
+// for uploading staged data without holding off the clients using the session.
+// Sync empties the staging area but stops write handles from opening while it
+// runs; Drain uploads path by path and leaves behind only what a writer holds.
+type stagingDrainer interface {
+	Drain() error
+}
+
+// drainSessionStaging uploads the session's staged data without holding off a
+// client that is using the session, or takes it over during the drain. What a
+// writer holds is left for the flush that follows, or for the background sync.
+func drainSessionStaging(session *PoolSession, logger *log.Entry) {
+	drainer, ok := session.getIRODSFSClient().(stagingDrainer)
+	if !ok {
+		return
+	}
+	if err := drainer.Drain(); err != nil {
+		logger.WithError(err).Warnf("staging drain failed for session %q", session.id)
+	}
+}
+
 // flushSessionStaging synchronously uploads any pending staged data for the
 // session to iRODS.  It is called before CollectSessionMetrics so that
 // BytesSent reflects the actual iRODS upload rather than only the local write.
 func flushSessionStaging(session *PoolSession, logger *log.Entry) {
-	if session.fsClient == nil {
-		return
-	}
-	syncer, ok := session.fsClient.(stagingSyncer)
+	syncer, ok := session.getIRODSFSClient().(stagingSyncer)
 	if !ok {
 		return
 	}

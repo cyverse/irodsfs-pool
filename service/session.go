@@ -158,20 +158,28 @@ func (manager *PoolSessionManager) Release() {
 	manager.pendingReleases = map[string]*time.Timer{}
 
 	wg := sync.WaitGroup{}
+	alreadyReleasing := make(map[string]bool, len(manager.sessions))
 	for _, session := range manager.sessions {
+		// The manager is going away, so no session is up for adoption. Marking
+		// them here, while the manager lock is held, keeps a release from
+		// starting beside the one below.
+		session.mutex.RLock()
+		releasing := session.releasing
+		session.mutex.RUnlock()
+		alreadyReleasing[session.id] = releasing
+		if !releasing {
+			markSessionReleasing(session, false)
+		} else {
+			session.mutex.Lock()
+			session.tearingDown = true
+			session.mutex.Unlock()
+		}
+
 		wg.Add(1)
 		go func(sess *PoolSession) {
 			defer wg.Done()
 
-			sess.mutex.Lock()
-			alreadyReleasing := sess.releasing
-			if !alreadyReleasing {
-				sess.releasing = true
-				sess.releaseDone = make(chan struct{})
-			}
-			sess.mutex.Unlock()
-
-			if !alreadyReleasing {
+			if !alreadyReleasing[sess.id] {
 				manager.releaseSessionResources(sess)
 				close(sess.releaseDone)
 			} else {
@@ -238,6 +246,35 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 
 			manager.logger.Infof("Reusing existing session %q for username %q", accountKey, irodsAccount.ClientUser)
 			return session, nil
+		}
+
+		// A session that is being released is still flushing its staged data
+		// to iRODS, which an interrupted run can stretch into minutes. Take it
+		// over rather than wait: it works throughout that flush, and a session
+		// created beside it would collide with it over the same staging area.
+		if session, ok := manager.releasingSessions[accountKey]; ok {
+			if manager.adoptReleasingSessionUnlocked(session) {
+				session.UpdateLastAccessTime()
+				manager.mutex.Unlock()
+				manager.checkpointSession(session)
+
+				manager.logger.Infof("Took over the release of session %q for username %q", accountKey, irodsAccount.ClientUser)
+				return session, nil
+			}
+
+			// The teardown has begun, so the session cannot come back. Wait for
+			// it to finish, which also frees its staging area for the session
+			// that replaces it.
+			session.mutex.RLock()
+			releaseDone := session.releaseDone
+			session.mutex.RUnlock()
+			manager.mutex.Unlock()
+
+			manager.logger.Infof("Waiting for session %q release to complete before creating new session for username %q", accountKey, irodsAccount.ClientUser)
+			if releaseDone != nil {
+				<-releaseDone
+			}
+			continue
 		}
 
 		manager.mutex.Unlock()
@@ -349,11 +386,9 @@ func (manager *PoolSessionManager) ReleaseSession(sessionID string) {
 		return
 	}
 
-	// No connections, mark as releasing
-	session.mutex.Lock()
-	session.releasing = true
-	session.releaseDone = make(chan struct{})
-	session.mutex.Unlock()
+	// No connections, mark as releasing. This path tears the session down
+	// right away, so there is no flush for a new login to take it over from.
+	markSessionReleasing(session, false)
 	manager.mutex.Unlock()
 
 	manager.logger.Infof("Releasing pool session %q (no more connections)", sessionID)
@@ -375,9 +410,26 @@ func (manager *PoolSessionManager) ReleaseAllSessions() {
 
 	manager.mutex.Lock()
 	sessions := make([]*PoolSession, 0, len(manager.sessions))
+	alreadyReleasing := make(map[string]bool, len(manager.sessions))
 	for _, session := range manager.sessions {
 		sessions = append(sessions, session)
 		manager.releasingSessions[session.id] = session
+
+		session.mutex.RLock()
+		releasing := session.releasing
+		session.mutex.RUnlock()
+		alreadyReleasing[session.id] = releasing
+
+		// Every session goes away, so none of them is up for adoption. Marking
+		// them here, under the manager lock, also means a session in the
+		// releasing map always has a channel for a waiter to watch.
+		if !releasing {
+			markSessionReleasing(session, false)
+		} else {
+			session.mutex.Lock()
+			session.tearingDown = true
+			session.mutex.Unlock()
+		}
 	}
 	manager.sessions = map[string]*PoolSession{}
 	manager.connMap = map[string]string{}
@@ -394,15 +446,7 @@ func (manager *PoolSessionManager) ReleaseAllSessions() {
 				manager.onBeforeSessionRelease(sess)
 			}
 
-			sess.mutex.Lock()
-			alreadyReleasing := sess.releasing
-			if !alreadyReleasing {
-				sess.releasing = true
-				sess.releaseDone = make(chan struct{})
-			}
-			sess.mutex.Unlock()
-
-			if !alreadyReleasing {
+			if !alreadyReleasing[sess.id] {
 				manager.releaseSessionResources(sess)
 				close(sess.releaseDone)
 			} else {
@@ -496,29 +540,11 @@ func (manager *PoolSessionManager) RemoveConnection(connID string) {
 
 	// No grace period — release right away (still asynchronous so the Logout
 	// RPC returns before the iRODS upload completes).
-	session.mutex.Lock()
-	session.releasing = true
-	session.releaseDone = make(chan struct{})
-	session.mutex.Unlock()
-
+	epoch := markSessionReleasing(session, true)
 	manager.beginAsyncReleaseUnlocked(session)
 	manager.mutex.Unlock()
 
-	manager.logger.Infof("Releasing pool session %q asynchronously (no more connections)", sessionID)
-
-	manager.releaseWg.Add(1)
-	go func() {
-		defer manager.releaseWg.Done()
-		// Flush staging before capturing metrics so BytesSent reflects the
-		// actual iRODS upload, not just the local-disk write.
-		flushSessionStaging(session, session.logger)
-		if manager.onBeforeSessionRelease != nil {
-			manager.onBeforeSessionRelease(session)
-		}
-		manager.releaseSessionResources(session)
-		manager.finishAsyncRelease(sessionID)
-		close(session.releaseDone)
-	}()
+	manager.releaseSessionAsync(session, epoch, "no more connections")
 }
 
 // startSessionRelease is called by the grace-period timer.  It re-checks that
@@ -544,27 +570,11 @@ func (manager *PoolSessionManager) startSessionRelease(sessionID string) {
 
 	delete(manager.pendingReleases, sessionID)
 
-	session.mutex.Lock()
-	session.releasing = true
-	session.releaseDone = make(chan struct{})
-	session.mutex.Unlock()
-
+	epoch := markSessionReleasing(session, true)
 	manager.beginAsyncReleaseUnlocked(session)
 	manager.mutex.Unlock()
 
-	manager.logger.Infof("Releasing pool session %q asynchronously after grace period (no more connections)", sessionID)
-
-	manager.releaseWg.Add(1)
-	go func() {
-		defer manager.releaseWg.Done()
-		flushSessionStaging(session, session.logger)
-		if manager.onBeforeSessionRelease != nil {
-			manager.onBeforeSessionRelease(session)
-		}
-		manager.releaseSessionResources(session)
-		manager.finishAsyncRelease(sessionID)
-		close(session.releaseDone)
-	}()
+	manager.releaseSessionAsync(session, epoch, "no more connections after the grace period")
 }
 
 func (manager *PoolSessionManager) releaseStaleSessions() {
@@ -612,27 +622,11 @@ func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
 	session.mutex.RUnlock()
 
 	// Mark as releasing and remove from map so Release() won't double-release.
-	session.mutex.Lock()
-	session.releasing = true
-	session.releaseDone = make(chan struct{})
-	session.mutex.Unlock()
-
+	epoch := markSessionReleasing(session, true)
 	manager.beginAsyncReleaseUnlocked(session)
 	manager.mutex.Unlock()
 
-	manager.logger.Infof("Force releasing stale pool session %q asynchronously", sessionID)
-
-	manager.releaseWg.Add(1)
-	go func() {
-		defer manager.releaseWg.Done()
-		flushSessionStaging(session, session.logger)
-		if manager.onBeforeSessionRelease != nil {
-			manager.onBeforeSessionRelease(session)
-		}
-		manager.releaseSessionResources(session)
-		manager.finishAsyncRelease(sessionID)
-		close(session.releaseDone)
-	}()
+	manager.releaseSessionAsync(session, epoch, "the session went stale")
 }
 
 // beginAsyncRelease moves a session out of the live map and into the releasing
@@ -641,6 +635,162 @@ func (manager *PoolSessionManager) forceReleaseSession(sessionID string) {
 func (manager *PoolSessionManager) beginAsyncReleaseUnlocked(session *PoolSession) {
 	delete(manager.sessions, session.id)
 	manager.releasingSessions[session.id] = session
+}
+
+// markSessionReleasing puts a session into the releasing state and gives
+// waiters a channel to watch. adoptable says whether a flush still runs ahead
+// of the teardown, which is the part a new login may take the session over
+// from. The caller must hold manager.mutex.
+func markSessionReleasing(session *PoolSession, adoptable bool) uint64 {
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	session.releasing = true
+	session.releaseDone = make(chan struct{})
+	session.tearingDown = !adoptable
+	session.releaseEpoch++
+	return session.releaseEpoch
+}
+
+// releaseSessionAsync flushes the session's staged data to iRODS and then tears
+// the session down. The flush is the long part of a release, and the session
+// serves requests normally while it runs, so a login that arrives during it
+// takes the session over and the teardown is dropped.
+func (manager *PoolSessionManager) releaseSessionAsync(session *PoolSession, epoch uint64, reason string) {
+	manager.logger.Infof("Releasing pool session %q asynchronously (%s)", session.id, reason)
+
+	manager.releaseWg.Add(1)
+	go func() {
+		defer manager.releaseWg.Done()
+
+		manager.drainSessionForRelease(session, epoch)
+
+		if !manager.beginSessionTeardown(session, epoch) {
+			manager.logger.Infof("Kept pool session %q, a new login took it over while it was being released", session.id)
+			return
+		}
+
+		if manager.onBeforeSessionRelease != nil {
+			manager.onBeforeSessionRelease(session)
+		}
+		manager.releaseSessionResources(session)
+		manager.finishAsyncRelease(session.id)
+		close(session.releaseDone)
+	}()
+}
+
+// drainSessionForRelease finishes everything that moves data while the session
+// is still whole, so that the teardown after it only has to close things. A
+// login that arrives during the drain still takes the session over, and then
+// none of this work is repeated: the drain leaves nothing for the teardown to
+// redo.
+//
+// The order matters in both directions. The session's own work runs against its
+// file handles - an in-flight ReadAt looks one up, an async CacheFile reads
+// through the session - so it has to finish first, and the handles it closes on
+// its way out are closed properly. Only what is left after that is collected by
+// force: handles of a client that is gone and will never close them. They have
+// to go before the flush, because staging refuses to sync at all while a write
+// handle is open, which would leave every upload to the teardown, where a
+// returning client can no longer be served.
+func (manager *PoolSessionManager) drainSessionForRelease(session *PoolSession, epoch uint64) {
+	session.releaseWork.Lock()
+	defer session.releaseWork.Unlock()
+
+	// Everything below belongs to the client that has left. Once a login has
+	// taken the session over, the file handles, the staged data and the session
+	// itself are the new client's, and a release that reached here late leaves
+	// them alone. The epoch is re-read before each step, because the take-over
+	// can land during any of them.
+	if manager.sessionTakenOver(session, epoch) {
+		return
+	}
+
+	session.backgroundWg.Wait()
+
+	if manager.sessionTakenOver(session, epoch) {
+		return
+	}
+
+	if err := session.releaseFileHandles(); err != nil {
+		session.logger.WithError(err).Warn("Failed to release some file handles before the session release")
+	}
+
+	if manager.sessionTakenOver(session, epoch) {
+		return
+	}
+
+	// Upload path by path first. This moves the bulk of the staged data while
+	// leaving a client that takes the session over free to write, which a full
+	// flush would not: it holds every write handle off for as long as it runs.
+	drainSessionStaging(session, session.logger)
+
+	if manager.sessionTakenOver(session, epoch) {
+		// The session is back in service, and what the drain could not move is
+		// left to the background sync, which does not hold its client off.
+		return
+	}
+
+	// Nobody came back, so empty the staging area for good. The drain before it
+	// keeps this short, which matters because a login arriving now waits for it
+	// to finish before its first write. It also runs before the metrics are
+	// captured, so BytesSent reflects the actual iRODS upload rather than just
+	// the local-disk write.
+	flushSessionStaging(session, session.logger)
+}
+
+// sessionTakenOver reports whether a login has taken the session over since the
+// release identified by epoch began.
+func (manager *PoolSessionManager) sessionTakenOver(session *PoolSession, epoch uint64) bool {
+	session.mutex.RLock()
+	defer session.mutex.RUnlock()
+
+	return session.releaseEpoch != epoch
+}
+
+// beginSessionTeardown closes the window in which a release can still be taken
+// over and reports whether the teardown owns the session. When a login got
+// there first it owns the session instead, and has already put it back in
+// service.
+func (manager *PoolSessionManager) beginSessionTeardown(session *PoolSession, epoch uint64) bool {
+	manager.mutex.Lock()
+	defer manager.mutex.Unlock()
+
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	if session.releaseEpoch != epoch {
+		return false
+	}
+
+	session.tearingDown = true
+	return true
+}
+
+// adoptReleasingSessionUnlocked hands a session that is being released back to
+// a new login. It succeeds only while the release is still flushing staged
+// data, because nothing has been closed until then: the session returns to
+// service with its staging area, and the lock it holds on that staging area,
+// intact. Waiters are woken so they reuse the session instead of waiting for a
+// release that is no longer coming. The caller must hold manager.mutex.
+func (manager *PoolSessionManager) adoptReleasingSessionUnlocked(session *PoolSession) bool {
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	if !session.releasing || session.tearingDown {
+		return false
+	}
+
+	session.releasing = false
+	session.releaseEpoch++
+	if session.releaseDone != nil {
+		close(session.releaseDone)
+		session.releaseDone = nil
+	}
+
+	delete(manager.releasingSessions, session.id)
+	manager.sessions[session.id] = session
+	return true
 }
 
 // finishAsyncRelease drops a session once its release has completed.
@@ -773,6 +923,24 @@ type PoolSession struct {
 	releasing   bool
 	releaseDone chan struct{}
 
+	// tearingDown marks the point in a release where the session's resources
+	// start closing. Until then a release is only flushing staged data and the
+	// session still works, so a new login takes it over instead of waiting for
+	// a flush that an interrupted run can stretch into minutes.
+	tearingDown bool
+	// releaseWork serializes the drains of successive releases of one session.
+	// A release that was taken over can still be inside its drain when the next
+	// one starts, and the two must not run against the session at the same
+	// time, or the older one would still be working through a session the newer
+	// one is already closing.
+	releaseWork sync.Mutex
+	// releaseEpoch identifies the release a goroutine is running. Taking a
+	// session over, and releasing it again afterwards, each start a new epoch,
+	// so the goroutine left over from an earlier release recognises that it no
+	// longer owns the session and stops instead of tearing down a session that
+	// is back in use.
+	releaseEpoch uint64
+
 	logger         *log.Entry
 	sessionLogFile io.WriteCloser
 
@@ -829,28 +997,12 @@ func (session *PoolSession) release() error {
 
 	session.backgroundWg.Wait()
 
+	// Both are no-ops for a session that came through the drain, and cover the
+	// paths that release a session without one.
+	releaseErr := session.releaseFileHandles()
+
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
-
-	handleWg := sync.WaitGroup{}
-	handleErrChan := make(chan error, len(session.poolFileHandles))
-	for _, handle := range session.poolFileHandles {
-		handleWg.Add(1)
-		go func(h *PoolFileHandle) {
-			defer handleWg.Done()
-			if err := h.Release(); err != nil {
-				handleErrChan <- err
-			}
-		}(handle)
-	}
-	handleWg.Wait()
-	close(handleErrChan)
-	session.poolFileHandles = map[string]*PoolFileHandle{}
-
-	var releaseErr error
-	for err := range handleErrChan {
-		releaseErr = errors.CombineErrors(releaseErr, err)
-	}
 
 	if session.fsClient != nil {
 		releaseErr = errors.CombineErrors(releaseErr, session.fsClient.Release())
@@ -905,6 +1057,17 @@ func (session *PoolSession) GetIRODSFSClient() irodsfs_common_irods.IRODSFSClien
 	return session.fsClient
 }
 
+// getIRODSFSClient reads the client under the session lock, for the release
+// paths that run beside a teardown clearing it. It returns nil once the session
+// has been torn down, and a nil interface value satisfies no type assertion, so
+// callers can assert on it directly.
+func (session *PoolSession) getIRODSFSClient() irodsfs_common_irods.IRODSFSClient {
+	session.mutex.RLock()
+	defer session.mutex.RUnlock()
+
+	return session.fsClient
+}
+
 func (session *PoolSession) UpdateLastAccessTime() {
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
@@ -917,6 +1080,44 @@ func (session *PoolSession) GetLastAccessTime() time.Time {
 	defer session.mutex.RUnlock()
 
 	return session.lastAccessTime
+}
+
+// releaseFileHandles closes every file handle the session holds and forgets
+// them. The handles' owner is gone by the time this is called, and staging
+// refuses to sync while a write handle is open, so they have to go before the
+// session's staged data can be flushed.
+func (session *PoolSession) releaseFileHandles() error {
+	session.mutex.Lock()
+	handles := make([]*PoolFileHandle, 0, len(session.poolFileHandles))
+	for _, handle := range session.poolFileHandles {
+		handles = append(handles, handle)
+	}
+	session.poolFileHandles = map[string]*PoolFileHandle{}
+	session.mutex.Unlock()
+
+	if len(handles) == 0 {
+		return nil
+	}
+
+	handleWg := sync.WaitGroup{}
+	handleErrChan := make(chan error, len(handles))
+	for _, handle := range handles {
+		handleWg.Add(1)
+		go func(h *PoolFileHandle) {
+			defer handleWg.Done()
+			if err := h.Release(); err != nil {
+				handleErrChan <- err
+			}
+		}(handle)
+	}
+	handleWg.Wait()
+	close(handleErrChan)
+
+	var releaseErr error
+	for err := range handleErrChan {
+		releaseErr = errors.CombineErrors(releaseErr, err)
+	}
+	return releaseErr
 }
 
 func (session *PoolSession) AddPoolFileHandle(poolFileHandle *PoolFileHandle) {

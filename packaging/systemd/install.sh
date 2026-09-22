@@ -77,6 +77,7 @@ fi
 # database/cache and staged data there. They are not removed by this script.
 install -d -o "${service_user}" -g "${service_user}" -m 0750 \
     /var/lib/irodsfs_pool /irodsfs_pool/staging
+chown -R "${service_user}:${service_user}" /irodsfs_pool
 install -o root -g root -m 0644 "${script_dir}/${service_name}.service" \
     "${unit_dir}/${service_name}.service"
 

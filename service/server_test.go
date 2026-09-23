@@ -335,7 +335,7 @@ func TestRenderPackedDirectoriesShowsTheDirectoryAndItsArchive(t *testing.T) {
 	entries := []irodsfs_common_packedfs.Status{
 		{
 			Root:         "/iplant/home/iychoi/irods-csi-driver/.git",
-			ArchivePath:  "/iplant/home/iychoi/irods-csi-driver/.git.mount.tar",
+			ArchivePath:  "/iplant/home/iychoi/irods-csi-driver/.git.packedfs.tar",
 			LocalPath:    "/irodsfs_pool/staging/session-1234-packed/iplant/home/iychoi/irods-csi-driver/.git",
 			State:        "MOUNTED",
 			Dirty:        true,
@@ -344,7 +344,7 @@ func TestRenderPackedDirectoriesShowsTheDirectoryAndItsArchive(t *testing.T) {
 		},
 		{
 			Root:        "/iplant/home/iychoi/proj/.venv",
-			ArchivePath: "/iplant/home/iychoi/proj/.venv.mount.tar",
+			ArchivePath: "/iplant/home/iychoi/proj/.venv.packedfs.tar",
 			State:       "MOUNTED",
 			Dirty:       false,
 			SizeBytes:   512 * 1024 * 1024,
@@ -359,8 +359,8 @@ func TestRenderPackedDirectoriesShowsTheDirectoryAndItsArchive(t *testing.T) {
 		`<h3>Packed Directories (2)</h3>`,
 		// The directory a user sees, and the data object iRODS actually holds.
 		`/iplant/home/iychoi/irods-csi-driver/.git`,
-		`/iplant/home/iychoi/irods-csi-driver/.git.mount.tar`,
-		`/iplant/home/iychoi/proj/.venv.mount.tar`,
+		`/iplant/home/iychoi/irods-csi-driver/.git.packedfs.tar`,
+		`/iplant/home/iychoi/proj/.venv.packedfs.tar`,
 		// An unsent directory is called out; one already uploaded is not.
 		`class="dirty">pending`,
 		`class="cached">synced`,
@@ -383,7 +383,7 @@ func TestRenderPackedDirectoriesShowsAMountFailure(t *testing.T) {
 	var buffer bytes.Buffer
 	renderPackedDirectories(&buffer, []irodsfs_common_packedfs.Status{{
 		Root:        "/iplant/home/iychoi/proj/.venv",
-		ArchivePath: "/iplant/home/iychoi/proj/.venv.mount.tar",
+		ArchivePath: "/iplant/home/iychoi/proj/.venv.packedfs.tar",
 		State:       "FAILED",
 		Error:       "packed directory exceeds the configured size limit",
 	}})
@@ -402,7 +402,7 @@ func TestRenderPackedDirectoriesEscapesItsContent(t *testing.T) {
 	var buffer bytes.Buffer
 	renderPackedDirectories(&buffer, []irodsfs_common_packedfs.Status{{
 		Root:        `/z/home/u/<img src=x onerror=alert(1)>/.venv`,
-		ArchivePath: `/z/home/u/<img src=x onerror=alert(1)>/.venv.mount.tar`,
+		ArchivePath: `/z/home/u/<img src=x onerror=alert(1)>/.venv.packedfs.tar`,
 		State:       "MOUNTED",
 		Error:       `<script>alert(2)</script>`,
 	}})

@@ -139,7 +139,7 @@ A single HTTP server (default port 12021) exposes monitoring, metrics, and an ad
 | `/api/recovery-sessions` | JSON list of interrupted, recovering, or release-failed sessions |
 | `/api/recovery-sessions/{sessionID}` | JSON persisted recovery metadata for one session |
 
-The dashboard auto-refreshes every 10 seconds, shows sessions pending recovery in a separate section, and shows red warnings when system memory or staging disk space is insufficient.
+The dashboard shows sessions pending recovery in a separate section and red warnings when system memory or staging disk space is insufficient. Refresh the page manually to see updated status.
 The REST API does not expose account credentials, tickets, or PAM tokens.
 The earlier `/api/failed-sessions` paths remain compatibility aliases for the recovery-session endpoints.
 

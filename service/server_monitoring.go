@@ -111,20 +111,14 @@ tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 
 	fmt.Fprintf(w, `<p class="info">Last refreshed: %s</p>`, time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprint(w, `<script>
-setTimeout(function(){ location.reload(); }, 10000);
 function showDetail(id) {
   var src = document.getElementById('detail-' + id);
-  if (!src) {
-    try { sessionStorage.removeItem('_openDetail'); } catch(e) {}
-    return;
-  }
+  if (!src) return;
   document.getElementById('modal-content').innerHTML = src.innerHTML;
   document.getElementById('modal-overlay').style.display = 'block';
-  try { sessionStorage.setItem('_openDetail', id); } catch(e) {}
 }
 function closeDetail() {
   document.getElementById('modal-overlay').style.display = 'none';
-  try { sessionStorage.removeItem('_openDetail'); } catch(e) {}
 }
 function syncSessionStaging(id) {
   var modal = document.getElementById('modal-content');
@@ -139,8 +133,7 @@ function syncSessionStaging(id) {
     .then(function(result){
       if (!el) return;
       if (result.ok && result.data.success) {
-        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging sync succeeded. Page will refresh.</span>';
-        setTimeout(function(){ location.reload(); }, 2000);
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging sync succeeded. Refresh the page to see updates.</span>';
       } else {
         el.innerHTML = '<span class="action-result-err">&#x2717; ' + (result.data.error || 'unknown error') + '</span>';
         if (button) button.disabled = false;
@@ -159,8 +152,7 @@ function recoverSession(id) {
     .then(function(data){
       if (!el) return;
       if (data.success) {
-        el.innerHTML = '<span class="action-result-ok">&#x2713; Recovery succeeded. Page will refresh.</span>';
-        setTimeout(function(){ location.reload(); }, 2000);
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Recovery succeeded. Refresh the page to see updates.</span>';
       } else {
         el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
       }
@@ -176,20 +168,13 @@ function discardSession(id) {
     .then(function(data){
       if (!el) return;
       if (data.success) {
-        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging discarded. Page will refresh.</span>';
-        setTimeout(function(){ location.reload(); }, 2000);
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging discarded. Refresh the page to see updates.</span>';
       } else {
         el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
       }
     })
     .catch(function(e){ if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>'; });
 }
-(function(){
-  try {
-    var id = sessionStorage.getItem('_openDetail');
-    if (id) showDetail(id);
-  } catch(e) {}
-})();
 </script>`)
 	fmt.Fprint(w, `</body></html>`)
 }

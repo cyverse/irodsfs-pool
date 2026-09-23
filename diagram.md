@@ -62,7 +62,7 @@
  |  |   operation:{id}   ordering DAG|  |    own root on close)         |   |
  |  |                                |  |                               |   |
  |  | worker every 5s, grace 10s:    |  | one archive per directory:    |   |
- |  |   upload dirty & idle files    |  |   .venv -> .venv.mount.tar    |   |
+ |  |   upload dirty & idle files    |  |   .venv -> .venv.packedfs.tar    |   |
  |  |   <=1GB kept as read cache     |  | no per-file metadata at all   |   |
  |  |                                |  | never evicted, never force-   |   |
  |  | crash recovery: Badger restore |  |   synced file by file         |   |
@@ -81,7 +81,7 @@
                               v
                         [  iRODS server  ]
                           collections + data objects
-                          .venv.mount.tar  <- a packed directory lives here
+                          .venv.packedfs.tar  <- a packed directory lives here
 ```
 
 ## What reaches iRODS, and when

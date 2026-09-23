@@ -30,7 +30,7 @@ const (
 	// It does change how they are stored there, into one data object per
 	// directory, so the name list is worth reviewing for a given deployment.
 	PackedDirectoriesEnabledDefault   bool          = true
-	PackedDirectorySuffixDefault      string        = ".mount.tar"
+	PackedDirectorySuffixDefault      string        = ".packedfs.tar"
 	PackedDirectoryCompressionDefault string        = "none"
 	MaxPackedDirectorySizeDefault     int64         = 5 * 1024 * 1024 * 1024 // 5GB
 	PackedSnapshotIntervalDefault     time.Duration = 30 * time.Minute

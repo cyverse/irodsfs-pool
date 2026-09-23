@@ -34,7 +34,7 @@ type PackedDirectoriesConfig struct {
 	// Names are directory base names that are packed, matched at any depth.
 	Names []string `yaml:"names,omitempty" json:"names,omitempty"`
 
-	// Suffix forms the data object name, so ".venv" becomes ".venv.mount.tar".
+	// Suffix forms the data object name, so ".venv" becomes ".venv.packedfs.tar".
 	// Compression appends its own extension on top of this.
 	Suffix string `yaml:"suffix,omitempty" json:"suffix,omitempty"`
 

@@ -199,7 +199,7 @@ packed_directories:
 	packedConfig := config.PackedDirectories.ToPackedFSConfig()
 	require.NoError(t, packedConfig.Validate())
 	// The codec's extension joins the configured suffix.
-	assert.Equal(t, "/p/.venv.mount.tar.zst", packedConfig.ArchivePath("/p/.venv"))
+	assert.Equal(t, "/p/.venv.packedfs.tar.zst", packedConfig.ArchivePath("/p/.venv"))
 }
 
 func TestValidateRejectsBadPackedDirectoriesConfig(t *testing.T) {

@@ -45,7 +45,7 @@ packed_directories:
     ".local", ".apptainer", ".singularity", ".spack", ".lmod.d",
     "node_modules", "__pycache__", "mlruns", "wandb", "lightning_logs", "catboost_info", "site-packages"
   ]
-  suffix: ".mount.tar"
+  suffix: ".packedfs.tar"
   # none keeps the archive seekable and costs no CPU. The files in these
   # directories are usually already compressed, so gzip or zstd saves little.
   compression: none

@@ -52,7 +52,7 @@ log_root_path: /var/log/irodsfs-pool
 Uploading a directory of many small files costs one round trip per file, which
 dominates the transfer for trees like `.venv` or `.git`. Packing stores such a
 directory in iRODS as a single archive data object — `.venv` becomes
-`.venv.mount.tar` — so it crosses the wire once instead of once per file.
+`.venv.packedfs.tar` — so it crosses the wire once instead of once per file.
 
 It is on by default for the tool directories listed below. Removing a name is
 how a deployment keeps that directory a normal iRODS collection.
@@ -69,7 +69,7 @@ packed_directories:
     ".local", ".apptainer", ".singularity", ".spack", ".lmod.d",
     "node_modules", "__pycache__", "mlruns", "wandb", "lightning_logs", "catboost_info", "site-packages"
   ]
-  suffix: ".mount.tar"
+  suffix: ".packedfs.tar"
   compression: none              # none | gzip | zstd
   max_packed_dir_size: 5368709120  # 5GB
   snapshot_interval: 30m

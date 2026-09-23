@@ -172,7 +172,6 @@ func (svc *PoolService) Start() error {
 				// terminate
 				return
 			case <-tickerMetricsCollection.C:
-				svc.poolServer.PrintConnectionStat()
 				svc.poolServer.CollectPrometheusMetrics()
 			}
 		}

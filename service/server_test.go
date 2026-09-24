@@ -162,7 +162,7 @@ func TestGetSessionAndLoggerUsesSessionLogger(t *testing.T) {
 
 	session := &PoolSession{
 		id:     "session-1",
-		logger: sessionLogger.WithField("session_id", "session-1"),
+		logger: sessionLogger.WithField("sessionID", "session-1"),
 	}
 	server := &PoolServer{
 		logger: serverLogger.WithFields(log.Fields{}),

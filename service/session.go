@@ -1265,7 +1265,7 @@ func newSessionLogger(logRootPath string, sessionID string, maxBackups int) (*lo
 	sessionLogger.SetLevel(log.GetLevel())
 	sessionLogger.SetReportCaller(true)
 
-	return sessionLogger.WithField("session_id", sessionID), logWriter, nil
+	return sessionLogger.WithField("sessionID", sessionID), logWriter, nil
 }
 
 func newIrodsClientLogger(logWriter io.WriteCloser) (*log.Entry, error) {

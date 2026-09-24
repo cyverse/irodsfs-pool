@@ -56,7 +56,7 @@ func TestNewSessionLoggerWritesOnlyToSessionFile(t *testing.T) {
 	if !strings.Contains(logText, "session-only message") {
 		t.Fatalf("session log does not contain message: %q", logText)
 	}
-	if !strings.Contains(logText, "session_id=test-session") {
+	if !strings.Contains(logText, "sessionID=test-session") {
 		t.Fatalf("session log does not contain session ID: %q", logText)
 	}
 }

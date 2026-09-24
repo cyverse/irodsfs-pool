@@ -3,6 +3,7 @@ debug: false
 data_root_path: /var/lib/irodsfs_pool
 pid_file: /run/irodsfs-pool/irodsfs-pool.pid
 log_root_path: /var/log/irodsfs-pool
+log_max_backups: 10
 staging_root_path: /irodsfs_pool/staging
 
 recovery_encryption_key: ""  # required: base64-encoded 32-byte key

@@ -105,7 +105,8 @@ type Config struct {
 
 	Debug bool `yaml:"debug,omitempty" json:"debug,omitempty"`
 
-	LogRootPath string `yaml:"log_root_path,omitempty" json:"log_root_path,omitempty"`
+	LogRootPath   string `yaml:"log_root_path,omitempty" json:"log_root_path,omitempty"`
+	LogMaxBackups int    `yaml:"log_max_backups,omitempty" json:"log_max_backups,omitempty"`
 }
 
 // NewDefaultConfig returns a default config
@@ -197,7 +198,8 @@ func NewDefaultConfig() *Config {
 
 		Debug: false,
 
-		LogRootPath: "", // use default
+		LogRootPath:   "", // use default
+		LogMaxBackups: LogMaxBackupsDefault,
 	}
 }
 
@@ -499,6 +501,10 @@ func (config *Config) Validate() error {
 		return errors.New("pid file path must be given")
 	}
 
+	if config.LogMaxBackups < 0 {
+		return errors.New("log_max_backups must be non-negative")
+	}
+
 	if _, err := config.GetRecoveryEncryptionKey(); err != nil {
 		return err
 	}
@@ -561,31 +567,31 @@ func (config *Config) GetLogWriter(foregroundProcess bool) (io.WriteCloser, erro
 	}
 
 	if foregroundProcess {
-		fileWriter := getLogWriterForForegroundProcess(logFilePath)
+		fileWriter := getLogWriterForForegroundProcess(logFilePath, config.LogMaxBackups)
 		return NewMultiWriteCloser(nonClosingWriter{Writer: os.Stderr}, fileWriter), nil
 	}
 
-	daemonWriter := getLogWriterForDaemonProcess(logFilePath)
+	daemonWriter := getLogWriterForDaemonProcess(logFilePath, config.LogMaxBackups)
 	return daemonWriter, nil
 }
 
-func getLogWriterForForegroundProcess(logPath string) io.WriteCloser {
+func getLogWriterForForegroundProcess(logPath string, maxBackups int) io.WriteCloser {
 	logFilePath := fmt.Sprintf("%s.fg", logPath)
 	return &lumberjack.Logger{
 		Filename:   logFilePath,
 		MaxSize:    50, // 50MB
-		MaxBackups: 5,
+		MaxBackups: maxBackups,
 		MaxAge:     30, // 30 days
 		Compress:   false,
 	}
 }
 
-func getLogWriterForDaemonProcess(logPath string) io.WriteCloser {
+func getLogWriterForDaemonProcess(logPath string, maxBackups int) io.WriteCloser {
 	logFilePath := fmt.Sprintf("%s", logPath)
 	return &lumberjack.Logger{
 		Filename:   logFilePath,
 		MaxSize:    50, // 50MB
-		MaxBackups: 10,
+		MaxBackups: maxBackups,
 		MaxAge:     365, // 365 days
 		Compress:   false,
 	}

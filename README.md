@@ -45,6 +45,7 @@ data_mem_cache_ttl: 6h
 staging_root_path: /irodsfs_pool/staging
 management_service_endpoint: 0.0.0.0:12021  # `http://` is optional
 log_root_path: /var/log/irodsfs-pool
+log_max_backups: 50  # retained rotated files per service or session log
 ```
 
 ### Packed directories

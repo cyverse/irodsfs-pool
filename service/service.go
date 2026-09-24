@@ -63,6 +63,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		sessionCloseGracePeriod:               time.Duration(config.SessionCloseGracePeriod),
 		packedDirectories:                     config.PackedDirectories.ToPackedFSConfig(),
 		logRootPath:                           config.GetLogRootPath(),
+		logMaxBackups:                         config.LogMaxBackups,
 	}
 
 	poolServer, err := NewPoolServer(poolServerConfig)

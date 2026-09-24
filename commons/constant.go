@@ -44,4 +44,6 @@ const (
 	// anything that has to outlive a reconnect - the owner of a file lock,
 	// most of all.
 	ClientIDMetadataKey string = "x-irodsfs-client-id"
+
+	LogMaxBackupsDefault int = 10
 )

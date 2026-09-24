@@ -78,7 +78,7 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 	}
 
 	// Build session logger.
-	sessionLogger, sessionLogFile, err := newSessionLogger(manager.config.logRootPath, sessionID)
+	sessionLogger, sessionLogFile, err := newSessionLogger(manager.config.logRootPath, sessionID, manager.config.logMaxBackups)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create session logger for recovery of %q", sessionID)
 	}

@@ -43,6 +43,7 @@ type PoolServerConfig struct {
 	sessionCloseGracePeriod               time.Duration
 	packedDirectories                     *irodsfs_common_packedfs.Config
 	logRootPath                           string
+	logMaxBackups                         int
 	logger                                *log.Entry
 }
 

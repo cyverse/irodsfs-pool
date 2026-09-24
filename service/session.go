@@ -328,6 +328,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 		GracePeriod:        manager.config.stagingDataGracePeriod,
 		UsePersistence:     true,
 		PackedDirectories:  manager.config.packedDirectories,
+		Logger:             sessionLogger,
 	}
 
 	fsClient, err := irodsfs_common_irods.NewIRODSFSClientBuffered(fs, manager.cacheManager, buffConfig)

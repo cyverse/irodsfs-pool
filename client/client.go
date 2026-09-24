@@ -434,7 +434,7 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 		mutex:             sync.RWMutex{},
 		terminateChan:     make(chan bool),
 
-		logger: client.logger.WithFields(log.Fields{"session_id": response.SessionId}),
+		logger: client.logger.WithFields(log.Fields{"sessionID": response.SessionId}),
 	}
 
 	// run a goroutine to send keepalive
@@ -1089,7 +1089,7 @@ func (session *PoolServiceSession) CreateFile(path string, mode string) (irodsfs
 		poolServiceSession: session,
 		entry:              irodsEntry,
 		openMode:           irodsclient_types.FileOpenMode(mode),
-		logger:             session.logger.WithFields(log.Fields{"handle_id": response.FileHandleId}),
+		logger:             session.logger.WithFields(log.Fields{"handleID": response.FileHandleId}),
 	}
 
 	if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
@@ -1146,7 +1146,7 @@ func (session *PoolServiceSession) OpenFile(path string, mode string) (irodsfs_c
 		entry:              irodsEntry,
 		openMode:           irodsclient_types.FileOpenMode(mode),
 
-		logger: session.logger.WithFields(log.Fields{"handle_id": response.FileHandleId}),
+		logger: session.logger.WithFields(log.Fields{"handleID": response.FileHandleId}),
 	}
 
 	// The server-side open observes the current size of staged files. Publish
@@ -1220,7 +1220,7 @@ func (session *PoolServiceSession) CreateFileBulk(path string, mode string) (iro
 		poolServiceSession: session,
 		entry:              irodsEntry,
 		openMode:           irodsclient_types.FileOpenMode(mode),
-		logger:             session.logger.WithFields(log.Fields{"handle_id": response.FileHandleId}),
+		logger:             session.logger.WithFields(log.Fields{"handleID": response.FileHandleId}),
 	}
 
 	if irodsclient_types.FileOpenMode(mode).IsWriteOnly() {
@@ -1276,7 +1276,7 @@ func (session *PoolServiceSession) OpenFileBulk(path string, mode string) (irods
 		poolServiceSession: session,
 		entry:              irodsEntry,
 		openMode:           irodsclient_types.FileOpenMode(mode),
-		logger:             session.logger.WithFields(log.Fields{"handle_id": response.FileHandleId}),
+		logger:             session.logger.WithFields(log.Fields{"handleID": response.FileHandleId}),
 	}
 
 	if irodsclient_types.FileOpenMode(mode).IsReadOnly() {

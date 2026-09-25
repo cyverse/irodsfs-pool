@@ -684,18 +684,31 @@ func (manager *PoolSessionManager) releaseSessionAsync(session *PoolSession, epo
 
 		manager.drainSessionForRelease(session, epoch)
 
-		if !manager.beginSessionTeardown(session, epoch) {
+		if tornDown, _ := manager.teardownReleasingSession(session, epoch, nil); !tornDown {
 			manager.logger.Infof("Kept pool session %q, a new login took it over while it was being released", session.id)
-			return
 		}
-
-		if manager.onBeforeSessionRelease != nil {
-			manager.onBeforeSessionRelease(session)
-		}
-		manager.releaseSessionResources(session)
-		manager.finishAsyncRelease(session.id)
-		close(session.releaseDone)
 	}()
+}
+
+// teardownReleasingSession closes a session whose staged data has been uploaded
+// and reports whether the teardown owned it: a login that took the session over
+// first keeps it, and then nothing is closed. cause carries a failure of the
+// upload that ran ahead of the teardown, so that a release which itself went
+// fine still leaves the recovery record behind when data was left in staging.
+func (manager *PoolSessionManager) teardownReleasingSession(session *PoolSession, epoch uint64, cause error) (bool, error) {
+	if !manager.beginSessionTeardown(session, epoch) {
+		return false, nil
+	}
+
+	if manager.onBeforeSessionRelease != nil {
+		manager.onBeforeSessionRelease(session)
+	}
+
+	releaseErr := session.release()
+	manager.handleSessionReleaseResult(session, errors.CombineErrors(cause, releaseErr))
+	manager.finishAsyncRelease(session.id)
+	close(session.releaseDone)
+	return true, releaseErr
 }
 
 // drainSessionForRelease finishes everything that moves data while the session
@@ -810,6 +823,73 @@ func (manager *PoolSessionManager) adoptReleasingSessionUnlocked(session *PoolSe
 	delete(manager.releasingSessions, session.id)
 	manager.sessions[session.id] = session
 	return true
+}
+
+// registerRecoveringSession parks a session rebuilt from the recovery store in
+// the releasing map, so that a login for the same account meets it there
+// instead of opening a second client on the staging area it holds. The session
+// is not up for adoption yet: it has no client to serve with until the caller
+// offers it with offerRecoveringSessionForAdoption.
+func (manager *PoolSessionManager) registerRecoveringSession(session *PoolSession) uint64 {
+	manager.mutex.Lock()
+	defer manager.mutex.Unlock()
+
+	epoch := markSessionReleasing(session, false)
+	manager.releasingSessions[session.id] = session
+	return epoch
+}
+
+// offerRecoveringSessionForAdoption opens the window in which a login takes a
+// recovering session over, which lasts until its teardown begins. The logins
+// that arrived before the session was ready are waiting on a release that is
+// now theirs to take over, so they are woken to retry rather than left waiting
+// for an upload that can run for minutes.
+func (manager *PoolSessionManager) offerRecoveringSessionForAdoption(session *PoolSession) {
+	manager.mutex.Lock()
+	defer manager.mutex.Unlock()
+
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	session.tearingDown = false
+
+	waiting := session.releaseDone
+	session.releaseDone = make(chan struct{})
+	if waiting != nil {
+		close(waiting)
+	}
+}
+
+// abandonRecoveringSession drops a recovery that failed before it had a session
+// to hand over, and wakes the logins that are waiting for it.
+func (manager *PoolSessionManager) abandonRecoveringSession(session *PoolSession) {
+	manager.mutex.Lock()
+	delete(manager.releasingSessions, session.id)
+	manager.mutex.Unlock()
+
+	session.mutex.Lock()
+	releaseDone := session.releaseDone
+	session.releasing = false
+	session.releaseDone = nil
+	session.mutex.Unlock()
+
+	if releaseDone != nil {
+		close(releaseDone)
+	}
+}
+
+// sessionInUse reports whether a session of this id is live or is being
+// released, which in both cases means a client owns its staging area.
+func (manager *PoolSessionManager) sessionInUse(sessionID string) bool {
+	manager.mutex.RLock()
+	defer manager.mutex.RUnlock()
+
+	if _, ok := manager.sessions[sessionID]; ok {
+		return true
+	}
+
+	_, ok := manager.releasingSessions[sessionID]
+	return ok
 }
 
 // finishAsyncRelease drops a session once its release has completed.

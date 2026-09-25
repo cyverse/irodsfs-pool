@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 type trackingWriteCloser struct {
@@ -79,6 +80,21 @@ func TestLogPaths(t *testing.T) {
 	config.LogRootPath = "/var/log/irodsfs-pool"
 	assert.Equal(t, "/var/log/irodsfs-pool", config.GetLogRootPath())
 	assert.Equal(t, filepath.Join(config.LogRootPath, "irodsfs-pool.log"), config.GetLogFilePath())
+}
+
+func TestLogMaxBackupsConfigAndWriters(t *testing.T) {
+	config := newValidatableConfig(t)
+	assert.Equal(t, LogMaxBackupsDefault, config.LogMaxBackups)
+
+	parsed, err := NewConfigFromYAML(config, []byte("log_max_backups: 42\n"))
+	require.NoError(t, err)
+	require.NoError(t, parsed.Validate())
+	assert.Equal(t, 42, parsed.LogMaxBackups)
+
+	foreground := getLogWriterForForegroundProcess(parsed.GetLogFilePath(), parsed.LogMaxBackups)
+	assert.Equal(t, 42, foreground.(*lumberjack.Logger).MaxBackups)
+	daemon := getLogWriterForDaemonProcess(parsed.GetLogFilePath(), parsed.LogMaxBackups)
+	assert.Equal(t, 42, daemon.(*lumberjack.Logger).MaxBackups)
 }
 
 func TestParsePoolServiceEndpoint(t *testing.T) {
@@ -199,7 +215,7 @@ packed_directories:
 	packedConfig := config.PackedDirectories.ToPackedFSConfig()
 	require.NoError(t, packedConfig.Validate())
 	// The codec's extension joins the configured suffix.
-	assert.Equal(t, "/p/.venv.mount.tar.zst", packedConfig.ArchivePath("/p/.venv"))
+	assert.Equal(t, "/p/.venv.packedfs.tar.zst", packedConfig.ArchivePath("/p/.venv"))
 }
 
 func TestValidateRejectsBadPackedDirectoriesConfig(t *testing.T) {

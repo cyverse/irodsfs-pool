@@ -43,6 +43,7 @@ type PoolServerConfig struct {
 	sessionCloseGracePeriod               time.Duration
 	packedDirectories                     *irodsfs_common_packedfs.Config
 	logRootPath                           string
+	logMaxBackups                         int
 	logger                                *log.Entry
 }
 
@@ -244,10 +245,6 @@ func (server *PoolServer) getSessionAndLogger(sessionID string, fields log.Field
 		return nil, nil, err
 	}
 
-	if fields == nil {
-		fields = log.Fields{}
-	}
-	fields["sessionID"] = sessionID
 	return session, session.logger.WithFields(fields), nil
 }
 

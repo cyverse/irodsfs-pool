@@ -3,6 +3,7 @@ debug: false
 data_root_path: /var/lib/irodsfs_pool
 pid_file: /run/irodsfs-pool/irodsfs-pool.pid
 log_root_path: /var/log/irodsfs-pool
+log_max_backups: 10
 staging_root_path: /irodsfs_pool/staging
 
 recovery_encryption_key: ""  # required: base64-encoded 32-byte key
@@ -45,7 +46,7 @@ packed_directories:
     ".local", ".apptainer", ".singularity", ".spack", ".lmod.d",
     "node_modules", "__pycache__", "mlruns", "wandb", "lightning_logs", "catboost_info", "site-packages"
   ]
-  suffix: ".mount.tar"
+  suffix: ".packedfs.tar"
   # none keeps the archive seekable and costs no CPU. The files in these
   # directories are usually already compressed, so gzip or zstd saves little.
   compression: none

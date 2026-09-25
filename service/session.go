@@ -26,7 +26,6 @@ import (
 
 const (
 	sessionLogMaxSizeMB  = 10
-	sessionLogMaxBackups = 10
 	sessionLogMaxAgeDays = 30
 )
 
@@ -286,7 +285,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	// Create new session
 	manager.logger.Infof("Creating a new pool session for username %q", irodsAccount.ClientUser)
 
-	sessionLogger, sessionLogFile, err := newSessionLogger(manager.config.logRootPath, sessionID)
+	sessionLogger, sessionLogFile, err := newSessionLogger(manager.config.logRootPath, sessionID, manager.config.logMaxBackups)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create log file for session %q", sessionID)
 	}
@@ -329,6 +328,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 		GracePeriod:        manager.config.stagingDataGracePeriod,
 		UsePersistence:     true,
 		PackedDirectories:  manager.config.packedDirectories,
+		Logger:             sessionLogger,
 	}
 
 	fsClient, err := irodsfs_common_irods.NewIRODSFSClientBuffered(fs, manager.cacheManager, buffConfig)
@@ -1313,7 +1313,7 @@ func makeAccountKey(account *irodsclient_types.IRODSAccount) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func newSessionLogger(logRootPath string, sessionID string) (*log.Entry, io.WriteCloser, error) {
+func newSessionLogger(logRootPath string, sessionID string, maxBackups int) (*log.Entry, io.WriteCloser, error) {
 	if len(logRootPath) == 0 {
 		return nil, nil, errors.New("log root path is required")
 	}
@@ -1327,7 +1327,7 @@ func newSessionLogger(logRootPath string, sessionID string) (*log.Entry, io.Writ
 	logWriter := &lumberjack.Logger{
 		Filename:   logFilePath,
 		MaxSize:    sessionLogMaxSizeMB,
-		MaxBackups: sessionLogMaxBackups,
+		MaxBackups: maxBackups,
 		MaxAge:     sessionLogMaxAgeDays,
 		Compress:   false,
 	}
@@ -1345,7 +1345,7 @@ func newSessionLogger(logRootPath string, sessionID string) (*log.Entry, io.Writ
 	sessionLogger.SetLevel(log.GetLevel())
 	sessionLogger.SetReportCaller(true)
 
-	return sessionLogger.WithField("session_id", sessionID), logWriter, nil
+	return sessionLogger.WithField("sessionID", sessionID), logWriter, nil
 }
 
 func newIrodsClientLogger(logWriter io.WriteCloser) (*log.Entry, error) {

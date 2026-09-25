@@ -111,20 +111,14 @@ tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 
 	fmt.Fprintf(w, `<p class="info">Last refreshed: %s</p>`, time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprint(w, `<script>
-setTimeout(function(){ location.reload(); }, 10000);
 function showDetail(id) {
   var src = document.getElementById('detail-' + id);
-  if (!src) {
-    try { sessionStorage.removeItem('_openDetail'); } catch(e) {}
-    return;
-  }
+  if (!src) return;
   document.getElementById('modal-content').innerHTML = src.innerHTML;
   document.getElementById('modal-overlay').style.display = 'block';
-  try { sessionStorage.setItem('_openDetail', id); } catch(e) {}
 }
 function closeDetail() {
   document.getElementById('modal-overlay').style.display = 'none';
-  try { sessionStorage.removeItem('_openDetail'); } catch(e) {}
 }
 function syncSessionStaging(id) {
   var modal = document.getElementById('modal-content');
@@ -139,8 +133,7 @@ function syncSessionStaging(id) {
     .then(function(result){
       if (!el) return;
       if (result.ok && result.data.success) {
-        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging sync succeeded. Page will refresh.</span>';
-        setTimeout(function(){ location.reload(); }, 2000);
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging sync succeeded. Refresh the page to see updates.</span>';
       } else {
         el.innerHTML = '<span class="action-result-err">&#x2717; ' + (result.data.error || 'unknown error') + '</span>';
         if (button) button.disabled = false;
@@ -159,8 +152,7 @@ function recoverSession(id) {
     .then(function(data){
       if (!el) return;
       if (data.success) {
-        el.innerHTML = '<span class="action-result-ok">&#x2713; Recovery succeeded. Page will refresh.</span>';
-        setTimeout(function(){ location.reload(); }, 2000);
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Recovery succeeded. Refresh the page to see updates.</span>';
       } else {
         el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
       }
@@ -176,20 +168,13 @@ function discardSession(id) {
     .then(function(data){
       if (!el) return;
       if (data.success) {
-        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging discarded. Page will refresh.</span>';
-        setTimeout(function(){ location.reload(); }, 2000);
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging discarded. Refresh the page to see updates.</span>';
       } else {
         el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
       }
     })
     .catch(function(e){ if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>'; });
 }
-(function(){
-  try {
-    var id = sessionStorage.getItem('_openDetail');
-    if (id) showDetail(id);
-  } catch(e) {}
-})();
 </script>`)
 	fmt.Fprint(w, `</body></html>`)
 }
@@ -297,7 +282,7 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 		return
 	}
 
-	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Access</th><th>Clients</th><th>File Handles</th><th>iRODS Conns</th></tr>`)
+	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Access</th><th>Clients</th><th>Staged Files</th><th>Packed Directories</th><th>File Handles</th><th>iRODS Conns</th></tr>`)
 	for _, session := range sessions {
 		session.mutex.RLock()
 		handleCount := len(session.poolFileHandles)
@@ -311,15 +296,28 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 		session.mutex.RUnlock()
 
 		var irodsConns int
+		var stagedFiles int
+		var packedDirectories int
 		if session.fsClient != nil {
 			irodsConns = session.fsClient.GetOpenConnections()
+			if bufferedClient, ok := session.fsClient.(*irodsfs_common_irods.IRODSFSClientBuffered); ok {
+				if stagingFS := bufferedClient.GetStagingFS(); stagingFS != nil {
+					stagedFiles = len(stagingFS.GetAll())
+				}
+				if packedFS := bufferedClient.GetPackedFS(); packedFS != nil {
+					packedDirectories = len(packedFS.Statuses())
+				}
+			}
 		}
 
 		sort.Slice(connEntries, func(i, j int) bool { return connEntries[i].id < connEntries[j].id })
 
 		account := session.irodsAccount
-		userInfo := fmt.Sprintf("%s@%s", account.ClientUser, account.ClientZone)
 		hostInfo := fmt.Sprintf("%s:%d", account.Host, account.Port)
+		displayID := session.id
+		if len(displayID) > 8 {
+			displayID = displayID[:4] + "…" + displayID[len(displayID)-4:]
+		}
 
 		var clientsCell string
 		if releasing {
@@ -345,10 +343,10 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 
 		// clientsCell is markup this function built from already-escaped parts,
 		// so it is the one value here that must not be escaped again.
-		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('%s')"><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td></tr>`,
-			template.JSEscapeString(session.id), html.EscapeString(session.id[:12]+"…"),
-			html.EscapeString(userInfo), html.EscapeString(hostInfo),
-			lastAccess.Format("15:04:05"), clientsCell, handleCount, irodsConns)
+		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('%s')"><td title="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
+			template.JSEscapeString(session.id), html.EscapeString(session.id), html.EscapeString(displayID),
+			html.EscapeString(account.ClientUser), html.EscapeString(hostInfo),
+			lastAccess.Format("15:04:05"), clientsCell, stagedFiles, packedDirectories, handleCount, irodsConns)
 	}
 	fmt.Fprint(w, `</table>`)
 	fmt.Fprint(w, `<p class="info">Click a row to see staged files, sync status, and open file handles.</p>`)

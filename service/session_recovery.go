@@ -107,7 +107,7 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 	}
 
 	// Build session logger.
-	sessionLogger, sessionLogFile, err := newSessionLogger(manager.config.logRootPath, sessionID)
+	sessionLogger, sessionLogFile, err := newSessionLogger(manager.config.logRootPath, sessionID, manager.config.logMaxBackups)
 	if err != nil {
 		return false, errors.Wrapf(err, "failed to create session logger for recovery of %q", sessionID)
 	}
@@ -168,6 +168,7 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 		GracePeriod:        manager.config.stagingDataGracePeriod,
 		UsePersistence:     true,
 		PackedDirectories:  manager.config.packedDirectories,
+		Logger:             sessionLogger,
 	}
 
 	fsClient, err := irodsfs_common_irods.NewIRODSFSClientBuffered(fs, manager.cacheManager, buffConfig)

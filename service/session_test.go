@@ -25,7 +25,7 @@ func TestNewSessionLoggerWritesOnlyToSessionFile(t *testing.T) {
 
 	logRootPath := t.TempDir()
 	sessionID := "test-session"
-	logger, logFile, err := newSessionLogger(logRootPath, sessionID)
+	logger, logFile, err := newSessionLogger(logRootPath, sessionID, 42)
 	if err != nil {
 		t.Fatalf("newSessionLogger: %v", err)
 	}
@@ -34,8 +34,8 @@ func TestNewSessionLoggerWritesOnlyToSessionFile(t *testing.T) {
 	if !ok {
 		t.Fatalf("session log writer type = %T, want *lumberjack.Logger", logFile)
 	}
-	if logWriter.MaxSize != 10 || logWriter.MaxBackups != 10 || logWriter.MaxAge != 30 {
-		t.Fatalf("session log rotation = size:%d backups:%d age:%d, want 10/10/30", logWriter.MaxSize, logWriter.MaxBackups, logWriter.MaxAge)
+	if logWriter.MaxSize != 10 || logWriter.MaxBackups != 42 || logWriter.MaxAge != 30 {
+		t.Fatalf("session log rotation = size:%d backups:%d age:%d, want 10/42/30", logWriter.MaxSize, logWriter.MaxBackups, logWriter.MaxAge)
 	}
 
 	logger.Info("session-only message")
@@ -56,7 +56,7 @@ func TestNewSessionLoggerWritesOnlyToSessionFile(t *testing.T) {
 	if !strings.Contains(logText, "session-only message") {
 		t.Fatalf("session log does not contain message: %q", logText)
 	}
-	if !strings.Contains(logText, "session_id=test-session") {
+	if !strings.Contains(logText, "sessionID=test-session") {
 		t.Fatalf("session log does not contain session ID: %q", logText)
 	}
 }

@@ -67,6 +67,7 @@ defaults.
 | `operation_timeout` | `5m` | Operation timeout |
 | `management_service_endpoint` | `http://0.0.0.0:12021` | HTTP endpoint for `/monitor`, `/metrics`, and `/api`; `http://` is optional (empty to disable) |
 | `log_root_path` | `/var/log/irodsfs-pool` | Directory containing service and per-session logs |
+| `log_max_backups` | `10` | Rotated files retained per service or session log; `0` disables the count limit |
 
 The service will not start while `recovery_encryption_key` is empty. Generate a
 key and copy the output into the configuration file:

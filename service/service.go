@@ -63,6 +63,7 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		sessionCloseGracePeriod:               time.Duration(config.SessionCloseGracePeriod),
 		packedDirectories:                     config.PackedDirectories.ToPackedFSConfig(),
 		logRootPath:                           config.GetLogRootPath(),
+		logMaxBackups:                         config.LogMaxBackups,
 	}
 
 	poolServer, err := NewPoolServer(poolServerConfig)
@@ -172,7 +173,6 @@ func (svc *PoolService) Start() error {
 				// terminate
 				return
 			case <-tickerMetricsCollection.C:
-				svc.poolServer.PrintConnectionStat()
 				svc.poolServer.CollectPrometheusMetrics()
 			}
 		}

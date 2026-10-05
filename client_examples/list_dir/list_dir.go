@@ -37,22 +37,14 @@ func main() {
 	account := cfg.ToIRODSAccount()
 	logger.Debugf("Account : %v", account.GetRedacted())
 
-	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, false, "list_dir_example", logger)
-	err = poolClient.Connect()
-	if err != nil {
-		logger.Error(err)
-		panic(err)
-	}
-
-	defer poolClient.Disconnect()
-
 	appName := "list_dir"
-	poolSession, err := poolClient.NewSession(account, appName, "list_dir test")
+	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, false, "list_dir_example", account, appName, "list_dir test", logger)
+	poolSession, err := poolClient.Connect()
 	if err != nil {
 		logger.Error(err)
 		panic(err)
 	}
-	defer poolSession.Release()
+	defer poolClient.Disconnect()
 
 	entries, err := poolSession.List(inputPath)
 	if err != nil {

@@ -2,9 +2,12 @@ package client
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,6 +71,11 @@ type PoolServiceClient struct {
 	id               string
 	address          string // host:port
 	operationTimeout time.Duration
+	account          *irodsclient_types.IRODSAccount
+	applicationName  string
+	description      string
+	routingKey       string
+	session          *PoolServiceSession // the one session of this client, set while logged in
 	grpcConnection   *grpc.ClientConn
 	apiClient        api.PoolAPIClient
 	fsCache          *MetadataCache
@@ -82,6 +90,7 @@ type PoolServiceClient struct {
 
 	reconnectSequence uint64
 	mutex             sync.RWMutex
+	lifecycleMutex    sync.Mutex // serializes Connect and Disconnect
 }
 
 // PoolServiceSession is a service session
@@ -93,23 +102,28 @@ type PoolServiceSession struct {
 	poolServiceClient *PoolServiceClient
 	account           *irodsclient_types.IRODSAccount
 	applicationName   string
+	description       string
 
 	loggedIn            bool
 	openReadOnlyHandles int32
 	mutex               sync.RWMutex // mutex to access PoolServiceSession
-	terminateChan       chan bool
+	terminateChan       chan struct{}
 	logger              *log.Entry
 }
 
-// NewPoolServiceClient creates a new pool service client
-// NewPoolServiceClient creates a client of the pool service.
+// NewPoolServiceClient creates a client of the pool service for one iRODS
+// account. A client holds exactly one session: Connect logs in with the
+// account, and Disconnect logs out.
 //
 // clientID names this client to the server for as long as it lives, across
 // reconnects, and scopes the file lock owners it reports. Callers that have an
 // id of their own - a mount instance id, say - should pass it so that one id
 // identifies them in their own logs and in the server's. An empty id gets a
 // generated one.
-func NewPoolServiceClient(address string, operationTimeout time.Duration, autoReconnect bool, clientID string, logger *log.Entry) *PoolServiceClient {
+//
+// The routing key sent with every call is derived from the account, so that a
+// reverse proxy can route all clients of the same user to the same server.
+func NewPoolServiceClient(address string, operationTimeout time.Duration, autoReconnect bool, clientID string, account *irodsclient_types.IRODSAccount, applicationName string, description string, logger *log.Entry) *PoolServiceClient {
 	if clientID == "" {
 		clientID = xid.New().String()
 	}
@@ -128,6 +142,10 @@ func NewPoolServiceClient(address string, operationTimeout time.Duration, autoRe
 		id:               clientID,
 		address:          address,
 		operationTimeout: operationTimeout,
+		account:          account,
+		applicationName:  applicationName,
+		description:      description,
+		routingKey:       MakeRoutingKey(account),
 		grpcConnection:   nil,
 		fsCache:          NewMetadataCache(localMetadataCacheTiemout, localMetadataCacheTiemout),
 		connected:        false,
@@ -260,18 +278,55 @@ func (client *PoolServiceClient) GetID() string {
 	return client.id
 }
 
-// clientIDUnaryInterceptor sends the client id along with every call, so that
-// the server can tell this client apart from the others sharing its session
-func (client *PoolServiceClient) clientIDUnaryInterceptor(ctx context.Context, method string, req any, reply any, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-	return invoker(client.withClientID(ctx), method, req, reply, conn, opts...)
+// GetRoutingKey returns the routing key this client sends with every call
+func (client *PoolServiceClient) GetRoutingKey() string {
+	return client.routingKey
 }
 
-func (client *PoolServiceClient) clientIDStreamInterceptor(ctx context.Context, desc *grpc.StreamDesc, conn *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-	return streamer(client.withClientID(ctx), desc, conn, method, opts...)
+// MakeRoutingKey derives the routing key of an iRODS account. It names the
+// user, not the session: every session of the user - whatever ticket or
+// default resource it logs in with - gets the same key, so that a reverse
+// proxy hashing on it sends them all to the one server holding the user's
+// staged writes and file locks. Ticket logins are the exception, keyed by
+// their ticket as well, so that anonymous ticket users do not all land on a
+// single server. The key is a hash so that proxy logs do not show user names.
+func MakeRoutingKey(account *irodsclient_types.IRODSAccount) string {
+	if account == nil {
+		return ""
+	}
+
+	h := sha256.New()
+	h.Write([]byte(account.Host))
+	h.Write([]byte{0})
+	h.Write([]byte(strconv.Itoa(account.Port)))
+	h.Write([]byte{0})
+	h.Write([]byte(account.ClientZone))
+	h.Write([]byte{0})
+	h.Write([]byte(account.ClientUser))
+	if len(account.Ticket) > 0 {
+		h.Write([]byte{0})
+		h.Write([]byte(account.Ticket))
+	}
+	return hex.EncodeToString(h.Sum(nil))[:32]
 }
 
-func (client *PoolServiceClient) withClientID(ctx context.Context) context.Context {
-	return metadata.AppendToOutgoingContext(ctx, commons.ClientIDMetadataKey, client.id)
+// metadataUnaryInterceptor sends the client id and the routing key along with
+// every call, so that the server can tell this client apart from the others
+// sharing its session, and a reverse proxy can route the call to the server
+// holding that session
+func (client *PoolServiceClient) metadataUnaryInterceptor(ctx context.Context, method string, req any, reply any, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	return invoker(client.withMetadata(ctx), method, req, reply, conn, opts...)
+}
+
+func (client *PoolServiceClient) metadataStreamInterceptor(ctx context.Context, desc *grpc.StreamDesc, conn *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	return streamer(client.withMetadata(ctx), desc, conn, method, opts...)
+}
+
+func (client *PoolServiceClient) withMetadata(ctx context.Context) context.Context {
+	if len(client.routingKey) == 0 {
+		return metadata.AppendToOutgoingContext(ctx, commons.ClientIDMetadataKey, client.id)
+	}
+	return metadata.AppendToOutgoingContext(ctx, commons.ClientIDMetadataKey, client.id, commons.RoutingKeyMetadataKey, client.routingKey)
 }
 
 // newConnection creates a gRPC connection for the configured service endpoint.
@@ -297,8 +352,8 @@ func (client *PoolServiceClient) newConnection() (*grpc.ClientConn, api.PoolAPIC
 		"passthrough:///"+endpoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(grpcDialer),
-		grpc.WithUnaryInterceptor(client.clientIDUnaryInterceptor),
-		grpc.WithStreamInterceptor(client.clientIDStreamInterceptor),
+		grpc.WithUnaryInterceptor(client.metadataUnaryInterceptor),
+		grpc.WithStreamInterceptor(client.metadataStreamInterceptor),
 	)
 	if err != nil {
 		return nil, nil, "", errors.Wrapf(err, "failed to create gRPC client for %q", client.address)
@@ -306,10 +361,40 @@ func (client *PoolServiceClient) newConnection() (*grpc.ClientConn, api.PoolAPIC
 	return connection, api.NewPoolAPIClient(connection), scheme + "://" + endpoint, nil
 }
 
-// Connect connects to pool service
-func (client *PoolServiceClient) Connect() error {
+// Connect connects to pool service, logs in with the client's account, and
+// returns the session. Calling it on a client that is already connected
+// returns the session it already has.
+func (client *PoolServiceClient) Connect() (irodsfs_common_irods.IRODSFSClient, error) {
 	defer irodsfs_common_util.StackTraceFromPanic(client.logger)
 
+	if client.account == nil {
+		return nil, errors.New("account is not given")
+	}
+
+	client.lifecycleMutex.Lock()
+	defer client.lifecycleMutex.Unlock()
+
+	if !client.isConnected() {
+		err := client.connect()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if session := client.GetSession(); session != nil {
+		return session, nil
+	}
+
+	err := client.login()
+	if err != nil {
+		client.disconnectConn()
+		return nil, err
+	}
+	return client.GetSession(), nil
+}
+
+// connect creates the gRPC connection to pool service, without logging in
+func (client *PoolServiceClient) connect() error {
 	connection, apiClient, endpointDescription, err := client.newConnection()
 	if err != nil {
 		client.logger.WithError(err).Error("failed to create pool service connection")
@@ -348,8 +433,14 @@ func (client *PoolServiceClient) disconnectConn() {
 	}
 }
 
-// Disconnect disconnects connection from pool service
-func (client *PoolServiceClient) Disconnect() {
+// Disconnect logs out and disconnects connection from pool service. Calling it
+// on a client that is already disconnected does nothing.
+func (client *PoolServiceClient) Disconnect() error {
+	client.lifecycleMutex.Lock()
+	defer client.lifecycleMutex.Unlock()
+
+	logoutErr := client.logout()
+
 	// Stop any running background reconnect goroutine.
 	atomic.AddUint64(&client.reconnectSequence, 1)
 	client.bgCancelMu.Lock()
@@ -361,6 +452,35 @@ func (client *PoolServiceClient) Disconnect() {
 	atomic.StoreInt32(&client.reconnectingFlag, 0)
 
 	client.disconnectConn()
+	return logoutErr
+}
+
+// Release releases all resources of the client: it disconnects the client if
+// it is still connected, and drops the local metadata cache
+func (client *PoolServiceClient) Release() error {
+	client.mutex.RLock()
+	needDisconnect := client.connected || client.session != nil
+	client.mutex.RUnlock()
+
+	var err error
+	if needDisconnect {
+		err = client.Disconnect()
+	}
+
+	client.fsCache.ClearDirCache()
+	client.fsCache.ClearEntryCache()
+	return err
+}
+
+// GetSession returns the session of the client, nil if not connected
+func (client *PoolServiceClient) GetSession() irodsfs_common_irods.IRODSFSClient {
+	client.mutex.RLock()
+	defer client.mutex.RUnlock()
+
+	if client.session == nil {
+		return nil
+	}
+	return client.session
 }
 
 func (client *PoolServiceClient) getAPIClient() (api.PoolAPIClient, error) {
@@ -402,40 +522,53 @@ func getLargeWriteOption() grpc.CallOption {
 	return grpc.MaxCallSendMsgSize(messageRWLengthMax)
 }
 
-// NewSession creates a new session for iRODS service using account info
-func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAccount, applicationName string, description string) (irodsfs_common_irods.IRODSFSClient, error) {
+// login creates the session of the client on pool service. A client holds at
+// most one session.
+func (client *PoolServiceClient) login() error {
 	defer irodsfs_common_util.StackTraceFromPanic(client.logger)
+
+	client.mutex.RLock()
+	hasSession := client.session != nil
+	client.mutex.RUnlock()
+	if hasSession {
+		return errors.New("client is already logged in")
+	}
 
 	ctx, cancel := client.getContextWithDeadline()
 	defer cancel()
 
 	request := &api.LoginRequest{
-		Account:         convertAccountFromIRODSToAPI(account),
-		ApplicationName: applicationName,
-		Description:     description,
+		Account:         convertAccountFromIRODSToAPI(client.account),
+		ApplicationName: client.applicationName,
+		Description:     client.description,
 	}
 
 	apiClient, err := client.getAPIClient()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	response, err := apiClient.Login(ctx, request)
 	if err != nil {
 		client.logger.Error(err)
-		return nil, commons.StatusToError(err)
+		return commons.StatusToError(err)
 	}
 
 	session := &PoolServiceSession{
 		poolServiceClient: client,
 		id:                response.SessionId,
-		account:           account,
-		applicationName:   applicationName,
+		account:           client.account,
+		applicationName:   client.applicationName,
+		description:       client.description,
 		loggedIn:          true,
 		mutex:             sync.RWMutex{},
-		terminateChan:     make(chan bool),
+		terminateChan:     make(chan struct{}),
 
 		logger: client.logger.WithFields(log.Fields{"sessionID": response.SessionId}),
 	}
+
+	client.mutex.Lock()
+	client.session = session
+	client.mutex.Unlock()
 
 	// run a goroutine to send keepalive
 	go func() {
@@ -451,14 +584,15 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 				// send keep alive
 				session.mutex.RLock()
 				loggedIn := session.loggedIn
+				sessionID := session.id
 				session.mutex.RUnlock()
 
 				if loggedIn {
 					request := &api.KeepAliveRequest{
-						SessionId: session.id,
+						SessionId: sessionID,
 					}
 
-					apiClient, err := session.poolServiceClient.getAPIClient()
+					apiClient, err := client.getAPIClient()
 					if err == nil {
 						_, err = apiClient.KeepAlive(context.Background(), request)
 					}
@@ -474,27 +608,38 @@ func (client *PoolServiceClient) NewSession(account *irodsclient_types.IRODSAcco
 		}
 	}()
 
-	return session, nil
+	return nil
 }
 
-// Release logouts from iRODS service session
-func (session *PoolServiceSession) Release() error {
-	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
+// logout logs out the session of the client from pool service. It does
+// nothing if the client is not logged in.
+func (client *PoolServiceClient) logout() error {
+	defer irodsfs_common_util.StackTraceFromPanic(client.logger)
 
-	session.terminateChan <- true
+	client.mutex.Lock()
+	session := client.session
+	client.session = nil
+	client.mutex.Unlock()
 
-	ctx, cancel := session.poolServiceClient.getContextWithDeadline()
-	defer cancel()
-
-	request := &api.LogoutRequest{
-		SessionId: session.id,
+	if session == nil {
+		return nil
 	}
+
+	close(session.terminateChan)
 
 	session.mutex.Lock()
 	session.loggedIn = false
+	sessionID := session.id
 	session.mutex.Unlock()
 
-	apiClient, err := session.poolServiceClient.getAPIClient()
+	ctx, cancel := client.getContextWithDeadline()
+	defer cancel()
+
+	request := &api.LogoutRequest{
+		SessionId: sessionID,
+	}
+
+	apiClient, err := client.getAPIClient()
 	if err != nil {
 		return err
 	}
@@ -506,8 +651,13 @@ func (session *PoolServiceSession) Release() error {
 	return nil
 }
 
-// Relogin re-login iRODS service session
-func (session *PoolServiceSession) Relogin() error {
+// Release releases all resources of the client the session belongs to
+func (session *PoolServiceSession) Release() error {
+	return session.poolServiceClient.Release()
+}
+
+// relogin re-login iRODS service session
+func (session *PoolServiceSession) relogin() error {
 	defer irodsfs_common_util.StackTraceFromPanic(session.logger)
 
 	session.mutex.Lock()
@@ -519,6 +669,7 @@ func (session *PoolServiceSession) Relogin() error {
 	request := &api.LoginRequest{
 		Account:         convertAccountFromIRODSToAPI(session.account),
 		ApplicationName: session.applicationName,
+		Description:     session.description,
 	}
 
 	apiClient, err := session.poolServiceClient.getAPIClient()
@@ -569,7 +720,7 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 
 	if !loggedIn {
 		// keepalive detected logged out — relogin first
-		err := session.Relogin()
+		err := session.relogin()
 		if err != nil {
 			if client.autoReconnect && isTransportError(err) {
 				// Transport error during relogin: trigger background reconnect if not already running.
@@ -599,10 +750,10 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 				return res, err
 			}
 
-			// One immediate attempt: recreate connection and test with Relogin.
+			// One immediate attempt: recreate connection and test with relogin.
 			// Use disconnectConn (not Disconnect) to preserve reconnectingFlag==1.
 			client.disconnectConn()
-			_ = client.Connect()
+			_ = client.connect()
 			if conn := client.getGRPCConnection(); conn != nil {
 				conn.Connect()
 				waitCtx, cancel := context.WithTimeout(context.Background(), reconnectInitialInterval)
@@ -610,7 +761,7 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 				cancel()
 
 				if ready {
-					if reloginErr := session.Relogin(); reloginErr == nil {
+					if reloginErr := session.relogin(); reloginErr == nil {
 						// Server is back, resume normally.
 						atomic.StoreInt32(&client.reconnectingFlag, 0)
 						res, err = f()
@@ -636,7 +787,7 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 			session.mutex.Unlock()
 
 			// relogin
-			err2 := session.Relogin()
+			err2 := session.relogin()
 			if err2 != nil {
 				return nil, err2
 			}

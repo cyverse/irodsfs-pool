@@ -13,6 +13,16 @@
 
 The pool client (`client/client.go`) implements `IRODSFSClient` interface and communicates with the pool server via gRPC. The server wraps `IRODSFSClientBuffered` from `irodsfs-common`, which provides 4MB block caching for reads and local staging for writes.
 
+## Client Lifecycle and Routing
+
+- A `PoolServiceClient` serves one iRODS account and holds exactly one session. The account, application name, and description are given to `NewPoolServiceClient`.
+- `Connect` dials the server, logs in, and returns the session as an `IRODSFSClient`; `GetSession` returns the same session later.
+- `Disconnect` logs out and closes the connection. `Release` (on the client, or on the session through `IRODSFSClient`) releases all resources: it disconnects the client if it is still connected and drops the local metadata cache. Both are safe to call more than once.
+- Every call carries two gRPC metadata headers: `x-irodsfs-client-id` (the client) and `x-irodsfs-routing-key` (the user).
+- The routing key is a hash of host, port, client zone, and client user, plus the ticket for ticket logins. It names the user rather than the session, so all clients of a user share it.
+- With several pool servers behind an L7 (HTTP/2-aware) reverse proxy, the proxy should hash on `x-irodsfs-routing-key` (Envoy `hash_policy`, nginx `hash ... consistent`, HAProxy `balance hdr()`) so that a user's sessions, staged writes, and file locks stay on one server. An L4/TCP proxy cannot see the header.
+- The routing key is not a credential and must not be used for authorization.
+
 ## Client-Side I/O Strategies
 
 ### ReadOnly Mode — Prefetch (Double Buffering)

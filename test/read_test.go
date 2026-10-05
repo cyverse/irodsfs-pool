@@ -69,19 +69,13 @@ func setupSession(t *testing.T) (irodsfs_common_irods.IRODSFSClient, func()) {
 
 	account := cfg.ToIRODSAccount()
 
-	poolClient := client.NewPoolServiceClient(poolAddr, 5*time.Minute, false, "", logger)
-	if err := poolClient.Connect(); err != nil {
+	poolClient := client.NewPoolServiceClient(poolAddr, 5*time.Minute, false, "", account, "read_test", "", logger)
+	session, err := poolClient.Connect()
+	if err != nil {
 		t.Fatalf("failed to connect to pool server at %q: %v", poolAddr, err)
 	}
 
-	session, err := poolClient.NewSession(account, "read_test", "")
-	if err != nil {
-		poolClient.Disconnect()
-		t.Fatalf("failed to create session: %v", err)
-	}
-
 	cleanup := func() {
-		session.Release()
 		poolClient.Disconnect()
 	}
 

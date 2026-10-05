@@ -45,5 +45,12 @@ const (
 	// most of all.
 	ClientIDMetadataKey string = "x-irodsfs-client-id"
 
+	// RoutingKeyMetadataKey is the gRPC metadata a client sends its routing
+	// key in. The key is derived from the iRODS user, so a reverse proxy in
+	// front of several pool servers can hash on it to send every call of a
+	// user to the same server, where the user's session, staged writes, and
+	// file locks live. It is not a credential and must not be trusted as one.
+	RoutingKeyMetadataKey string = "x-irodsfs-routing-key"
+
 	LogMaxBackupsDefault int = 10
 )

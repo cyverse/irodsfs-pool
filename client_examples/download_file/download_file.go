@@ -37,22 +37,14 @@ func main() {
 	account := cfg.ToIRODSAccount()
 	logger.Debugf("Account : %v", account.GetRedacted())
 
-	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, false, "download_file_example", logger)
-	err = poolClient.Connect()
-	if err != nil {
-		logger.Error(err)
-		panic(err)
-	}
-
-	defer poolClient.Disconnect()
-
 	appName := "download_file"
-	poolSession, err := poolClient.NewSession(account, appName, "download_file test")
+	poolClient := client.NewPoolServiceClient(":12020", time.Minute*5, false, "download_file_example", account, appName, "download_file test", logger)
+	poolSession, err := poolClient.Connect()
 	if err != nil {
 		logger.Error(err)
 		panic(err)
 	}
-	defer poolSession.Release()
+	defer poolClient.Disconnect()
 
 	trackerCB := func(task string, processed int64, total int64) {
 		logger.Infof("%s] %d / %d", task, processed, total)

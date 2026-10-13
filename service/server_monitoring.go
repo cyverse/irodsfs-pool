@@ -99,6 +99,15 @@ tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 .action-btn-warn:hover { background:#5a3a00; }
 .action-result-ok  { color:#4c4; margin:4px 0; }
 .action-result-err { color:#f44; margin:4px 0; }
+.errors-table { table-layout: fixed; }
+.errors-table th, .errors-table td { overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
+.errors-table th:nth-child(1) { width: 13%; }
+.errors-table th:nth-child(2) { width: 6%; }
+.errors-table th:nth-child(3) { width: 10%; }
+.errors-table th:nth-child(4) { width: 14%; }
+.errors-table th:nth-child(5) { width: 24%; }
+.errors-table th:nth-child(6) { width: 33%; }
+.stack-trace { white-space: pre-wrap; overflow-wrap: anywhere; background: #0b1530; border: 1px solid #333; padding: 10px; font-size: 12px; max-height: 60vh; overflow: auto; }
 </style>`)
 	fmt.Fprint(w, `</head><body>`)
 
@@ -108,9 +117,12 @@ tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 	h.renderSessions(w)
 	h.renderFailedSessions(w)
 	h.renderMetrics(w)
+	errorGroups, errorTotal := h.poolServer.GetErrors()
+	renderErrors(w, errorGroups, errorTotal)
 
 	h.renderSessionDetails(w)
 	h.renderFailedSessionDetails(w)
+	renderErrorDetails(w, errorGroups)
 
 	fmt.Fprintf(w, `<p class="info">Last refreshed: %s</p>`, time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprint(w, `<script>
@@ -604,6 +616,64 @@ func (h *MonitoringHandler) renderMetrics(w http.ResponseWriter) {
 	fmt.Fprintf(w, `<tr><th>Request Failures</th><td>%d</td></tr>`, m.RequestFailures)
 	fmt.Fprintf(w, `<tr><th>Connection Failures</th><td>%d</td></tr>`, m.ConnectionFailures)
 	fmt.Fprint(w, `</table>`)
+}
+
+// errorMessageDisplayLength caps the message shown in the errors table; the
+// full message and the stack trace are in the row's detail.
+const errorMessageDisplayLength = 300
+
+// renderErrors lists the errors iRODS operations returned to clients, one row
+// per distinct error.
+func renderErrors(w io.Writer, groups []ErrorGroup, total uint64) {
+	fmt.Fprint(w, `<h2>Errors</h2>`)
+	fmt.Fprintf(w, `<p>Total: %d since start (%d distinct errors shown)</p>`, total, len(groups))
+	if len(groups) == 0 {
+		fmt.Fprint(w, `<p class="info">No errors have been returned to clients.</p>`)
+		return
+	}
+
+	fmt.Fprint(w, `<table class="errors-table"><tr><th>Last Seen</th><th>Count</th><th>Operation</th><th>Users</th><th>Latest Path</th><th>Error</th></tr>`)
+	for _, group := range groups {
+		message := group.Message
+		if len(message) > errorMessageDisplayLength {
+			message = strings.ToValidUTF8(message[:errorMessageDisplayLength], "") + "…"
+		}
+		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('error-%d')"><td>%s</td><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td class="dirty">%s</td></tr>`,
+			group.ID, group.LastSeen.Format("2006-01-02 15:04:05"), group.Count, html.EscapeString(group.Operation),
+			html.EscapeString(formatErrorGroupUsers(group)), html.EscapeString(group.Path), html.EscapeString(message))
+	}
+	fmt.Fprint(w, `</table>`)
+	fmt.Fprint(w, `<p class="info">Errors iRODS operations returned to clients, grouped by operation and message. Errors recovered by a retry are not listed. Click a row for the stack trace of the latest occurrence.</p>`)
+}
+
+func formatErrorGroupUsers(group ErrorGroup) string {
+	users := strings.Join(group.Users, ", ")
+	if group.MoreUsers {
+		users += ", …"
+	}
+	return users
+}
+
+func renderErrorDetails(w io.Writer, groups []ErrorGroup) {
+	escape := html.EscapeString
+	for _, group := range groups {
+		fmt.Fprintf(w, `<div id="detail-error-%d" style="display:none">`, group.ID)
+		fmt.Fprint(w, `<h3>Error</h3><table>`)
+		fmt.Fprintf(w, `<tr><th>Operation</th><td>%s</td></tr>`, escape(group.Operation))
+		fmt.Fprintf(w, `<tr><th>Message</th><td>%s</td></tr>`, escape(group.Message))
+		fmt.Fprintf(w, `<tr><th>Count</th><td>%d</td></tr>`, group.Count)
+		fmt.Fprintf(w, `<tr><th>First Seen</th><td>%s</td></tr>`, group.FirstSeen.Format("2006-01-02 15:04:05.000 MST"))
+		fmt.Fprintf(w, `<tr><th>Last Seen</th><td>%s</td></tr>`, group.LastSeen.Format("2006-01-02 15:04:05.000 MST"))
+		fmt.Fprintf(w, `<tr><th>Users</th><td>%s</td></tr>`, escape(formatErrorGroupUsers(group)))
+		fmt.Fprint(w, `</table>`)
+		fmt.Fprint(w, `<h3>Latest Occurrence</h3><table>`)
+		fmt.Fprintf(w, `<tr><th>Session</th><td>%s</td></tr>`, escape(group.SessionID))
+		fmt.Fprintf(w, `<tr><th>User</th><td>%s</td></tr>`, escape(group.User))
+		fmt.Fprintf(w, `<tr><th>Path</th><td>%s</td></tr>`, escape(group.Path))
+		fmt.Fprint(w, `</table>`)
+		fmt.Fprintf(w, `<h3>Stack Trace</h3><pre class="stack-trace">%s</pre>`, escape(group.Detail))
+		fmt.Fprint(w, `</div>`)
+	}
 }
 
 func renderBar(pct float64) string {

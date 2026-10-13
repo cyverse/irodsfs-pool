@@ -88,6 +88,7 @@ type PoolServer struct {
 	accumulatedMetrics  AccumulatedMetrics // sum of terminated sessions' final metrics
 	lastReportedMetrics AccumulatedMetrics // last total reported to Prometheus (for delta)
 	metricsMutex        sync.Mutex
+	errorLog            errorLog // latest errors returned by iRODS operations
 	logger              *log.Entry
 }
 
@@ -279,7 +280,7 @@ func (server *PoolServer) List(ctx context.Context, request *api.ListRequest) (*
 
 	entries, err := fsClient.List(request.Path)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "List", request.Path, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -326,7 +327,7 @@ func (server *PoolServer) Stat(ctx context.Context, request *api.StatRequest) (*
 	entry, err := fsClient.Stat(request.Path)
 	if err != nil {
 		if !irodsclient_types.IsFileNotFoundError(err) {
-			sessionLogger.Error(err)
+			server.reportError(session, sessionLogger, "Stat", request.Path, err)
 		}
 		return nil, commons.ErrorToStatus(err)
 	}
@@ -417,7 +418,7 @@ func (server *PoolServer) RemoveFile(ctx context.Context, request *api.RemoveFil
 
 	err = fsClient.RemoveFile(request.Path, request.Force)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "RemoveFile", request.Path, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -445,7 +446,7 @@ func (server *PoolServer) RemoveDir(ctx context.Context, request *api.RemoveDirR
 
 	err = fsClient.RemoveDir(request.Path, request.Recurse, request.Force)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "RemoveDir", request.Path, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -472,7 +473,7 @@ func (server *PoolServer) MakeDir(ctx context.Context, request *api.MakeDirReque
 
 	err = fsClient.MakeDir(request.Path, request.Recurse)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "MakeDir", request.Path, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -499,7 +500,7 @@ func (server *PoolServer) RenameDirToDir(ctx context.Context, request *api.Renam
 
 	err = fsClient.RenameDirToDir(request.SourcePath, request.DestinationPath)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "RenameDirToDir", request.SourcePath+" -> "+request.DestinationPath, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -526,7 +527,7 @@ func (server *PoolServer) RenameFileToFile(ctx context.Context, request *api.Ren
 
 	err = fsClient.RenameFileToFile(request.SourcePath, request.DestinationPath)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "RenameFileToFile", request.SourcePath+" -> "+request.DestinationPath, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -556,13 +557,13 @@ func (server *PoolServer) CreateFile(ctx context.Context, request *api.CreateFil
 
 	irodsFsFileHandle, err := fsClient.CreateFile(request.Path, request.Mode)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "CreateFile", request.Path, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	poolFileHandle, err := NewPoolFileHandle(request.SessionId, ClientIDFromContext(ctx), irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to create a pool file handle")
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -611,13 +612,13 @@ func (server *PoolServer) OpenFile(ctx context.Context, request *api.OpenFileReq
 
 	irodsFsFileHandle, err := fsClient.OpenFile(request.Path, request.Mode)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "OpenFile", request.Path, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	poolFileHandle, err := NewPoolFileHandle(request.SessionId, ClientIDFromContext(ctx), irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to create a pool file handle")
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -666,13 +667,13 @@ func (server *PoolServer) CreateFileBulk(ctx context.Context, request *api.Creat
 
 	irodsFsFileHandle, err := fsClient.CreateFileBulk(request.Path, request.Mode)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "CreateFileBulk", request.Path, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	poolFileHandle, err := NewPoolFileHandle(request.SessionId, ClientIDFromContext(ctx), irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to create a pool file handle")
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -721,13 +722,13 @@ func (server *PoolServer) OpenFileBulk(ctx context.Context, request *api.OpenFil
 
 	irodsFsFileHandle, err := fsClient.OpenFileBulk(request.Path, request.Mode)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "OpenFileBulk", request.Path, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	poolFileHandle, err := NewPoolFileHandle(request.SessionId, ClientIDFromContext(ctx), irodsFsFileHandle, server.sessionManager.GetFileLockManager())
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to create a pool file handle")
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -776,7 +777,7 @@ func (server *PoolServer) TruncateFile(ctx context.Context, request *api.Truncat
 
 	err = fsClient.TruncateFile(request.Path, request.Size)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "TruncateFile", request.Path, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -805,7 +806,7 @@ func (server *PoolServer) ReadAt(ctx context.Context, request *api.ReadAtRequest
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to find the file handle")
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -813,7 +814,7 @@ func (server *PoolServer) ReadAt(ctx context.Context, request *api.ReadAtRequest
 
 	readLen, err := handle.ReadAt(buffer, request.Offset)
 	if err != nil && err != io.EOF {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "ReadAt", handle.GetEntryPath(), err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -844,13 +845,13 @@ func (server *PoolServer) WriteAt(ctx context.Context, request *api.WriteAtReque
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to find the file handle")
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	written, err := handle.WriteAt(request.Data, request.Offset)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "WriteAt", handle.GetEntryPath(), err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -877,7 +878,7 @@ func (server *PoolServer) GetAvailable(ctx context.Context, request *api.GetAvai
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to find the file handle")
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -906,13 +907,13 @@ func (server *PoolServer) Truncate(ctx context.Context, request *api.TruncateReq
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to find the file handle")
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	err = handle.Truncate(request.Size)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "Truncate", handle.GetEntryPath(), err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -936,13 +937,13 @@ func (server *PoolServer) Flush(ctx context.Context, request *api.FlushRequest) 
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to find the file handle")
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	err = handle.Flush()
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "Flush", handle.GetEntryPath(), err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -966,7 +967,7 @@ func (server *PoolServer) Close(ctx context.Context, request *api.CloseRequest) 
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to find the file handle")
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -974,7 +975,7 @@ func (server *PoolServer) Close(ctx context.Context, request *api.CloseRequest) 
 
 	err = handle.Release()
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "Close", handle.GetEntryPath(), err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -1039,19 +1040,19 @@ func (server *PoolServer) Getlk(ctx context.Context, request *api.GetlkRequest) 
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to find the file handle")
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	lock, err := toFileLock(request.Lock, request.Owner, request.Flock)
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Invalid file lock request")
 		return nil, commons.ErrorToStatus(err)
 	}
 
 	conflict, err := handle.Getlk(CallerIDFromContext(ctx), lock)
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Getlk failed")
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -1121,13 +1122,13 @@ func (server *PoolServer) getFileLockRequest(callerID string, request *api.Setlk
 
 	handle, err := session.GetPoolFileHandle(callerID, request.FileHandleId)
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Failed to find the file handle")
 		return nil, nil, sessionLogger, err
 	}
 
 	lock, err := toFileLock(request.Lock, request.Owner, request.Flock)
 	if err != nil {
-		sessionLogger.Error(err)
+		sessionLogger.WithError(err).Error("Invalid file lock request")
 		return nil, nil, sessionLogger, err
 	}
 
@@ -1175,7 +1176,7 @@ func (server *PoolServer) ReadStream(request *api.ReadStreamRequest, stream api.
 
 	err = client.DownloadFileWithCallback(request.IrodsPath, blockSize, numBlocks, blockReadyCallback, nil)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "ReadStream", request.IrodsPath, err)
 		return commons.ErrorToStatus(err)
 	}
 
@@ -1229,7 +1230,7 @@ func (server *PoolServer) ReadStreamParallel(request *api.ReadStreamParallelRequ
 
 	err = client.DownloadFileParallelWithCallback(request.IrodsPath, blockSize, numBlocks, blockReadyCallback, taskNum, nil)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "ReadStreamParallel", request.IrodsPath, err)
 		return commons.ErrorToStatus(err)
 	}
 
@@ -1270,7 +1271,7 @@ func (server *PoolServer) WriteStream(stream api.PoolAPI_WriteStreamServer) erro
 	fsClient := session.GetIRODSFSClient()
 	handle, err := fsClient.CreateFileBulk(header.IrodsPath, string(irodsclient_types.FileOpenModeWriteOnly))
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "WriteStream", header.IrodsPath, err)
 		return commons.ErrorToStatus(err)
 	}
 	defer func() {
@@ -1311,7 +1312,7 @@ func (server *PoolServer) WriteStream(stream api.PoolAPI_WriteStreamServer) erro
 
 		written, err := handle.WriteAt(block.Data, block.Offset)
 		if err != nil {
-			sessionLogger.Error(err)
+			server.reportError(session, sessionLogger, "WriteStream", header.IrodsPath, err)
 			return commons.ErrorToStatus(err)
 		}
 
@@ -1343,7 +1344,7 @@ func (server *PoolServer) CacheFile(ctx context.Context, request *api.CacheFileR
 			defer session.backgroundWg.Done()
 			err := fsClient.CacheFile(request.IrodsPath, nil)
 			if err != nil {
-				sessionLogger.WithError(err).Errorf("async CacheFile %q", request.IrodsPath)
+				server.reportError(session, sessionLogger, "async CacheFile", request.IrodsPath, err)
 			}
 		}()
 		return &api.Empty{}, nil
@@ -1354,7 +1355,7 @@ func (server *PoolServer) CacheFile(ctx context.Context, request *api.CacheFileR
 
 	err = fsClient.CacheFile(request.IrodsPath, nil)
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "CacheFile", request.IrodsPath, err)
 		return nil, commons.ErrorToStatus(err)
 	}
 
@@ -1378,7 +1379,7 @@ func (server *PoolServer) Sync(ctx context.Context, request *api.SyncRequest) (*
 
 	err = fsClient.Sync()
 	if err != nil {
-		sessionLogger.Error(err)
+		server.reportError(session, sessionLogger, "Sync", "", err)
 		return nil, commons.ErrorToStatus(err)
 	}
 

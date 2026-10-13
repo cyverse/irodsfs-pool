@@ -13,6 +13,7 @@ import (
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
+	irodsfs_common_stagingfs "github.com/cyverse/irodsfs-common/irods/stagingfs"
 	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
@@ -203,5 +204,86 @@ func TestMonitoringListsErrorsWithTheirStackTrace(t *testing.T) {
 	}
 	if strings.Contains(body, "<script>\"") || strings.Contains(body, "failed <b>") {
 		t.Fatal("error content was not escaped")
+	}
+}
+
+type reportedError struct {
+	sessionID string
+	operation string
+	path      string
+	err       error
+}
+
+func newErrorCapturingManager(reported *[]reportedError) *PoolSessionManager {
+	manager := newFailedSessionStoreTestManager("")
+	manager.onError = func(session *PoolSession, operation string, path string, err error) {
+		*reported = append(*reported, reportedError{session.id, operation, path, err})
+	}
+	return manager
+}
+
+func TestSyncErrorHandlerReportsOnlyAnUploadItGaveUpOn(t *testing.T) {
+	var reported []reportedError
+	manager := newErrorCapturingManager(&reported)
+	handler := manager.newSyncErrorHandler(&PoolSession{id: "session-1"})
+	syncErr := errors.New("permission denied")
+
+	for attempt := 1; attempt < irodsfs_common_stagingfs.MaxSyncFailCount; attempt++ {
+		handler(&irodsfs_common_stagingfs.StagingMetadata{Path: "/zone/home/a", Action: irodsfs_common_stagingfs.ActionUpload, SyncFailCount: attempt}, syncErr)
+	}
+	if len(reported) != 0 {
+		t.Fatalf("reported %d errors for failures the sync retries, want none", len(reported))
+	}
+
+	handler(&irodsfs_common_stagingfs.StagingMetadata{Path: "/zone/home/a", Action: irodsfs_common_stagingfs.ActionUpload, SyncFailCount: irodsfs_common_stagingfs.MaxSyncFailCount}, syncErr)
+	handler(&irodsfs_common_stagingfs.StagingMetadata{Path: "/zone/home/b", OldPath: "/zone/home/a", Action: irodsfs_common_stagingfs.ActionRename, SyncFailCount: irodsfs_common_stagingfs.MaxSyncFailCount}, syncErr)
+
+	want := []reportedError{
+		{"session-1", "Background Sync (UPLOAD)", "/zone/home/a", syncErr},
+		{"session-1", "Background Sync (RENAME)", "/zone/home/a -> /zone/home/b", syncErr},
+	}
+	if len(reported) != len(want) {
+		t.Fatalf("reported %#v, want %#v", reported, want)
+	}
+	for i := range want {
+		if reported[i] != want[i] {
+			t.Fatalf("reported[%d] = %#v, want %#v", i, reported[i], want[i])
+		}
+	}
+}
+
+func TestFailedSessionReleaseIsReported(t *testing.T) {
+	var reported []reportedError
+	manager := newErrorCapturingManager(&reported)
+	manager.config.dataRootPath = t.TempDir()
+	manager.failedSessionDBPath = manager.config.dataRootPath + "/" + failedSessionDBDirectoryName
+	session := newFailedSessionStoreTestSession("session-1")
+
+	manager.handleSessionReleaseResult(session, nil)
+	if len(reported) != 0 {
+		t.Fatalf("a clean release reported %#v", reported)
+	}
+
+	releaseErr := errors.New("failed to sync all staged data")
+	manager.handleSessionReleaseResult(session, releaseErr)
+	if len(reported) != 1 || reported[0] != (reportedError{"session-1", "Session Release", "", releaseErr}) {
+		t.Fatalf("reported %#v, want the release failure", reported)
+	}
+
+	if err := manager.closeFailedSessionStore(); err != nil {
+		t.Fatalf("closeFailedSessionStore: %v", err)
+	}
+}
+
+func TestSessionManagerErrorsReachTheMonitoringPage(t *testing.T) {
+	server := &PoolServer{}
+	manager := newFailedSessionStoreTestManager("")
+	manager.onError = server.recordError
+
+	manager.reportError(&PoolSession{id: "session-1"}, "Session Release", "", errors.New("failed to sync all staged data"))
+
+	groups, total := server.GetErrors()
+	if total != 1 || groups[0].Operation != "Session Release" || groups[0].SessionID != "session-1" {
+		t.Fatalf("recorded %d errors: %#v", total, groups)
 	}
 }

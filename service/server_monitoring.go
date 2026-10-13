@@ -628,7 +628,7 @@ func renderErrors(w io.Writer, groups []ErrorGroup, total uint64) {
 	fmt.Fprint(w, `<h2>Errors</h2>`)
 	fmt.Fprintf(w, `<p>Total: %d since start (%d distinct errors shown)</p>`, total, len(groups))
 	if len(groups) == 0 {
-		fmt.Fprint(w, `<p class="info">No errors have been returned to clients.</p>`)
+		fmt.Fprint(w, `<p class="info">No errors have been recorded.</p>`)
 		return
 	}
 
@@ -643,7 +643,7 @@ func renderErrors(w io.Writer, groups []ErrorGroup, total uint64) {
 			html.EscapeString(formatErrorGroupUsers(group)), html.EscapeString(group.Path), html.EscapeString(message))
 	}
 	fmt.Fprint(w, `</table>`)
-	fmt.Fprint(w, `<p class="info">Errors iRODS operations returned to clients, grouped by operation and message. Errors recovered by a retry are not listed. Click a row for the stack trace of the latest occurrence.</p>`)
+	fmt.Fprint(w, `<p class="info">Errors iRODS operations returned to clients, staged uploads the background sync gave up on, and failed session releases, grouped by operation and message. Errors recovered by a retry are not listed. Click a row for the stack trace of the latest occurrence.</p>`)
 }
 
 func formatErrorGroupUsers(group ErrorGroup) string {

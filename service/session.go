@@ -48,6 +48,10 @@ type PoolSessionManager struct {
 
 	onBeforeSessionRelease func(session *PoolSession)
 
+	// onError keeps an error a session failed with that no client request
+	// returns, such as a staged upload the background sync gave up on.
+	onError func(session *PoolSession, operation string, path string, err error)
+
 	// fileLockManager holds the file locks of every session, so that two mounts
 	// locking the same file conflict with each other
 	fileLockManager *irodsfs_common_irods.FileLockManager
@@ -325,6 +329,23 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 		sessionStagingPath = fmt.Sprintf("%s/%s", sessionStagingPath, sessionID)
 	}
 
+	// The session exists before its buffered client, whose sync error handler
+	// reports against it.
+	session := &PoolSession{
+		id:           sessionID,
+		accountKey:   accountKey,
+		irodsAccount: irodsAccount,
+
+		fs: fs,
+
+		connections:     map[string]connInfo{},
+		lastAccessTime:  time.Now(),
+		poolFileHandles: map[string]*PoolFileHandle{},
+
+		logger:         sessionLogger,
+		sessionLogFile: sessionLogFile,
+	}
+
 	buffConfig := &irodsfs_common_irods.IRODSFSClientBufferedConfig{
 		BlockSize:          int(manager.config.dataBlockSize),
 		StagingRootPath:    sessionStagingPath,
@@ -335,6 +356,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 		UsePersistence:     true,
 		PackedDirectories:  manager.config.packedDirectories,
 		Logger:             sessionLogger,
+		OnSyncError:        manager.newSyncErrorHandler(session),
 	}
 
 	fsClient, err := irodsfs_common_irods.NewIRODSFSClientBuffered(fs, manager.cacheManager, buffConfig)
@@ -343,22 +365,8 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 		sessionLogFile.Close()
 		return nil, errors.Wrap(err, "failed to create buffered client")
 	}
+	session.fsClient = fsClient
 
-	session := &PoolSession{
-		id:           sessionID,
-		accountKey:   accountKey,
-		irodsAccount: irodsAccount,
-
-		fs:       fs,
-		fsClient: fsClient,
-
-		connections:     map[string]connInfo{},
-		lastAccessTime:  time.Now(),
-		poolFileHandles: map[string]*PoolFileHandle{},
-
-		logger:         sessionLogger,
-		sessionLogFile: sessionLogFile,
-	}
 	if err := manager.trackActiveSession(session); err != nil {
 		releaseErr := session.release()
 		return nil, errors.CombineErrors(errors.Wrap(err, "failed to persist session lifecycle record"), releaseErr)
@@ -1173,6 +1181,35 @@ func (session *PoolSession) GetIRODSFSClient() irodsfs_common_irods.IRODSFSClien
 // paths that run beside a teardown clearing it. It returns nil once the session
 // has been torn down, and a nil interface value satisfies no type assertion, so
 // callers can assert on it directly.
+// newSyncErrorHandler reports a staged operation the background sync of the
+// session gave up on. A failure it is still going to retry is left alone, and
+// so is one it recovers from: only what stays out of iRODS is an error.
+func (manager *PoolSessionManager) newSyncErrorHandler(session *PoolSession) irodsfs_common_stagingfs.SyncErrorHandler {
+	return func(meta *irodsfs_common_stagingfs.StagingMetadata, err error) {
+		if meta.SyncFailCount < irodsfs_common_stagingfs.MaxSyncFailCount {
+			return
+		}
+
+		path := meta.Path
+		if meta.OldPath != "" {
+			path = meta.OldPath + " -> " + meta.Path
+		}
+
+		// The handler can run after the session log is closed, so this goes to
+		// the manager log, which also prints the stack trace.
+		manager.logger.WithError(err).WithField("sessionID", session.id).Errorf(
+			"Background sync gave up on %s (%s) after %d attempts", path, meta.Action, meta.SyncFailCount)
+		manager.reportError(session, fmt.Sprintf("Background Sync (%s)", meta.Action), path, err)
+	}
+}
+
+// reportError keeps an error a session failed with outside a client request.
+func (manager *PoolSessionManager) reportError(session *PoolSession, operation string, path string, err error) {
+	if manager.onError != nil {
+		manager.onError(session, operation, path, err)
+	}
+}
+
 // hasPendingStagedData reports whether the session holds data that has not
 // reached iRODS yet: a staged file or operation that is still dirty, or a packed
 // directory that has not been uploaded since it last changed. Files kept only as

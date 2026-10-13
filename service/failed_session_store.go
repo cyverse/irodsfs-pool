@@ -73,6 +73,10 @@ type RedactedIRODSSSLConfig struct {
 
 func (manager *PoolSessionManager) handleSessionReleaseResult(session *PoolSession, releaseErr error) {
 	if releaseErr != nil {
+		// The flushes before the release are retried by the release itself, so
+		// this is the failure that leaves staged data out of iRODS.
+		manager.reportError(session, "Session Release", "", releaseErr)
+
 		if err := manager.saveFailedSession(manager.snapshotFailedSession(session, FailedSessionStatusReleaseFailed)); err != nil {
 			manager.logger.WithError(errors.CombineErrors(releaseErr, err)).Errorf(
 				"Failed to release pool session %q cleanly and persist its recovery information", session.id)

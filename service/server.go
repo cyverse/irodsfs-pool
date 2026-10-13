@@ -119,6 +119,7 @@ func NewPoolServer(config *PoolServerConfig) (*PoolServer, error) {
 	sessionManager.onBeforeSessionRelease = func(session *PoolSession) {
 		server.CollectSessionMetrics(session)
 	}
+	sessionManager.onError = server.recordError
 
 	return server, nil
 }

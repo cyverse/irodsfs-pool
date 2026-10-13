@@ -21,7 +21,8 @@ const (
 	errorGroupMaxUsers = 10
 )
 
-// ErrorGroup is an error iRODS operations returned to clients, with every
+// ErrorGroup is an error iRODS operations returned to clients, or a session
+// failed with in the background, with every
 // occurrence of the same operation failing with the same message folded into
 // it. The session, path and stack trace are those of the latest occurrence.
 type ErrorGroup struct {
@@ -151,6 +152,12 @@ func (errLog *errorLog) snapshot() ([]ErrorGroup, uint64) {
 // stack trace, and keeps it for the monitoring page.
 func (server *PoolServer) reportError(session *PoolSession, logger *log.Entry, operation string, path string, err error) {
 	logger.WithError(err).Errorf("%s failed", operation)
+	server.recordError(session, operation, path, err)
+}
+
+// recordError keeps an error for the monitoring page without logging it, for
+// a caller that has logged it already.
+func (server *PoolServer) recordError(session *PoolSession, operation string, path string, err error) {
 	server.errorLog.add(newErrorOccurrence(session, operation, path, err))
 }
 

@@ -169,6 +169,7 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 		UsePersistence:     true,
 		PackedDirectories:  manager.config.packedDirectories,
 		Logger:             sessionLogger,
+		OnSyncError:        manager.newSyncErrorHandler(session),
 	}
 
 	fsClient, err := irodsfs_common_irods.NewIRODSFSClientBuffered(fs, manager.cacheManager, buffConfig)

@@ -159,6 +159,17 @@ func (manager *PoolSessionManager) checkpointSession(session *PoolSession) {
 	manager.failedSessionMutex.Lock()
 	defer manager.failedSessionMutex.Unlock()
 
+	// Once the teardown has begun, the record belongs to its release result: a
+	// clean release removes it, and a checkpoint arriving after that would bring
+	// it back for a session that no longer exists. The flag is read under the
+	// store lock, which the removal also takes, so it cannot slip in between.
+	session.mutex.RLock()
+	tearingDown := session.tearingDown
+	session.mutex.RUnlock()
+	if tearingDown {
+		return
+	}
+
 	existing, err := manager.getStoredSessionLocked(session.id)
 	if err != nil {
 		manager.logger.WithError(err).Errorf("Failed to read lifecycle record for session %q", session.id)

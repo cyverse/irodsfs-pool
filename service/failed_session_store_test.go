@@ -209,3 +209,45 @@ func TestCheckpointClearsRecoveringOnceNothingIsPending(t *testing.T) {
 		t.Fatalf("closeFailedSessionStore: %v", err)
 	}
 }
+
+func TestCheckpointDoesNotRecreateRecordOfReleasedSession(t *testing.T) {
+	dataRootPath := t.TempDir()
+	manager := newFailedSessionStoreTestManager(dataRootPath)
+	manager.sessions = map[string]*PoolSession{}
+	manager.releasingSessions = map[string]*PoolSession{}
+	session := newFailedSessionStoreTestSession("session-1")
+
+	if err := manager.trackActiveSession(session); err != nil {
+		t.Fatalf("trackActiveSession: %v", err)
+	}
+
+	// The session is being released: it stays in the releasing map until the
+	// teardown below has removed its record, which is when the periodic
+	// checkpoint can still reach it.
+	manager.mutex.Lock()
+	epoch := markSessionReleasing(session, true)
+	manager.beginAsyncReleaseUnlocked(session)
+	manager.mutex.Unlock()
+
+	if !manager.beginSessionTeardown(session, epoch) {
+		t.Fatal("beginSessionTeardown did not own the session")
+	}
+	manager.handleSessionReleaseResult(session, nil)
+	manager.checkpointActiveSessions()
+	manager.finishAsyncRelease(session.id)
+
+	if stored, err := manager.getStoredSession(session.id); err != nil || stored != nil {
+		t.Fatalf("released session record = %#v, err = %v, want none", stored, err)
+	}
+
+	// A checkpoint that still holds the session after it is gone must not bring
+	// the record back either.
+	manager.checkpointSession(session)
+	if stored, err := manager.getStoredSession(session.id); err != nil || stored != nil {
+		t.Fatalf("released session record = %#v, err = %v, want none", stored, err)
+	}
+
+	if err := manager.closeFailedSessionStore(); err != nil {
+		t.Fatalf("closeFailedSessionStore: %v", err)
+	}
+}

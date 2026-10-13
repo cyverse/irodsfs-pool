@@ -141,17 +141,37 @@ func (manager *PoolSessionManager) trackActiveSession(session *PoolSession) erro
 	return manager.saveFailedSession(manager.snapshotFailedSession(session, status))
 }
 
+// checkpointSession refreshes the lifecycle record of a session and keeps its
+// status. The one exception is a live session that came back over data left by
+// an interrupted run: once nothing of that data is still pending upload, it is
+// an ordinary active session again and no longer pending recovery.
 func (manager *PoolSessionManager) checkpointSession(session *PoolSession) {
-	existing, err := manager.getStoredSession(session.id)
+	session.mutex.RLock()
+	releasing := session.releasing
+	session.mutex.RUnlock()
+
+	// A session being released or recovered keeps its status until that ends.
+	recovered := !releasing && !session.hasPendingStagedData()
+	snapshot := manager.snapshotFailedSession(session, FailedSessionStatusActive)
+
+	// The read and the write happen under one lock, so a release result saved
+	// in between is kept rather than overwritten with the status read before it.
+	manager.failedSessionMutex.Lock()
+	defer manager.failedSessionMutex.Unlock()
+
+	existing, err := manager.getStoredSessionLocked(session.id)
 	if err != nil {
 		manager.logger.WithError(err).Errorf("Failed to read lifecycle record for session %q", session.id)
 		return
 	}
-	status := FailedSessionStatusActive
 	if existing != nil {
-		status = existing.Status
+		snapshot.Status = existing.Status
+		if existing.Status == FailedSessionStatusRecovering && recovered {
+			snapshot.Status = FailedSessionStatusActive
+			manager.logger.Infof("Session %q finished uploading the data left by an interrupted run", session.id)
+		}
 	}
-	if err := manager.saveFailedSession(manager.snapshotFailedSession(session, status)); err != nil {
+	if err := manager.saveFailedSessionLocked(snapshot); err != nil {
 		manager.logger.WithError(err).Errorf("Failed to checkpoint lifecycle record for session %q", session.id)
 	}
 }
@@ -286,6 +306,10 @@ func (manager *PoolSessionManager) saveFailedSession(info FailedSessionInfo) err
 	manager.failedSessionMutex.Lock()
 	defer manager.failedSessionMutex.Unlock()
 
+	return manager.saveFailedSessionLocked(info)
+}
+
+func (manager *PoolSessionManager) saveFailedSessionLocked(info FailedSessionInfo) error {
 	if err := manager.openFailedSessionStoreLocked(); err != nil {
 		return err
 	}
@@ -330,6 +354,10 @@ func (manager *PoolSessionManager) getStoredSession(sessionID string) (*FailedSe
 	manager.failedSessionMutex.Lock()
 	defer manager.failedSessionMutex.Unlock()
 
+	return manager.getStoredSessionLocked(sessionID)
+}
+
+func (manager *PoolSessionManager) getStoredSessionLocked(sessionID string) (*FailedSessionInfo, error) {
 	if manager.failedSessionDB == nil {
 		return nil, nil
 	}

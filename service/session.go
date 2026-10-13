@@ -14,6 +14,7 @@ import (
 	irodsclient_types "github.com/cyverse/go-irodsclient/irods/types"
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	irodsfs_common_cache "github.com/cyverse/irodsfs-common/irods/cache"
+	irodsfs_common_stagingfs "github.com/cyverse/irodsfs-common/irods/stagingfs"
 	irodsfs_common_util "github.com/cyverse/irodsfs-common/util"
 	"github.com/cyverse/irodsfs-pool/commons"
 	"github.com/cyverse/irodsfs-pool/service/api"
@@ -1160,6 +1161,32 @@ func (session *PoolSession) GetIRODSFSClient() irodsfs_common_irods.IRODSFSClien
 // paths that run beside a teardown clearing it. It returns nil once the session
 // has been torn down, and a nil interface value satisfies no type assertion, so
 // callers can assert on it directly.
+// hasPendingStagedData reports whether the session holds data that has not
+// reached iRODS yet: a staged file or operation that is still dirty, or a packed
+// directory that has not been uploaded since it last changed. Files kept only as
+// a read cache after their upload do not count.
+func (session *PoolSession) hasPendingStagedData() bool {
+	bufferedClient, ok := session.getIRODSFSClient().(*irodsfs_common_irods.IRODSFSClientBuffered)
+	if !ok {
+		return false
+	}
+
+	if stagingFS := bufferedClient.GetStagingFS(); stagingFS != nil {
+		for _, meta := range stagingFS.GetAll() {
+			if meta.FileState != irodsfs_common_stagingfs.StagingFileCached {
+				return true
+			}
+		}
+	}
+
+	for _, status := range bufferedClient.GetPackedFS().Statuses() {
+		if status.Dirty {
+			return true
+		}
+	}
+	return false
+}
+
 func (session *PoolSession) getIRODSFSClient() irodsfs_common_irods.IRODSFSClient {
 	session.mutex.RLock()
 	defer session.mutex.RUnlock()

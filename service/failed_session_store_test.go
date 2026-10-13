@@ -162,3 +162,50 @@ func TestSessionLifecycleStoreMarksCrashAndReconnect(t *testing.T) {
 		t.Fatalf("successful recovery must remove lifecycle DB, stat error: %v", err)
 	}
 }
+
+func TestCheckpointClearsRecoveringOnceNothingIsPending(t *testing.T) {
+	dataRootPath := t.TempDir()
+	manager := newFailedSessionStoreTestManager(dataRootPath)
+	session := newFailedSessionStoreTestSession("session-1")
+
+	if err := manager.saveFailedSession(manager.snapshotFailedSession(session, FailedSessionStatusInterrupted)); err != nil {
+		t.Fatalf("saveFailedSession: %v", err)
+	}
+	if err := manager.trackActiveSession(session); err != nil {
+		t.Fatalf("trackActiveSession after reconnect: %v", err)
+	}
+
+	// A session being released or recovered keeps its status.
+	session.releasing = true
+	manager.checkpointSession(session)
+	visible, err := manager.GetFailedSessions()
+	if err != nil || len(visible) != 1 || visible[0].Status != FailedSessionStatusRecovering {
+		t.Fatalf("releasing session records = %#v, err = %v", visible, err)
+	}
+
+	// A live session with nothing left to upload is no longer pending recovery.
+	session.releasing = false
+	manager.checkpointSession(session)
+	visible, err = manager.GetFailedSessions()
+	if err != nil || len(visible) != 0 {
+		t.Fatalf("recovered live session must not be pending recovery: %#v, err = %v", visible, err)
+	}
+	stored, err := manager.getStoredSession(session.id)
+	if err != nil || stored == nil || stored.Status != FailedSessionStatusActive {
+		t.Fatalf("recovered live session record = %#v, err = %v", stored, err)
+	}
+
+	// Other statuses are never cleared by a checkpoint.
+	if err := manager.saveFailedSession(manager.snapshotFailedSession(session, FailedSessionStatusReleaseFailed)); err != nil {
+		t.Fatalf("saveFailedSession: %v", err)
+	}
+	manager.checkpointSession(session)
+	visible, err = manager.GetFailedSessions()
+	if err != nil || len(visible) != 1 || visible[0].Status != FailedSessionStatusReleaseFailed {
+		t.Fatalf("release-failed records = %#v, err = %v", visible, err)
+	}
+
+	if err := manager.closeFailedSessionStore(); err != nil {
+		t.Fatalf("closeFailedSessionStore: %v", err)
+	}
+}

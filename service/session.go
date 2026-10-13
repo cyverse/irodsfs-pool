@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	irodsclient_fs "github.com/cyverse/go-irodsclient/fs"
@@ -62,6 +63,10 @@ type PoolSessionManager struct {
 	// their resources are still held, so monitoring has to keep reporting them
 	// until the release actually finishes.  Access is protected by mutex.
 	releasingSessions map[string]*PoolSession
+
+	// createdSessionCount counts the sessions created since the manager
+	// started. A login that reuses or takes over a session does not add to it.
+	createdSessionCount atomic.Int64
 
 	mutex         sync.RWMutex
 	releaseWg     sync.WaitGroup // tracks in-progress async session releases
@@ -362,6 +367,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 	manager.mutex.Lock()
 	manager.sessions[session.id] = session
 	manager.mutex.Unlock()
+	manager.createdSessionCount.Add(1)
 
 	manager.logger.Infof("Created a new pool session %q for username %q", session.id, irodsAccount.ClientUser)
 	session.logger.Infof("Created a new pool session for username %q", irodsAccount.ClientUser)
@@ -950,6 +956,12 @@ func (manager *PoolSessionManager) SyncSessionStaging(sessionID string) error {
 
 func (manager *PoolSessionManager) GetCacheManager() *irodsfs_common_cache.MemoryCacheManager {
 	return manager.cacheManager
+}
+
+// GetCreatedSessionCount returns the number of sessions created since the
+// manager started, including the ones already released.
+func (manager *PoolSessionManager) GetCreatedSessionCount() int64 {
+	return manager.createdSessionCount.Load()
 }
 
 func (manager *PoolSessionManager) GetAllSessions() []*PoolSession {

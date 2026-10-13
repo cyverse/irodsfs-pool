@@ -278,9 +278,10 @@ func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 	fmt.Fprint(w, `<h2>Sessions</h2>`)
 
-	sessions := h.poolServer.GetSessionManager().GetAllSessions()
+	sessionManager := h.poolServer.GetSessionManager()
+	sessions := sessionManager.GetAllSessions()
 
-	fmt.Fprintf(w, `<p>Total: %d</p>`, len(sessions))
+	fmt.Fprintf(w, `<p>Total: %d active, %d served since start</p>`, len(sessions), sessionManager.GetCreatedSessionCount())
 	if len(sessions) == 0 {
 		return
 	}

@@ -1,12 +1,15 @@
 package service
 
 import (
+	"bufio"
 	"fmt"
 	"html"
 	"html/template"
 	"io"
 	"net/http"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -725,8 +728,40 @@ func getSystemMemoryInfo() (total, available uint64) {
 		return 0, 0
 	}
 	total = uint64(info.Totalram) * uint64(info.Unit)
-	available = uint64(info.Freeram) * uint64(info.Unit)
+
+	// MemAvailable accounts for reclaimable page cache and slab, unlike Freeram
+	if memAvailable, ok := getMemAvailable(); ok {
+		available = memAvailable
+	} else {
+		available = uint64(info.Freeram+info.Bufferram) * uint64(info.Unit)
+	}
 	return
+}
+
+// getMemAvailable reads MemAvailable from /proc/meminfo (kernel 3.14+)
+func getMemAvailable() (uint64, bool) {
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 2 || fields[0] != "MemAvailable:" {
+			continue
+		}
+
+		value, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil {
+			return 0, false
+		}
+
+		// values in /proc/meminfo are in kB
+		return value * 1024, true
+	}
+	return 0, false
 }
 
 func getDiskInfo(path string) (total, free uint64) {

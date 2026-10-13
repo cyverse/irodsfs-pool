@@ -241,7 +241,7 @@ func (h *RESTAPIHandler) getMemoryCacheInfo() MemoryCacheInfo {
 		EntryCount:                 entryCount,
 		SystemMemoryTotalBytes:     systemTotal,
 		SystemMemoryAvailableBytes: systemAvailable,
-		InsufficientMemory:         systemAvailable > 0 && systemAvailable < uint64(maximumBytes),
+		InsufficientMemory:         isMemoryInsufficient(systemAvailable, usedBytes, maximumBytes),
 	}
 }
 

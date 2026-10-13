@@ -224,8 +224,8 @@ func (h *MonitoringHandler) renderCacheInfo(w http.ResponseWriter) {
 	}
 	fmt.Fprintf(w, `<tr><th>Cache Entries</th><td>%d</td></tr>`, cacheCount)
 	fmt.Fprintf(w, `<tr><th>System RAM</th><td>%s total, %s available</td></tr>`, formatBytes(int64(sysTotal)), formatBytes(int64(sysAvail)))
-	if sysAvail > 0 && sysAvail < uint64(cacheMax) {
-		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient memory: available %s < configured cache %s</td></tr>`, formatBytes(int64(sysAvail)), formatBytes(cacheMax))
+	if isMemoryInsufficient(sysAvail, cacheUsed, cacheMax) {
+		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient memory: available %s < remaining cache %s</td></tr>`, formatBytes(int64(sysAvail)), formatBytes(cacheMax-cacheUsed))
 	}
 	fmt.Fprint(w, `</table>`)
 }
@@ -736,6 +736,16 @@ func getSystemMemoryInfo() (total, available uint64) {
 		available = uint64(info.Freeram+info.Bufferram) * uint64(info.Unit)
 	}
 	return
+}
+
+// isMemoryInsufficient reports whether the system cannot hold the rest of the cache.
+// Memory already used by the cache is excluded from sysAvail, so only the
+// remaining growth (cacheMax - cacheUsed) needs to fit.
+func isMemoryInsufficient(sysAvail uint64, cacheUsed int64, cacheMax int64) bool {
+	if sysAvail == 0 || cacheMax <= cacheUsed {
+		return false
+	}
+	return sysAvail < uint64(cacheMax-cacheUsed)
 }
 
 // getMemAvailable reads MemAvailable from /proc/meminfo (kernel 3.14+)

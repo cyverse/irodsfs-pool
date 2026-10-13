@@ -275,7 +275,7 @@ func (h *RESTAPIHandler) getStagingInfo() StagingInfo {
 		FileCount:             fileCount,
 		DiskTotalBytes:        diskTotal,
 		DiskFreeBytes:         diskFree,
-		InsufficientDiskSpace: diskFree > 0 && diskFree < uint64(maximumBytes),
+		InsufficientDiskSpace: isDiskSpaceInsufficient(diskFree, usedBytes, maximumBytes),
 	}
 }
 

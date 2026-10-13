@@ -269,8 +269,8 @@ func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 	fmt.Fprintf(w, `<tr><th>Disk</th><td>%s total, %s free</td></tr>`, formatBytes(int64(diskTotal)), formatBytes(int64(diskFree)))
 	fmt.Fprintf(w, `<tr><th>Staging Path</th><td>%s</td></tr>`, stagingPath)
 	fmt.Fprintf(w, `<tr><th>Staged Files</th><td>%d (click a session row for details)</td></tr>`, totalStagedFiles)
-	if diskFree > 0 && diskFree < uint64(stagingMax) {
-		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient disk space: available %s &lt; configured staging max %s</td></tr>`, formatBytes(int64(diskFree)), formatBytes(stagingMax))
+	if isDiskSpaceInsufficient(diskFree, totalStagedSize, stagingMax) {
+		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient disk space: available %s &lt; remaining staging %s</td></tr>`, formatBytes(int64(diskFree)), formatBytes(stagingMax-totalStagedSize))
 	}
 	fmt.Fprint(w, `</table>`)
 }
@@ -772,6 +772,16 @@ func getMemAvailable() (uint64, bool) {
 		return value * 1024, true
 	}
 	return 0, false
+}
+
+// isDiskSpaceInsufficient reports whether the disk cannot hold the rest of the staging quota.
+// Data already staged is excluded from diskFree, so only the
+// remaining growth (stagingMax - stagingUsed) needs to fit.
+func isDiskSpaceInsufficient(diskFree uint64, stagingUsed int64, stagingMax int64) bool {
+	if diskFree == 0 || stagingMax <= stagingUsed {
+		return false
+	}
+	return diskFree < uint64(stagingMax-stagingUsed)
 }
 
 func getDiskInfo(path string) (total, free uint64) {

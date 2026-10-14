@@ -35,11 +35,12 @@ var errSessionUnavailable = errors.New("session is not available")
 
 // PoolSessionManager manages PoolSession
 type PoolSessionManager struct {
-	config       *PoolServerConfig
-	cacheManager *irodsfs_common_cache.MemoryCacheManager
-	sessions     map[string]*PoolSession // key: account key (hash)
-	connMap      map[string]string       // key: connection id -> session id
-	logger       *log.Entry
+	config              *PoolServerConfig
+	cacheManager        *irodsfs_common_cache.MemoryCacheManager
+	sharedStagingQuota  *SharedStagingQuota
+	sessions            map[string]*PoolSession // key: account key (hash)
+	connMap             map[string]string       // key: connection id -> session id
+	logger              *log.Entry
 
 	failedSessionDBPath string
 	failedSessionDB     *badger.DB
@@ -103,11 +104,12 @@ func NewPoolSessionManager(config *PoolServerConfig) (*PoolSessionManager, error
 	}
 
 	manager := &PoolSessionManager{
-		config:       config,
-		cacheManager: cacheManager,
-		sessions:     map[string]*PoolSession{},
-		connMap:      map[string]string{},
-		logger:       myLogger,
+		config:             config,
+		cacheManager:       cacheManager,
+		sharedStagingQuota: NewSharedStagingQuota(config.maxStagingDataSize),
+		sessions:           map[string]*PoolSession{},
+		connMap:            map[string]string{},
+		logger:             myLogger,
 
 		pendingReleases:   map[string]*time.Timer{},
 		releasingSessions: map[string]*PoolSession{},
@@ -354,6 +356,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 		SyncInterval:       manager.config.stagingDataGracePeriod / 2,
 		GracePeriod:        manager.config.stagingDataGracePeriod,
 		UsePersistence:     true,
+		GlobalQuota:        manager.sharedStagingQuota,
 		PackedDirectories:  manager.config.packedDirectories,
 		Logger:             sessionLogger,
 		OnSyncError:        manager.newSyncErrorHandler(session),

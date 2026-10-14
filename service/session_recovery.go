@@ -167,6 +167,7 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 		SyncInterval:       manager.config.stagingDataGracePeriod / 2,
 		GracePeriod:        manager.config.stagingDataGracePeriod,
 		UsePersistence:     true,
+		GlobalQuota:        manager.sharedStagingQuota,
 		PackedDirectories:  manager.config.packedDirectories,
 		Logger:             sessionLogger,
 		OnSyncError:        manager.newSyncErrorHandler(session),

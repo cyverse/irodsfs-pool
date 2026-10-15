@@ -409,8 +409,8 @@ func (h *MonitoringHandler) renderFailedSessions(w http.ResponseWriter) {
 	fmt.Fprint(w, `<table><tr><th>ID</th><th>Status</th><th>User</th><th>Host</th><th>Last Access</th><th>Clients</th></tr>`)
 	for _, session := range sessions {
 		displayID := session.ID
-		if len(displayID) > 12 {
-			displayID = displayID[:12] + "…"
+		if len(displayID) > 8 {
+			displayID = displayID[:4] + "…" + displayID[len(displayID)-4:]
 		}
 		account := session.IRODSAccount
 		userInfo := fmt.Sprintf("%s@%s", account.ClientUser, account.ClientZone)
@@ -427,8 +427,8 @@ func (h *MonitoringHandler) renderFailedSessions(w http.ResponseWriter) {
 				html.EscapeString(tooltip), html.EscapeString(connection.ConnectionID), html.EscapeString(connection.Application))
 		}
 
-		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('%s')"><td>%s</td><td><span class="badge">%s</span></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-			template.JSEscapeString("failed-"+session.ID), html.EscapeString(displayID), html.EscapeString(string(session.Status)), html.EscapeString(userInfo), html.EscapeString(hostInfo),
+		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('%s')"><td title="%s">%s</td><td><span class="badge">%s</span></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+			template.JSEscapeString("failed-"+session.ID), html.EscapeString(session.ID), html.EscapeString(displayID), html.EscapeString(string(session.Status)), html.EscapeString(userInfo), html.EscapeString(hostInfo),
 			session.LastAccessTime.Format("2006-01-02 15:04:05"), clientsCell.String())
 	}
 	fmt.Fprint(w, `</table>`)

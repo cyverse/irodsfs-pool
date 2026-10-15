@@ -223,15 +223,12 @@ func (h *MonitoringHandler) renderServerInfo(w http.ResponseWriter) {
 
 	fmt.Fprint(w, `<h1>irodsfs-pool Monitor</h1>`)
 	fmt.Fprint(w, `<table>`)
-	fmt.Fprintf(w, `<tr><th>Version</th><td>%s</td></tr>`, version.ServiceVersion)
-	fmt.Fprintf(w, `<tr><th>Git Commit</th><td>%s</td></tr>`, version.GitCommit)
-	fmt.Fprintf(w, `<tr><th>Uptime</th><td>%s</td></tr>`, uptime)
-	fmt.Fprintf(w, `<tr><th>Endpoint</th><td>%s</td></tr>`, h.config.GetServiceEndpoint())
-	fmt.Fprintf(w, `<tr><th>Data Root</th><td>%s</td></tr>`, h.config.DataRootPath)
+	fmt.Fprintf(w, `<tr><th>Version</th><td>%s</td><th>Git Commit</th><td>%s</td></tr>`, version.ServiceVersion, version.GitCommit)
+	fmt.Fprintf(w, `<tr><th>Uptime</th><td>%s</td><th>Data Root</th><td>%s</td></tr>`, formatUptime(uptime), h.config.DataRootPath)
+	fmt.Fprintf(w, `<tr><th>Endpoint</th><td colspan="3">%s</td></tr>`, h.config.GetServiceEndpoint())
 	if endpoint := h.config.GetManagementServiceEndpoint(); endpoint != "" {
-		fmt.Fprintf(w, `<tr><th>Monitoring</th><td>%s/monitor</td></tr>`, endpoint)
-		fmt.Fprintf(w, `<tr><th>Prometheus</th><td>%s/metrics</td></tr>`, endpoint)
-		fmt.Fprintf(w, `<tr><th>REST API</th><td>%s/api</td></tr>`, endpoint)
+		fmt.Fprintf(w, `<tr><th>Monitoring</th><td>%s/monitor</td><th>REST API</th><td>%s/api</td></tr>`, endpoint, endpoint)
+		fmt.Fprintf(w, `<tr><th>Prometheus</th><td colspan="3">%s/metrics</td></tr>`, endpoint)
 	}
 	fmt.Fprint(w, `</table>`)
 }
@@ -252,12 +249,12 @@ func (h *MonitoringHandler) renderCacheInfo(w http.ResponseWriter) {
 	sysTotal, sysAvail := getSystemMemoryInfo()
 
 	fmt.Fprint(w, `<table>`)
-	fmt.Fprintf(w, `<tr><th>Cache Used</th><td>%s / %s</td></tr>`, formatBytes(cacheUsed), formatBytes(cacheMax))
 	if cacheMax > 0 {
 		pct := float64(cacheUsed) / float64(cacheMax) * 100
-		fmt.Fprintf(w, `<tr><th>Cache Usage</th><td>%s</td></tr>`, renderBar(pct))
+		fmt.Fprintf(w, `<tr><th>Cache Used</th><td>%s / %s</td><th>Usage</th><td>%.1f%% (%d entries)</td></tr>`, formatBytes(cacheUsed), formatBytes(cacheMax), pct, cacheCount)
+	} else {
+		fmt.Fprintf(w, `<tr><th>Cache Used</th><td>%s / %s</td><th>Usage</th><td>(%d entries)</td></tr>`, formatBytes(cacheUsed), formatBytes(cacheMax), cacheCount)
 	}
-	fmt.Fprintf(w, `<tr><th>Cache Entries</th><td>%d</td></tr>`, cacheCount)
 	fmt.Fprintf(w, `<tr><th>System RAM</th><td>%s total, %s available</td></tr>`, formatBytes(int64(sysTotal)), formatBytes(int64(sysAvail)))
 	if isMemoryInsufficient(sysAvail, cacheUsed, cacheMax) {
 		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient memory: available %s < remaining cache %s</td></tr>`, formatBytes(int64(sysAvail)), formatBytes(cacheMax-cacheUsed))
@@ -813,6 +810,19 @@ func formatBytes(b int64) string {
 	default:
 		return fmt.Sprintf("%d B", b)
 	}
+}
+
+func formatUptime(d time.Duration) string {
+	totalSeconds := int(d.Seconds())
+	days := totalSeconds / 86400
+	remaining := totalSeconds % 86400
+	hours := remaining / 3600
+	minutes := (remaining % 3600) / 60
+	seconds := remaining % 60
+	if days > 0 {
+		return fmt.Sprintf("%d Days %02d:%02d:%02d", days, hours, minutes, seconds)
+	}
+	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
 }
 
 func getSystemMemoryInfo() (total, available uint64) {

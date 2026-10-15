@@ -297,10 +297,13 @@ func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 	}
 
 	fmt.Fprint(w, `<table>`)
-	fmt.Fprintf(w, `<tr><th>Staged Data</th><td>%s / %s (configured max)</td></tr>`, formatBytes(totalStagedSize), formatBytes(stagingMax))
-	fmt.Fprintf(w, `<tr><th>Disk</th><td>%s total, %s free</td></tr>`, formatBytes(int64(diskTotal)), formatBytes(int64(diskFree)))
-	fmt.Fprintf(w, `<tr><th>Staging Path</th><td>%s</td></tr>`, stagingPath)
-	fmt.Fprintf(w, `<tr><th>Staged Files</th><td>%d (click a session row for details)</td></tr>`, totalStagedFiles)
+	if stagingMax > 0 {
+		pct := float64(totalStagedSize) / float64(stagingMax) * 100
+		fmt.Fprintf(w, `<tr><th>Staging Used</th><td>%s / %s</td><th>Usage</th><td>%.1f%% (%d files)</td></tr>`, formatBytes(totalStagedSize), formatBytes(stagingMax), pct, totalStagedFiles)
+	} else {
+		fmt.Fprintf(w, `<tr><th>Staging Used</th><td>%s / %s</td><th>Usage</th><td>(%d files)</td></tr>`, formatBytes(totalStagedSize), formatBytes(stagingMax), totalStagedFiles)
+	}
+	fmt.Fprintf(w, `<tr><th>System Disk</th><td>%s total, %s free</td><th>Staging Path</th><td>%s</td></tr>`, formatBytes(int64(diskTotal)), formatBytes(int64(diskFree)), stagingPath)
 	if isDiskSpaceInsufficient(diskFree, totalStagedSize, stagingMax) {
 		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient disk space: available %s &lt; remaining staging %s</td></tr>`, formatBytes(int64(diskFree)), formatBytes(stagingMax-totalStagedSize))
 	}

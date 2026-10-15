@@ -1,17 +1,24 @@
 PKG=github.com/cyverse/irodsfs-pool
+IMAGE?=cyverse/irodsfs-pool
+DOCKERFILE=kubernetes/Dockerfile
 VERSION=v0.12.8
+GOOS?=linux
+GOARCH?=$(shell go env GOARCH)
+PLATFORM?=$(GOOS)/$(GOARCH)
+PLATFORMS?=linux/amd64,linux/arm64
 GIT_COMMIT?=$(shell git rev-parse HEAD)
 BUILD_DATE?=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS?="-X '${PKG}/commons.serviceVersion=${VERSION}' -X '${PKG}/commons.gitCommit=${GIT_COMMIT}' -X '${PKG}/commons.buildDate=${BUILD_DATE}'"
 GO111MODULE=on
 GOPROXY=direct
 GOPATH=$(shell go env GOPATH)
+
 .EXPORT_ALL_VARIABLES:
 
 .PHONY: build
 build:
 	mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o bin/irodsfs-pool ./cmd/
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags=${LDFLAGS} -o bin/irodsfs-pool ./cmd/
 
 .PHONY: protobuf
 protobuf:
@@ -21,9 +28,16 @@ protobuf:
 # go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
 	export PATH=${PATH}:${GOPATH}/bin; protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative service/api/pool.proto
 
-
 .PHONY: examples
 examples:
 	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/list_dir/list_dir.out ./client_examples/list_dir/list_dir.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/download_file/download_file.out ./client_examples/download_file/download_file.go
 	CGO_ENABLED=0 GOOS=linux go build -ldflags=${LDFLAGS} -o ./client_examples/upload_file/upload_file.out ./client_examples/upload_file/upload_file.go
+
+.PHONY: image
+image:
+	docker build --platform=$(PLATFORM) --build-arg LDFLAGS=${LDFLAGS} -t $(IMAGE):latest -f $(DOCKERFILE) .
+
+.PHONY: release
+release:
+	docker buildx build --platform=$(PLATFORMS) --push --build-arg LDFLAGS=${LDFLAGS} -t $(IMAGE):$(VERSION) -t $(IMAGE):latest -f $(DOCKERFILE) .

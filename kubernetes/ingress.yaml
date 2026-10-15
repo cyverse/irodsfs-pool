@@ -1,0 +1,46 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: irodsfs-pool
+  namespace: irodsfs-pool
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: irodsfs-pool.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: irodsfs-pool
+                port:
+                  name: management
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: irodsfs-pool-grpc
+  namespace: irodsfs-pool
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$http_x_irodsfs_client_id"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: irodsfs-pool-grpc.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: irodsfs-pool
+                port:
+                  name: grpc

@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: irodsfs-pool
+  namespace: irodsfs-pool
+  labels:
+    app: irodsfs-pool
+spec:
+  selector:
+    app: irodsfs-pool
+  ports:
+    - name: grpc
+      port: 12020
+      targetPort: grpc
+      protocol: TCP
+    - name: management
+      port: 12021
+      targetPort: management
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: irodsfs-pool-headless
+  namespace: irodsfs-pool
+  labels:
+    app: irodsfs-pool
+spec:
+  clusterIP: None
+  selector:
+    app: irodsfs-pool
+  ports:
+    - name: grpc
+      port: 12020
+      targetPort: grpc
+      protocol: TCP
+    - name: management
+      port: 12021
+      targetPort: management
+      protocol: TCP

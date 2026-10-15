@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: irodsfs-pool
+  namespace: irodsfs-pool
+  labels:
+    app: irodsfs-pool
+spec:
+  serviceName: irodsfs-pool-headless
+  replicas: 3
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: irodsfs-pool
+  template:
+    metadata:
+      labels:
+        app: irodsfs-pool
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: irodsfs-pool
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: irodsfs-pool
+          image: cyverse/irodsfs-pool:latest
+          args:
+            - start
+            - "-c"
+            - /etc/irodsfs-pool/config.yaml
+          ports:
+            - name: grpc
+              containerPort: 12020
+              protocol: TCP
+            - name: management
+              containerPort: 12021
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: management
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: management
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "128Gi"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/irodsfs-pool
+              readOnly: true
+            - name: data
+              mountPath: /data/irodsfs-pool
+      volumes:
+        - name: config
+          configMap:
+            name: irodsfs-pool-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 600Gi

@@ -315,6 +315,7 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 
 	sessionManager := h.poolServer.GetSessionManager()
 	sessions := sessionManager.GetAllSessions()
+	sort.Slice(sessions, func(i, j int) bool { return sessions[i].id < sessions[j].id })
 
 	fmt.Fprintf(w, `<p>Total: %d active, %d served since start</p>`, len(sessions), sessionManager.GetCreatedSessionCount())
 	if len(sessions) == 0 {

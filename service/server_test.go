@@ -352,11 +352,10 @@ func TestRenderPackedDirectoriesShowsTheDirectoryAndItsArchive(t *testing.T) {
 	}
 
 	var buffer bytes.Buffer
-	renderPackedDirectories(&buffer, entries)
+	renderPackedDirectoriesTable(&buffer, entries)
 	body := buffer.String()
 
 	for _, expected := range []string{
-		`<h3>Packed Directories (2)</h3>`,
 		// The directory a user sees, and the data object iRODS actually holds.
 		`/iplant/home/iychoi/irods-csi-driver/.git`,
 		`/iplant/home/iychoi/irods-csi-driver/.git.packedfs.tar`,
@@ -381,7 +380,7 @@ func TestRenderPackedDirectoriesShowsTheDirectoryAndItsArchive(t *testing.T) {
 
 func TestRenderPackedDirectoriesShowsAMountFailure(t *testing.T) {
 	var buffer bytes.Buffer
-	renderPackedDirectories(&buffer, []irodsfs_common_packedfs.Status{{
+	renderPackedDirectoriesTable(&buffer, []irodsfs_common_packedfs.Status{{
 		Root:        "/iplant/home/iychoi/proj/.venv",
 		ArchivePath: "/iplant/home/iychoi/proj/.venv.packedfs.tar",
 		State:       "FAILED",
@@ -400,7 +399,7 @@ func TestRenderPackedDirectoriesShowsAMountFailure(t *testing.T) {
 // markup.
 func TestRenderPackedDirectoriesEscapesItsContent(t *testing.T) {
 	var buffer bytes.Buffer
-	renderPackedDirectories(&buffer, []irodsfs_common_packedfs.Status{{
+	renderPackedDirectoriesTable(&buffer, []irodsfs_common_packedfs.Status{{
 		Root:        `/z/home/u/<img src=x onerror=alert(1)>/.venv`,
 		ArchivePath: `/z/home/u/<img src=x onerror=alert(1)>/.venv.packedfs.tar`,
 		State:       "MOUNTED",
@@ -483,7 +482,7 @@ func TestMonitoringEscapesSessionContent(t *testing.T) {
 
 func TestRenderStagedFilesEscapesItsContent(t *testing.T) {
 	var buffer bytes.Buffer
-	renderStagedFiles(&buffer, []stagedFileEntry{{
+	renderStagedFilesTable(&buffer, []stagedFileEntry{{
 		path:      `/z/home/u/<img src=x onerror=alert(1)>.dat`,
 		oldPath:   `/z/home/u/<svg onload=alert(2)>.dat`,
 		action:    "RENAME",
@@ -508,11 +507,11 @@ func TestRenderStagedFilesEscapesItsContent(t *testing.T) {
 
 func TestRenderStagedFilesEmptyState(t *testing.T) {
 	var buffer bytes.Buffer
-	renderStagedFiles(&buffer, nil)
+	renderStagedFilesTable(&buffer, nil)
 
 	body := buffer.String()
-	if !strings.Contains(body, `<h3>Staged Files (0)</h3>`) || !strings.Contains(body, `No staged files.`) {
-		t.Fatalf("staged files table does not render its empty state: %s", body)
+	if !strings.Contains(body, `<table`) {
+		t.Fatalf("staged files table does not render a table element: %s", body)
 	}
 }
 

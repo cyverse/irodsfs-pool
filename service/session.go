@@ -343,6 +343,7 @@ func (manager *PoolSessionManager) NewSession(account *api.Account, appName stri
 		fs: fs,
 
 		connections:     map[string]connInfo{},
+		createdTime:     time.Now(),
 		lastAccessTime:  time.Now(),
 		poolFileHandles: map[string]*PoolFileHandle{},
 
@@ -1040,6 +1041,7 @@ type PoolSession struct {
 	fsClient irodsfs_common_irods.IRODSFSClient
 
 	connections     map[string]connInfo // connID -> client info
+	createdTime     time.Time
 	lastAccessTime  time.Time
 	poolFileHandles map[string]*PoolFileHandle
 

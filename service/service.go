@@ -194,6 +194,7 @@ func (svc *PoolService) Start() error {
 		apiHandler := newRESTAPIHandler(svc.poolServer, svc.config, startTime)
 		mux := http.NewServeMux()
 		mux.Handle("/monitor", monitoringHandler)
+		mux.Handle("/monitor/", monitoringHandler)
 		mux.Handle("/metrics", promhttp.Handler())
 		apiHandler.RegisterRoutes(mux)
 

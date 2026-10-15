@@ -39,11 +39,30 @@ func newMonitoringHandler(poolServer *PoolServer, config *commons.Config, startT
 }
 
 func (h *MonitoringHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	path := r.URL.Path
+	switch {
+	case strings.HasPrefix(path, "/monitor/session/"):
+		sessionID := strings.TrimPrefix(path, "/monitor/session/")
+		h.serveSessionDetailPage(w, sessionID)
+		return
+	case strings.HasPrefix(path, "/monitor/recovery-session/"):
+		sessionID := strings.TrimPrefix(path, "/monitor/recovery-session/")
+		h.serveFailedSessionDetailPage(w, sessionID)
+		return
+	}
+	h.serveMainPage(w)
+}
 
+func (h *MonitoringHandler) writePageHeader(w http.ResponseWriter, title string) {
 	fmt.Fprint(w, `<!DOCTYPE html><html><head><meta charset="utf-8">`)
-	fmt.Fprint(w, `<title>irodsfs-pool Monitor</title>`)
-	fmt.Fprint(w, `<style>
+	fmt.Fprintf(w, `<title>%s</title>`, title)
+	fmt.Fprint(w, `<style>`)
+	h.writeCommonCSS(w)
+	fmt.Fprint(w, `</style></head><body>`)
+}
+
+func (h *MonitoringHandler) writeCommonCSS(w http.ResponseWriter) {
+	fmt.Fprint(w, `
 body { font-family: monospace; margin: 20px; background: #1a1a2e; color: #eee; }
 h1 { color: #0af; }
 h2 { color: #0af; margin-top: 30px; border-bottom: 1px solid #333; padding-bottom: 5px; }
@@ -78,21 +97,20 @@ th { background: #16213e; }
 tr:nth-child(even) { background: #1a1a2e; }
 tr:nth-child(odd) { background: #0f3460; }
 tr.clickable:hover { background: #1a4a80; cursor: pointer; }
-.bar { background: #222; border-radius: 4px; height: 20px; position: relative; }
-.bar-fill { background: #0af; height: 100%; border-radius: 4px; }
-.bar-text { position: absolute; top: 0; left: 8px; line-height: 20px; font-size: 12px; }
+.bar { display:flex; height:20px; border-radius:4px; overflow:hidden; background:#222; position:relative; }
+.bar-used { background:#0af; height:100%; }
+.bar-free { background:#555; height:100%; }
+.bar-text { position:absolute; top:0; left:8px; line-height:20px; font-size:12px; color:#fff; }
+.hm-bar { display:flex; height:20px; border-radius:4px; overflow:hidden; background:#222; position:relative; }
+.hm-hit { background:#4c4; height:100%; }
+.hm-miss { background:#f44; height:100%; }
+.hm-text { position:absolute; top:0; left:8px; line-height:20px; font-size:12px; color:#fff; }
 .info { color: #888; }
 .badge { display: inline-block; background: #1e3a5f; color: #8cf; padding: 1px 6px; border-radius: 3px; font-size: 11px; margin: 1px; font-family: monospace; }
 .grace { background: #3d2600; color: #ffc875; }
 .releasing { background: #1f2d4d; color: #8ab4ff; }
 .dirty { color: #f84; font-weight: bold; }
 .cached { color: #4c4; }
-#modal-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); z-index:100; overflow:auto; }
-#modal-box { background:#16213e; margin:40px auto; max-width:960px; padding:24px; border-radius:8px; position:relative; border:1px solid #333; }
-#modal-close { position:absolute; top:12px; right:14px; background:none; border:1px solid #555; color:#ccc; font-size:18px; cursor:pointer; padding:2px 10px; border-radius:4px; }
-#modal-close:hover { background:#333; }
-#modal-box table tr:nth-child(even) { background:#1a2a4e; }
-#modal-box table tr:nth-child(odd) { background:#0f2040; }
 .action-btn { background:#1e3a5f; color:#8cf; border:1px solid #335; padding:6px 14px; border-radius:4px; cursor:pointer; font-family:monospace; font-size:13px; }
 .action-btn:hover { background:#2a4a7f; }
 .action-btn-warn { background:#3d2600; color:#ffc875; border-color:#554400; }
@@ -108,8 +126,28 @@ tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 .errors-table th:nth-child(5) { width: 24%; }
 .errors-table th:nth-child(6) { width: 33%; }
 .stack-trace { white-space: pre-wrap; overflow-wrap: anywhere; background: #0b1530; border: 1px solid #333; padding: 10px; font-size: 12px; max-height: 60vh; overflow: auto; }
-</style>`)
-	fmt.Fprint(w, `</head><body>`)
+#modal-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); z-index:100; overflow:auto; }
+#modal-box { background:#16213e; margin:40px auto; max-width:960px; padding:24px; border-radius:8px; position:relative; border:1px solid #333; }
+#modal-close { position:absolute; top:12px; right:14px; background:none; border:1px solid #555; color:#ccc; font-size:18px; cursor:pointer; padding:2px 10px; border-radius:4px; }
+#modal-close:hover { background:#333; }
+.scroll-section { max-height: 400px; overflow: auto; border: 1px solid #333; border-radius: 4px; margin-top: 4px; }
+.scroll-section table { margin-top: 0; }
+.detail-header { display: flex; justify-content: space-between; align-items: flex-start; }
+.detail-header h1 { margin: 0; }
+.detail-actions { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+.back-link { color: #0af; text-decoration: none; }
+.back-link:hover { text-decoration: underline; }
+`)
+}
+
+func (h *MonitoringHandler) serveMainPage(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	fmt.Fprint(w, `<!DOCTYPE html><html><head><meta charset="utf-8">`)
+	fmt.Fprint(w, `<title>irodsfs-pool Monitor</title>`)
+	fmt.Fprint(w, `<style>`)
+	h.writeCommonCSS(w)
+	fmt.Fprint(w, `</style></head><body>`)
 
 	h.renderServerInfo(w)
 	h.renderCacheInfo(w)
@@ -120,8 +158,8 @@ tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 	errorGroups, errorTotal := h.poolServer.GetErrors()
 	renderErrors(w, errorGroups, errorTotal)
 
-	h.renderSessionDetails(w)
-	h.renderFailedSessionDetails(w)
+	// Modal for error details
+	fmt.Fprint(w, `<div id="modal-overlay"><div id="modal-box"><button id="modal-close" onclick="closeDetail()">✕</button><div id="modal-content"></div></div></div>`)
 	renderErrorDetails(w, errorGroups)
 
 	fmt.Fprintf(w, `<p class="info">Last refreshed: %s</p>`, time.Now().Format("2006-01-02 15:04:05"))
@@ -138,81 +176,6 @@ function closeDetail() {
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') closeDetail();
 });
-function syncSessionStaging(id) {
-  var modal = document.getElementById('modal-content');
-  var el = modal.querySelector('.session-action-result');
-  var button = modal.querySelector('.sync-staging-btn');
-  if (button) button.disabled = true;
-  if (el) el.innerHTML = '<span class="action-result-ok">Syncing staged data…</span>';
-  fetch('/api/sessions/' + encodeURIComponent(id) + '/staging/sync', {method:'POST'})
-    .then(function(r){
-      return r.json().then(function(data){ return {ok:r.ok, data:data}; });
-    })
-    .then(function(result){
-      if (!el) return;
-      if (result.ok && result.data.success) {
-        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging sync succeeded. Refresh the page to see updates.</span>';
-      } else {
-        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (result.data.error || 'unknown error') + '</span>';
-        if (button) button.disabled = false;
-      }
-    })
-    .catch(function(e){
-      if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>';
-      if (button) button.disabled = false;
-    });
-}
-function recoverSession(id) {
-  var el = document.getElementById('action-result-' + id);
-  if (el) el.innerHTML = '<span class="action-result-ok">Recovering…</span>';
-  fetch('/api/recovery-sessions/' + encodeURIComponent(id) + '/recover', {method:'POST'})
-    .then(function(r){ return r.json(); })
-    .then(function(data){
-      if (!el) return;
-      if (data.success) {
-        el.innerHTML = '<span class="action-result-ok">&#x2713; Recovery succeeded. Refresh the page to see updates.</span>';
-      } else if (confirm('Recovery failed: ' + (data.error || 'unknown error') + '\n\nAttempt force repair? This removes broken dependencies and retries blocked operations.')) {
-        forceRepairSession(id);
-      } else {
-        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
-      }
-    })
-    .catch(function(e){ if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>'; });
-}
-function forceRepairSession(id) {
-  var el = document.getElementById('action-result-' + id);
-  if (el) el.innerHTML = '<span class="action-result-ok">Repairing…</span>';
-  fetch('/api/recovery-sessions/' + encodeURIComponent(id) + '/force-repair', {method:'POST'})
-    .then(function(r){ return r.json(); })
-    .then(function(data){
-      if (!el) return;
-      if (data.success) {
-        var msg = '&#x2713; Force repair succeeded';
-        if (data.repaired > 0) msg += ' (' + data.repaired + ' issues fixed)';
-        msg += '. Refresh the page to see updates.';
-        el.innerHTML = '<span class="action-result-ok">' + msg + '</span>';
-      } else {
-        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
-      }
-    })
-    .catch(function(e){ if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>'; });
-}
-function discardSession(id) {
-  if (!confirm('Discard local staging data for this session?\n\nOnly do this if the data has already been pushed to iRODS manually.')) return;
-  var el = document.getElementById('action-result-' + id);
-  if (el) el.innerHTML = '<span class="action-result-ok">Discarding…</span>';
-  fetch('/api/recovery-sessions/' + encodeURIComponent(id) + '/discard', {method:'POST'})
-    .then(function(r){ return r.json(); })
-    .then(function(data){
-      if (!el) return;
-      if (data.success) {
-        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging discarded. Refresh the page to see updates.</span>';
-      } else {
-        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
-      }
-    })
-    .catch(function(e){ if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>'; });
-}
 </script>`)
 	fmt.Fprint(w, `</body></html>`)
 }
@@ -251,9 +214,9 @@ func (h *MonitoringHandler) renderCacheInfo(w http.ResponseWriter) {
 	fmt.Fprint(w, `<table>`)
 	if cacheMax > 0 {
 		pct := float64(cacheUsed) / float64(cacheMax) * 100
-		fmt.Fprintf(w, `<tr><th>Cache Used</th><td>%s / %s</td><th>Usage</th><td>%.1f%% (%d entries)</td></tr>`, formatBytes(cacheUsed), formatBytes(cacheMax), pct, cacheCount)
+		fmt.Fprintf(w, `<tr><th>Cache Used</th><td>%s / %s (%d entries)</td><th>Usage</th><td>%s</td></tr>`, formatBytes(cacheUsed), formatBytes(cacheMax), cacheCount, renderBar(pct))
 	} else {
-		fmt.Fprintf(w, `<tr><th>Cache Used</th><td>%s / %s</td><th>Usage</th><td>(%d entries)</td></tr>`, formatBytes(cacheUsed), formatBytes(cacheMax), cacheCount)
+		fmt.Fprintf(w, `<tr><th>Cache Used</th><td>%s / %s (%d entries)</td><th>Usage</th><td>%s</td></tr>`, formatBytes(cacheUsed), formatBytes(cacheMax), cacheCount, renderBar(0))
 	}
 	fmt.Fprintf(w, `<tr><th>System RAM</th><td>%s total, %s available</td></tr>`, formatBytes(int64(sysTotal)), formatBytes(int64(sysAvail)))
 	if isMemoryInsufficient(sysAvail, cacheUsed, cacheMax) {
@@ -299,9 +262,9 @@ func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 	fmt.Fprint(w, `<table>`)
 	if stagingMax > 0 {
 		pct := float64(totalStagedSize) / float64(stagingMax) * 100
-		fmt.Fprintf(w, `<tr><th>Staging Used</th><td>%s / %s</td><th>Usage</th><td>%.1f%% (%d files)</td></tr>`, formatBytes(totalStagedSize), formatBytes(stagingMax), pct, totalStagedFiles)
+		fmt.Fprintf(w, `<tr><th>Staging Used</th><td>%s / %s (%d files)</td><th>Usage</th><td>%s</td></tr>`, formatBytes(totalStagedSize), formatBytes(stagingMax), totalStagedFiles, renderBar(pct))
 	} else {
-		fmt.Fprintf(w, `<tr><th>Staging Used</th><td>%s / %s</td><th>Usage</th><td>(%d files)</td></tr>`, formatBytes(totalStagedSize), formatBytes(stagingMax), totalStagedFiles)
+		fmt.Fprintf(w, `<tr><th>Staging Used</th><td>%s / %s (%d files)</td><th>Usage</th><td>%s</td></tr>`, formatBytes(totalStagedSize), formatBytes(stagingMax), totalStagedFiles, renderBar(0))
 	}
 	fmt.Fprintf(w, `<tr><th>System Disk</th><td>%s total, %s free</td><th>Staging Path</th><td>%s</td></tr>`, formatBytes(int64(diskTotal)), formatBytes(int64(diskFree)), stagingPath)
 	if isDiskSpaceInsufficient(diskFree, totalStagedSize, stagingMax) {
@@ -383,7 +346,7 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 
 		// clientsCell is markup this function built from already-escaped parts,
 		// so it is the one value here that must not be escaped again.
-		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('%s')"><td title="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
+		fmt.Fprintf(w, `<tr class="clickable" onclick="location.href='/monitor/session/%s'"><td title="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
 			template.JSEscapeString(session.id), html.EscapeString(session.id), html.EscapeString(displayID),
 			html.EscapeString(account.ClientUser), html.EscapeString(hostInfo),
 			lastAccess.Format("15:04:05"), clientsCell, stagedFiles, packedDirectories, handleCount, irodsConns)
@@ -428,66 +391,72 @@ func (h *MonitoringHandler) renderFailedSessions(w http.ResponseWriter) {
 				html.EscapeString(tooltip), html.EscapeString(connection.ConnectionID), html.EscapeString(connection.Application))
 		}
 
-		fmt.Fprintf(w, `<tr class="clickable" onclick="showDetail('%s')"><td title="%s">%s</td><td><span class="badge">%s</span></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-			template.JSEscapeString("failed-"+session.ID), html.EscapeString(session.ID), html.EscapeString(displayID), html.EscapeString(string(session.Status)), html.EscapeString(userInfo), html.EscapeString(hostInfo),
+		fmt.Fprintf(w, `<tr class="clickable" onclick="location.href='/monitor/recovery-session/%s'"><td title="%s">%s</td><td><span class="badge">%s</span></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+			template.JSEscapeString(session.ID), html.EscapeString(session.ID), html.EscapeString(displayID), html.EscapeString(string(session.Status)), html.EscapeString(userInfo), html.EscapeString(hostInfo),
 			session.LastAccessTime.Format("2006-01-02 15:04:05"), clientsCell.String())
 	}
 	fmt.Fprint(w, `</table>`)
 	fmt.Fprint(w, `<p class="info">These sessions were interrupted, are recovering, or failed during release. Click a row for recovery metadata.</p>`)
 }
 
-func (h *MonitoringHandler) renderSessionDetails(w http.ResponseWriter) {
-	// Modal overlay (hidden; JS populates #modal-content on row click)
-	fmt.Fprint(w, `<div id="modal-overlay"><div id="modal-box"><button id="modal-close" onclick="closeDetail()">✕</button><div id="modal-content"></div></div></div>`)
-
-	sessions := h.poolServer.GetSessionManager().GetAllSessions()
-	for _, session := range sessions {
-		h.renderOneSessionDetail(w, session)
-	}
-}
-
-func (h *MonitoringHandler) renderFailedSessionDetails(w http.ResponseWriter) {
-	sessions, err := h.poolServer.GetSessionManager().GetFailedSessions()
+func (h *MonitoringHandler) serveSessionDetailPage(w http.ResponseWriter, sessionID string) {
+	session, err := h.poolServer.GetSessionManager().GetSession(sessionID)
 	if err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
-	for _, session := range sessions {
-		h.renderOneFailedSessionDetail(w, session)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	h.writePageHeader(w, "Session Detail")
+	h.renderOneSessionDetail(w, session)
+	fmt.Fprint(w, `</body></html>`)
+}
+
+func (h *MonitoringHandler) serveFailedSessionDetailPage(w http.ResponseWriter, sessionID string) {
+	session, err := h.poolServer.GetSessionManager().GetFailedSession(sessionID)
+	if err != nil || session == nil {
+		http.Error(w, "recovery session not found", http.StatusNotFound)
+		return
 	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	h.writePageHeader(w, "Recovery Session Detail")
+	h.renderOneFailedSessionDetail(w, *session)
+	fmt.Fprint(w, `</body></html>`)
 }
 
 func (h *MonitoringHandler) renderOneFailedSessionDetail(w http.ResponseWriter, session FailedSessionInfo) {
 	escape := html.EscapeString
 	account := session.IRODSAccount
-	fmt.Fprintf(w, `<div id="detail-failed-%s" style="display:none">`, escape(session.ID))
-	fmt.Fprint(w, `<h3>Session Pending Recovery</h3><table>`)
-	fmt.Fprintf(w, `<tr><th>ID</th><td>%s</td></tr>`, escape(session.ID))
-	fmt.Fprintf(w, `<tr><th>Status</th><td>%s</td></tr>`, escape(string(session.Status)))
-	fmt.Fprintf(w, `<tr><th>Account Key</th><td>%s</td></tr>`, escape(session.AccountKey))
-	fmt.Fprintf(w, `<tr><th>User</th><td>%s@%s</td></tr>`, escape(account.ClientUser), escape(account.ClientZone))
-	fmt.Fprintf(w, `<tr><th>Host</th><td>%s:%d</td></tr>`, escape(account.Host), account.Port)
-	fmt.Fprintf(w, `<tr><th>Authentication Scheme</th><td>%s</td></tr>`, escape(account.AuthenticationScheme))
-	fmt.Fprintf(w, `<tr><th>Client Server Negotiation</th><td>%t</td></tr>`, account.ClientServerNegotiation)
-	fmt.Fprintf(w, `<tr><th>CS Negotiation Policy</th><td>%s</td></tr>`, escape(account.CSNegotiationPolicy))
-	fmt.Fprintf(w, `<tr><th>Proxy User</th><td>%s@%s</td></tr>`, escape(account.ProxyUser), escape(account.ProxyZone))
-	fmt.Fprintf(w, `<tr><th>Default Resource</th><td>%s</td></tr>`, escape(account.DefaultResource))
-	fmt.Fprintf(w, `<tr><th>Default Hash Scheme</th><td>%s</td></tr>`, escape(account.DefaultHashScheme))
-	fmt.Fprintf(w, `<tr><th>PAM TTL</th><td>%d</td></tr>`, account.PAMTTL)
-	fmt.Fprintf(w, `<tr><th>Last Access</th><td>%s</td></tr>`, session.LastAccessTime.Format("2006-01-02 15:04:05 MST"))
+
+	fmt.Fprint(w, `<div class="detail-header">`)
+	fmt.Fprint(w, `<div><a class="back-link" href="/monitor">&larr; Back</a><h1>Session Pending Recovery</h1></div>`)
+	fmt.Fprintf(w, `<div class="detail-actions">`)
+	fmt.Fprintf(w, `<button class="action-btn" onclick="recoverSession('%s')">&#x21BA; Recover</button>`,
+		template.JSEscapeString(session.ID))
+	fmt.Fprintf(w, `<button class="action-btn action-btn-warn" onclick="discardSession('%s')">&#x1F5D1; Discard</button>`,
+		template.JSEscapeString(session.ID))
+	fmt.Fprint(w, `</div></div>`)
+	fmt.Fprintf(w, `<div id="action-result-%s" style="margin-top:10px"></div>`, escape(session.ID))
+
+	fmt.Fprint(w, `<table>`)
+	fmt.Fprintf(w, `<tr><th>ID</th><td>%s</td><th>Last Access</th><td>%s</td></tr>`, escape(session.ID), session.LastAccessTime.Format("2006-01-02 15:04:05 MST"))
+	fmt.Fprintf(w, `<tr><th>Host</th><td>%s:%d</td><th>User</th><td>%s@%s</td></tr>`, escape(account.Host), account.Port, escape(account.ClientUser), escape(account.ClientZone))
+	fmt.Fprintf(w, `<tr><th>Status</th><td><span class="badge">%s</span></td><th>Account Key</th><td>%s</td></tr>`, escape(string(session.Status)), escape(session.AccountKey))
+	fmt.Fprintf(w, `<tr><th>Auth Scheme</th><td>%s</td><th>Proxy User</th><td>%s@%s</td></tr>`, escape(account.AuthenticationScheme), escape(account.ProxyUser), escape(account.ProxyZone))
+	fmt.Fprintf(w, `<tr><th>CS Negotiation</th><td>%t / %s</td><th>Default Resource</th><td>%s</td></tr>`, account.ClientServerNegotiation, escape(account.CSNegotiationPolicy), escape(account.DefaultResource))
+	fmt.Fprintf(w, `<tr><th>Default Hash</th><td>%s</td><th>PAM TTL</th><td>%d</td></tr>`, escape(account.DefaultHashScheme), account.PAMTTL)
 	fmt.Fprint(w, `</table>`)
 
 	if ssl := account.SSLConfiguration; ssl != nil {
-		fmt.Fprint(w, `<h3>SSL Configuration</h3><table>`)
-		fmt.Fprintf(w, `<tr><th>CA Certificate File</th><td>%s</td></tr>`, escape(ssl.CACertificateFile))
-		fmt.Fprintf(w, `<tr><th>CA Certificate Path</th><td>%s</td></tr>`, escape(ssl.CACertificatePath))
-		fmt.Fprintf(w, `<tr><th>Encryption</th><td>%s, key %d, salt %d, rounds %d</td></tr>`, escape(ssl.EncryptionAlgorithm), ssl.EncryptionKeySize, ssl.EncryptionSaltSize, ssl.EncryptionNumHashRounds)
-		fmt.Fprintf(w, `<tr><th>Verify Server</th><td>%s</td></tr>`, escape(ssl.VerifyServer))
-		fmt.Fprintf(w, `<tr><th>DH Params File</th><td>%s</td></tr>`, escape(ssl.DHParamsFile))
-		fmt.Fprintf(w, `<tr><th>Server Name</th><td>%s</td></tr>`, escape(ssl.ServerName))
+		fmt.Fprint(w, `<h2>SSL Configuration</h2><table>`)
+		fmt.Fprintf(w, `<tr><th>CA Certificate File</th><td>%s</td><th>CA Certificate Path</th><td>%s</td></tr>`, escape(ssl.CACertificateFile), escape(ssl.CACertificatePath))
+		fmt.Fprintf(w, `<tr><th>Encryption</th><td>%s, key %d, salt %d, rounds %d</td><th>Verify Server</th><td>%s</td></tr>`, escape(ssl.EncryptionAlgorithm), ssl.EncryptionKeySize, ssl.EncryptionSaltSize, ssl.EncryptionNumHashRounds, escape(ssl.VerifyServer))
+		fmt.Fprintf(w, `<tr><th>DH Params File</th><td>%s</td><th>Server Name</th><td>%s</td></tr>`, escape(ssl.DHParamsFile), escape(ssl.ServerName))
 		fmt.Fprint(w, `</table>`)
 	}
 
-	fmt.Fprintf(w, `<h3>Clients (%d)</h3>`, len(session.Connections))
+	fmt.Fprintf(w, `<h2>Clients (%d)</h2>`, len(session.Connections))
 	if len(session.Connections) == 0 {
 		fmt.Fprint(w, `<p>No recorded clients.</p>`)
 	} else {
@@ -501,18 +470,10 @@ func (h *MonitoringHandler) renderOneFailedSessionDetail(w http.ResponseWriter, 
 	}
 	fmt.Fprint(w, `<p class="info">Credentials, tickets, and PAM tokens are not stored.</p>`)
 
-	fmt.Fprintf(w, `<div style="margin-top:16px;display:flex;gap:10px">`)
-	fmt.Fprintf(w, `<button class="action-btn" onclick="recoverSession('%s')">&#x21BA; Recover (sync &amp; release)</button>`,
-		template.JSEscapeString(session.ID))
-	fmt.Fprintf(w, `<button class="action-btn action-btn-warn" onclick="discardSession('%s')">&#x1F5D1; Discard local staging</button>`,
-		template.JSEscapeString(session.ID))
-	fmt.Fprint(w, `</div>`)
-	fmt.Fprintf(w, `<div id="action-result-%s" style="margin-top:10px"></div>`, escape(session.ID))
-	fmt.Fprint(w, `</div>`)
+	h.writeRecoveryScripts(w)
 }
 
 func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, session *PoolSession) {
-	// Collect data under lock
 	session.mutex.RLock()
 	type connEntry struct{ id, clientID, app, desc string }
 	connEntries := make([]connEntry, 0, len(session.connections))
@@ -524,6 +485,7 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	for _, h2 := range session.poolFileHandles {
 		handleEntries = append(handleEntries, handleEntry{h2.GetEntryPath(), string(h2.GetOpenMode())})
 	}
+	created := session.createdTime
 	lastAccess := session.lastAccessTime
 	releasing := session.releasing
 	session.mutex.RUnlock()
@@ -531,7 +493,6 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	sort.Slice(connEntries, func(i, j int) bool { return connEntries[i].id < connEntries[j].id })
 	sort.Slice(handleEntries, func(i, j int) bool { return handleEntries[i].path < handleEntries[j].path })
 
-	// Collect staging data
 	var stagingEntries []stagedFileEntry
 	if session.fsClient != nil {
 		if bufferedClient, ok := session.fsClient.(*irodsfs_common_irods.IRODSFSClientBuffered); ok {
@@ -551,10 +512,6 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	}
 	sort.Slice(stagingEntries, func(i, j int) bool { return stagingEntries[i].path < stagingEntries[j].path })
 
-	// Packed directories carry no staging metadata: their contents are held as
-	// a local tree and sent as one archive, so the files inside them never
-	// appear above. Report the directory and the data object it becomes
-	// instead, which is what tells an operator whether it has reached iRODS.
 	var packedEntries []irodsfs_common_packedfs.Status
 	if session.fsClient != nil {
 		if bufferedClient, ok := session.fsClient.(*irodsfs_common_irods.IRODSFSClientBuffered); ok {
@@ -567,17 +524,23 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	userInfo := fmt.Sprintf("%s@%s", account.ClientUser, account.ClientZone)
 	hostInfo := fmt.Sprintf("%s:%d", account.Host, account.Port)
 
-	fmt.Fprintf(w, `<div id="detail-%s" style="display:none">`, html.EscapeString(session.id))
-	fmt.Fprintf(w, `<h3>Session Detail</h3>`)
+	// Header with back link and action buttons at top-right
+	fmt.Fprint(w, `<div class="detail-header">`)
+	fmt.Fprint(w, `<div><a class="back-link" href="/monitor">&larr; Back</a><h1>Session Detail</h1></div>`)
+	fmt.Fprintf(w, `<div class="detail-actions">`)
+	fmt.Fprintf(w, `<button class="action-btn sync-staging-btn" onclick="syncSessionStaging('%s')">&#x21BA; Sync Staging</button>`,
+		template.JSEscapeString(session.id))
+	fmt.Fprint(w, `</div></div>`)
+	fmt.Fprint(w, `<div class="session-action-result" style="margin-top:10px"></div>`)
+
 	fmt.Fprint(w, `<table>`)
-	fmt.Fprintf(w, `<tr><th>ID</th><td>%s</td></tr>`, html.EscapeString(session.id))
-	fmt.Fprintf(w, `<tr><th>User</th><td>%s</td></tr>`, html.EscapeString(userInfo))
-	fmt.Fprintf(w, `<tr><th>Host</th><td>%s</td></tr>`, html.EscapeString(hostInfo))
-	fmt.Fprintf(w, `<tr><th>Last Access</th><td>%s</td></tr>`, lastAccess.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(w, `<tr><th>ID</th><td colspan="3">%s</td></tr>`, html.EscapeString(session.id))
+	fmt.Fprintf(w, `<tr><th>Host</th><td>%s</td><th>User</th><td>%s</td></tr>`, html.EscapeString(hostInfo), html.EscapeString(userInfo))
+	fmt.Fprintf(w, `<tr><th>Created</th><td>%s</td><th>Last Access</th><td>%s</td></tr>`, created.Format("2006-01-02 15:04:05"), lastAccess.Format("2006-01-02 15:04:05"))
 	fmt.Fprint(w, `</table>`)
 
 	// Clients
-	fmt.Fprintf(w, `<h3>Clients (%d)</h3>`, len(connEntries))
+	fmt.Fprintf(w, `<h2>Clients (%d)</h2>`, len(connEntries))
 	if releasing {
 		fmt.Fprint(w, `<p><span class="badge releasing">&#x1F504; releasing — syncing staged data to iRODS</span></p>`)
 	} else if len(connEntries) == 0 {
@@ -596,30 +559,123 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 		fmt.Fprint(w, `</table>`)
 	}
 
-	renderStagedFiles(w, stagingEntries)
-
-	renderPackedDirectories(w, packedEntries)
-
-	// Open file handles
-	fmt.Fprintf(w, `<h3>Open File Handles (%d)</h3>`, len(handleEntries))
-	if len(handleEntries) == 0 {
-		fmt.Fprint(w, `<p>No open file handles.</p>`)
+	// Staged Files (scrollable)
+	fmt.Fprintf(w, `<h2>Staged Files (%d)</h2>`, len(stagingEntries))
+	if len(stagingEntries) > 0 {
+		fmt.Fprint(w, `<div class="scroll-section">`)
+		renderStagedFilesTable(w, stagingEntries)
+		fmt.Fprint(w, `</div>`)
 	} else {
+		fmt.Fprint(w, `<p>No staged files.</p>`)
+	}
+
+	// Packed Directories (scrollable)
+	fmt.Fprintf(w, `<h2>Packed Directories (%d)</h2>`, len(packedEntries))
+	if len(packedEntries) > 0 {
+		fmt.Fprint(w, `<div class="scroll-section">`)
+		renderPackedDirectoriesTable(w, packedEntries)
+		fmt.Fprint(w, `</div>`)
+	} else {
+		fmt.Fprint(w, `<p>No packed directories.</p>`)
+	}
+
+	// Open File Handles (scrollable)
+	fmt.Fprintf(w, `<h2>Open File Handles (%d)</h2>`, len(handleEntries))
+	if len(handleEntries) > 0 {
+		fmt.Fprint(w, `<div class="scroll-section">`)
 		fmt.Fprint(w, `<table class="handles-table"><tr><th>Path</th><th>Mode</th></tr>`)
 		for _, e := range handleEntries {
 			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td></tr>`,
 				html.EscapeString(e.path), html.EscapeString(e.mode))
 		}
-		fmt.Fprint(w, `</table>`)
+		fmt.Fprint(w, `</table></div>`)
+	} else {
+		fmt.Fprint(w, `<p>No open file handles.</p>`)
 	}
 
-	fmt.Fprint(w, `<div style="margin-top:16px;display:flex;gap:10px">`)
-	fmt.Fprintf(w, `<button class="action-btn sync-staging-btn" onclick="syncSessionStaging('%s')">&#x21BA; Sync Staging</button>`,
-		template.JSEscapeString(session.id))
-	fmt.Fprint(w, `</div>`)
-	fmt.Fprint(w, `<div class="session-action-result" style="margin-top:10px"></div>`)
+	h.writeSyncScript(w)
+}
 
-	fmt.Fprint(w, `</div>`) // end detail div
+func (h *MonitoringHandler) writeSyncScript(w http.ResponseWriter) {
+	fmt.Fprint(w, `<script>
+function syncSessionStaging(id) {
+  var el = document.querySelector('.session-action-result');
+  var button = document.querySelector('.sync-staging-btn');
+  if (button) button.disabled = true;
+  if (el) el.innerHTML = '<span class="action-result-ok">Syncing staged data…</span>';
+  fetch('/api/sessions/' + encodeURIComponent(id) + '/staging/sync', {method:'POST'})
+    .then(function(r){ return r.json().then(function(data){ return {ok:r.ok, data:data}; }); })
+    .then(function(result){
+      if (!el) return;
+      if (result.ok && result.data.success) {
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging sync succeeded. Refresh the page to see updates.</span>';
+      } else {
+        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (result.data.error || 'unknown error') + '</span>';
+        if (button) button.disabled = false;
+      }
+    })
+    .catch(function(e){
+      if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>';
+      if (button) button.disabled = false;
+    });
+}
+</script>`)
+}
+
+func (h *MonitoringHandler) writeRecoveryScripts(w http.ResponseWriter) {
+	fmt.Fprint(w, `<script>
+function recoverSession(id) {
+  var el = document.getElementById('action-result-' + id);
+  if (el) el.innerHTML = '<span class="action-result-ok">Recovering…</span>';
+  fetch('/api/recovery-sessions/' + encodeURIComponent(id) + '/recover', {method:'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!el) return;
+      if (data.success) {
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Recovery succeeded. Refresh the page to see updates.</span>';
+      } else if (confirm('Recovery failed: ' + (data.error || 'unknown error') + '\n\nAttempt force repair? This removes broken dependencies and retries blocked operations.')) {
+        forceRepairSession(id);
+      } else {
+        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
+      }
+    })
+    .catch(function(e){ if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>'; });
+}
+function forceRepairSession(id) {
+  var el = document.getElementById('action-result-' + id);
+  if (el) el.innerHTML = '<span class="action-result-ok">Repairing…</span>';
+  fetch('/api/recovery-sessions/' + encodeURIComponent(id) + '/force-repair', {method:'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!el) return;
+      if (data.success) {
+        var msg = '&#x2713; Force repair succeeded';
+        if (data.repaired > 0) msg += ' (' + data.repaired + ' issues fixed)';
+        msg += '. Refresh the page to see updates.';
+        el.innerHTML = '<span class="action-result-ok">' + msg + '</span>';
+      } else {
+        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
+      }
+    })
+    .catch(function(e){ if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>'; });
+}
+function discardSession(id) {
+  if (!confirm('Discard local staging data for this session?\n\nOnly do this if the data has already been pushed to iRODS manually.')) return;
+  var el = document.getElementById('action-result-' + id);
+  if (el) el.innerHTML = '<span class="action-result-ok">Discarding…</span>';
+  fetch('/api/recovery-sessions/' + encodeURIComponent(id) + '/discard', {method:'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!el) return;
+      if (data.success) {
+        el.innerHTML = '<span class="action-result-ok">&#x2713; Staging discarded. Refresh the page to see updates.</span>';
+      } else {
+        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
+      }
+    })
+    .catch(function(e){ if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>'; });
+}
+</script>`)
 }
 
 func (h *MonitoringHandler) renderMetrics(w http.ResponseWriter) {
@@ -634,11 +690,9 @@ func (h *MonitoringHandler) renderMetrics(w http.ResponseWriter) {
 	}
 
 	fmt.Fprint(w, `<table>`)
-	fmt.Fprintf(w, `<tr><th>Bytes Sent (to iRODS)</th><td>%s</td></tr>`, formatBytes(int64(m.BytesSent)))
-	fmt.Fprintf(w, `<tr><th>Bytes Received (from iRODS)</th><td>%s</td></tr>`, formatBytes(int64(m.BytesReceived)))
-	fmt.Fprintf(w, `<tr><th>Cache Hit / Miss</th><td>%d / %d (%.1f%% hit)</td></tr>`, m.CacheHit, m.CacheMiss, hitRatio)
-	fmt.Fprintf(w, `<tr><th>Request Failures</th><td>%d</td></tr>`, m.RequestFailures)
-	fmt.Fprintf(w, `<tr><th>Connection Failures</th><td>%d</td></tr>`, m.ConnectionFailures)
+	fmt.Fprintf(w, `<tr><th>Bytes Sent</th><td>%s</td><th>Bytes Received</th><td>%s</td></tr>`, formatBytes(int64(m.BytesSent)), formatBytes(int64(m.BytesReceived)))
+	fmt.Fprintf(w, `<tr><th>Cache Hit / Miss</th><td>%d / %d</td><th>Hit Ratio</th><td>%s</td></tr>`, m.CacheHit, m.CacheMiss, renderHitMissBar(hitRatio))
+	fmt.Fprintf(w, `<tr><th>Request Failures</th><td>%d</td><th>Connection Failures</th><td>%d</td></tr>`, m.RequestFailures, m.ConnectionFailures)
 	fmt.Fprint(w, `</table>`)
 }
 
@@ -704,7 +758,16 @@ func renderBar(pct float64) string {
 	if pct > 100 {
 		pct = 100
 	}
-	return fmt.Sprintf(`<div class="bar"><div class="bar-fill" style="width:%.1f%%"></div><span class="bar-text">%.1f%%</span></div>`, pct, pct)
+	freePct := 100 - pct
+	return fmt.Sprintf(`<div class="bar"><div class="bar-used" style="width:%.1f%%"></div><div class="bar-free" style="width:%.1f%%"></div><span class="bar-text">%.1f%%</span></div>`, pct, freePct, pct)
+}
+
+func renderHitMissBar(hitPct float64) string {
+	if hitPct > 100 {
+		hitPct = 100
+	}
+	missPct := 100 - hitPct
+	return fmt.Sprintf(`<div class="hm-bar"><div class="hm-hit" style="width:%.1f%%"></div><div class="hm-miss" style="width:%.1f%%"></div><span class="hm-text">%.1f%% hit</span></div>`, hitPct, missPct, hitPct)
 }
 
 // stagedFileEntry is one row of the staged files table.
@@ -733,13 +796,7 @@ func clientLabel(clientID string, connectionID string) string {
 	return connectionID
 }
 
-func renderStagedFiles(w io.Writer, entries []stagedFileEntry) {
-	fmt.Fprintf(w, `<h3>Staged Files (%d)</h3>`, len(entries))
-	if len(entries) == 0 {
-		fmt.Fprint(w, `<p>No staged files.</p>`)
-		return
-	}
-
+func renderStagedFilesTable(w io.Writer, entries []stagedFileEntry) {
 	fmt.Fprint(w, `<table class="staged-files-table"><tr><th>Path</th><th>Action</th><th>Sync Status</th><th>Modified</th><th>Failures</th></tr>`)
 	for _, entry := range entries {
 		stateClass := "cached"
@@ -747,8 +804,6 @@ func renderStagedFiles(w io.Writer, entries []stagedFileEntry) {
 			stateClass = "dirty"
 		}
 
-		// pathCell is assembled from escaped pieces, so it is the one value
-		// below that carries markup of its own.
 		pathCell := html.EscapeString(entry.path)
 		if entry.oldPath != "" {
 			pathCell = fmt.Sprintf("%s<br><span style='color:#888;font-size:11px'>← %s</span>",
@@ -769,13 +824,7 @@ func renderStagedFiles(w io.Writer, entries []stagedFileEntry) {
 // they carry no staging metadata, listing them would be tens of thousands of
 // rows, and what an operator needs to know is whether the archive has reached
 // iRODS.
-func renderPackedDirectories(w io.Writer, entries []irodsfs_common_packedfs.Status) {
-	fmt.Fprintf(w, `<h3>Packed Directories (%d)</h3>`, len(entries))
-	if len(entries) == 0 {
-		fmt.Fprint(w, `<p>No packed directories.</p>`)
-		return
-	}
-
+func renderPackedDirectoriesTable(w io.Writer, entries []irodsfs_common_packedfs.Status) {
 	fmt.Fprint(w, `<table class="packed-dirs-table"><tr><th>Directory</th><th>Archive in iRODS</th><th>State</th><th>Pending</th><th>Size</th><th>Last Packed</th></tr>`)
 	for _, entry := range entries {
 		pendingClass, pendingText := "cached", "synced"

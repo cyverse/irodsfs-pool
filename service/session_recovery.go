@@ -215,6 +215,7 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 		accountKey:      info.AccountKey,
 		irodsAccount:    irodsAccount,
 		connections:     map[string]connInfo{},
+		createdTime:     time.Now(),
 		lastAccessTime:  time.Now(),
 		poolFileHandles: map[string]*PoolFileHandle{},
 		logger:          sessionLogger,

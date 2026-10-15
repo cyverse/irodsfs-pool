@@ -131,6 +131,8 @@ func NewPoolSessionManager(config *PoolServerConfig) (*PoolSessionManager, error
 		return nil, errors.Wrap(err, "failed to load failed session store")
 	}
 
+	go manager.autoRecoverInterruptedSessions()
+
 	checkInterval := manager.config.sessionTimeoutCheckInterval
 
 	go func() {

@@ -168,6 +168,26 @@ function recoverSession(id) {
       if (!el) return;
       if (data.success) {
         el.innerHTML = '<span class="action-result-ok">&#x2713; Recovery succeeded. Refresh the page to see updates.</span>';
+      } else if (confirm('Recovery failed: ' + (data.error || 'unknown error') + '\n\nAttempt force repair? This removes broken dependencies and retries blocked operations.')) {
+        forceRepairSession(id);
+      } else {
+        el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
+      }
+    })
+    .catch(function(e){ if (el) el.innerHTML = '<span class="action-result-err">&#x2717; ' + e + '</span>'; });
+}
+function forceRepairSession(id) {
+  var el = document.getElementById('action-result-' + id);
+  if (el) el.innerHTML = '<span class="action-result-ok">Repairing…</span>';
+  fetch('/api/recovery-sessions/' + encodeURIComponent(id) + '/force-repair', {method:'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!el) return;
+      if (data.success) {
+        var msg = '&#x2713; Force repair succeeded';
+        if (data.repaired > 0) msg += ' (' + data.repaired + ' issues fixed)';
+        msg += '. Refresh the page to see updates.';
+        el.innerHTML = '<span class="action-result-ok">' + msg + '</span>';
       } else {
         el.innerHTML = '<span class="action-result-err">&#x2717; ' + (data.error || 'unknown error') + '</span>';
       }

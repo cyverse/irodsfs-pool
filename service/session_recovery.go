@@ -10,6 +10,41 @@ import (
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 )
 
+// autoRecoverInterruptedSessions runs once at startup. It collects every
+// session in interrupted or release_failed state and attempts a normal
+// recovery for each. Force repair is never used here — if a normal recovery
+// fails the session stays in the store for manual intervention.
+func (manager *PoolSessionManager) autoRecoverInterruptedSessions() {
+	sessions, err := manager.GetFailedSessions()
+	if err != nil {
+		manager.logger.WithError(err).Warn("Auto-recovery: failed to list interrupted sessions")
+		return
+	}
+
+	if len(sessions) == 0 {
+		return
+	}
+
+	manager.logger.Infof("Auto-recovery: attempting recovery of %d interrupted session(s)", len(sessions))
+
+	for _, session := range sessions {
+		if session.Status != FailedSessionStatusInterrupted && session.Status != FailedSessionStatusReleaseFailed {
+			continue
+		}
+
+		result, recoverErr := manager.RecoverSession(session.ID)
+		if recoverErr != nil {
+			manager.logger.WithError(recoverErr).Warnf("Auto-recovery: session %q could not be recovered", session.ID)
+			continue
+		}
+		if !result.Success {
+			manager.logger.Warnf("Auto-recovery: session %q recovery failed: %s", session.ID, result.Error)
+			continue
+		}
+		manager.logger.Infof("Auto-recovery: session %q recovered successfully", session.ID)
+	}
+}
+
 // RecoveryResult holds the outcome of a RecoverSession call.
 type RecoveryResult struct {
 	SessionID   string    `json:"session_id"`
@@ -17,6 +52,7 @@ type RecoveryResult struct {
 	CompletedAt time.Time `json:"completed_at"`
 	Success     bool      `json:"success"`
 	Adopted     bool      `json:"adopted,omitempty"`
+	Repaired    int       `json:"repaired,omitempty"`
 	Error       string    `json:"error,omitempty"`
 }
 
@@ -61,7 +97,7 @@ func (manager *PoolSessionManager) RecoverSession(sessionID string) (*RecoveryRe
 		manager.logger.WithError(saveErr).Warnf("Failed to mark session %q as recovering in store", sessionID)
 	}
 
-	adopted, recoverErr := manager.doRecoverSession(sessionID, info)
+	adopted, _, recoverErr := manager.doRecoverSession(sessionID, info, false)
 
 	result.CompletedAt = time.Now()
 	switch {
@@ -88,13 +124,69 @@ func (manager *PoolSessionManager) RecoverSession(sessionID string) (*RecoveryRe
 	return result, nil
 }
 
+// ForceRepairSession repairs a corrupted staging DAG by removing dangling
+// dependencies and unblocking stuck operations, then syncs and releases.
+func (manager *PoolSessionManager) ForceRepairSession(sessionID string) (*RecoveryResult, error) {
+	result := &RecoveryResult{
+		SessionID: sessionID,
+		StartedAt: time.Now(),
+	}
+
+	info, err := manager.getStoredSession(sessionID)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read session from store")
+	}
+	if info == nil {
+		return nil, errors.Newf("session %q not found in recovery store", sessionID)
+	}
+	switch info.Status {
+	case FailedSessionStatusActive, FailedSessionStatusRecovering:
+		return nil, errors.Newf("session %q cannot be repaired while in status %q", sessionID, info.Status)
+	}
+	if info.EncryptedAccount == nil {
+		return nil, errors.Newf("session %q has no encrypted credentials; manual recovery required", sessionID)
+	}
+
+	if manager.sessionInUse(sessionID) {
+		return nil, errors.Newf("session %q is in use by a client", sessionID)
+	}
+
+	info.Status = FailedSessionStatusRecovering
+	if saveErr := manager.saveFailedSession(*info); saveErr != nil {
+		manager.logger.WithError(saveErr).Warnf("Failed to mark session %q as recovering in store", sessionID)
+	}
+
+	adopted, repaired, recoverErr := manager.doRecoverSession(sessionID, info, true)
+
+	result.CompletedAt = time.Now()
+	result.Repaired = repaired
+	switch {
+	case recoverErr != nil:
+		result.Error = recoverErr.Error()
+		info.Status = FailedSessionStatusInterrupted
+		if saveErr := manager.saveFailedSession(*info); saveErr != nil {
+			manager.logger.WithError(saveErr).Warnf("Failed to revert recovery status for session %q", sessionID)
+		}
+	case adopted:
+		result.Success = true
+		result.Adopted = true
+		info.Status = FailedSessionStatusActive
+		if saveErr := manager.saveFailedSession(*info); saveErr != nil {
+			manager.logger.WithError(saveErr).Warnf("Failed to mark repaired session %q as active", sessionID)
+		}
+	default:
+		result.Success = true
+	}
+	return result, nil
+}
+
 // doRecoverSession rebuilds a session from the recovery store, uploads the data
 // left in its staging area and then releases it. The session is parked in the
 // releasing map for as long as that runs, so a login for the same account takes
 // it over - with its staging area, and the lock it holds on that staging area,
 // intact - rather than colliding with it over the same staging directory. It
 // reports whether that take-over happened, in which case nothing was released.
-func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *FailedSessionInfo) (bool, error) {
+func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *FailedSessionInfo, forceRepair bool) (bool, int, error) {
 	// A recovery holds a session and its staging area just like a release does,
 	// so a shutdown has to wait for it rather than close the store underneath it.
 	manager.releaseWg.Add(1)
@@ -103,19 +195,19 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 	// Decrypt credentials.
 	irodsAccount, err := manager.DecryptSessionAccount(info)
 	if err != nil {
-		return false, errors.Wrap(err, "failed to decrypt iRODS account")
+		return false, 0, errors.Wrap(err, "failed to decrypt iRODS account")
 	}
 
 	// Build session logger.
 	sessionLogger, sessionLogFile, err := newSessionLogger(manager.config.logRootPath, sessionID, manager.config.logMaxBackups)
 	if err != nil {
-		return false, errors.Wrapf(err, "failed to create session logger for recovery of %q", sessionID)
+		return false, 0, errors.Wrapf(err, "failed to create session logger for recovery of %q", sessionID)
 	}
 
 	irodsClientLogger, err := newIrodsClientLogger(sessionLogFile)
 	if err != nil {
 		sessionLogFile.Close()
-		return false, errors.Wrapf(err, "failed to create iRODS client logger for recovery of %q", sessionID)
+		return false, 0, errors.Wrapf(err, "failed to create iRODS client logger for recovery of %q", sessionID)
 	}
 
 	session := &PoolSession{
@@ -150,7 +242,7 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 	if err != nil {
 		manager.abandonRecoveringSession(session)
 		sessionLogFile.Close()
-		return false, errors.Wrap(err, "failed to connect to iRODS for recovery")
+		return false, 0, errors.Wrap(err, "failed to connect to iRODS for recovery")
 	}
 
 	// Build buffered client with persistence so any staged files are reloaded.
@@ -167,6 +259,7 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 		SyncInterval:       manager.config.stagingDataGracePeriod / 2,
 		GracePeriod:        manager.config.stagingDataGracePeriod,
 		UsePersistence:     true,
+		ForceRepair:        forceRepair,
 		GlobalQuota:        manager.sharedStagingQuota,
 		PackedDirectories:  manager.config.packedDirectories,
 		Logger:             sessionLogger,
@@ -178,8 +271,9 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 		fs.Release()
 		manager.abandonRecoveringSession(session)
 		sessionLogFile.Close()
-		return false, errors.Wrap(err, "failed to create buffered FS client for recovery")
+		return false, 0, errors.Wrap(err, "failed to create buffered FS client for recovery")
 	}
+	repaired := buffConfig.Repaired
 
 	session.mutex.Lock()
 	session.fs = fs
@@ -203,16 +297,16 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 	tornDown, releaseErr := manager.teardownReleasingSession(session, epoch, syncErr)
 	if !tornDown {
 		sessionLogger.Infof("Kept recovered session %q, a new login took it over during its recovery", sessionID)
-		return true, nil
+		return true, repaired, nil
 	}
 
 	switch {
 	case syncErr != nil:
-		return false, errors.Wrap(syncErr, "sync failed during recovery")
+		return false, repaired, errors.Wrap(syncErr, "sync failed during recovery")
 	case releaseErr != nil:
-		return false, errors.Wrap(releaseErr, "release failed after recovery sync")
+		return false, repaired, errors.Wrap(releaseErr, "release failed after recovery sync")
 	}
-	return false, nil
+	return false, repaired, nil
 }
 
 // uploadRecoveredStaging empties the staging area a recovered session was built

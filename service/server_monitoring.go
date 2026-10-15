@@ -135,6 +135,9 @@ function showDetail(id) {
 function closeDetail() {
   document.getElementById('modal-overlay').style.display = 'none';
 }
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeDetail();
+});
 function syncSessionStaging(id) {
   var modal = document.getElementById('modal-content');
   var el = modal.querySelector('.session-action-result');

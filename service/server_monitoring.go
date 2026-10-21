@@ -348,7 +348,7 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 		// so it is the one value here that must not be escaped again.
 		fmt.Fprintf(w, `<tr class="clickable" onclick="location.href='/monitor/session/%s'"><td title="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
 			template.JSEscapeString(session.id), html.EscapeString(session.id), html.EscapeString(displayID),
-			html.EscapeString(account.ClientUser), html.EscapeString(hostInfo),
+			html.EscapeString(formatIRODSUser(account.ClientUser, account.ClientZone)), html.EscapeString(hostInfo),
 			lastAccess.Format("15:04:05"), clientsCell, stagedFiles, packedDirectories, handleCount, irodsConns)
 	}
 	fmt.Fprint(w, `</table>`)
@@ -377,7 +377,7 @@ func (h *MonitoringHandler) renderFailedSessions(w http.ResponseWriter) {
 			displayID = displayID[:4] + "…" + displayID[len(displayID)-4:]
 		}
 		account := session.IRODSAccount
-		userInfo := fmt.Sprintf("%s@%s", account.ClientUser, account.ClientZone)
+		userInfo := formatIRODSUser(account.ClientUser, account.ClientZone)
 		hostInfo := fmt.Sprintf("%s:%d", account.Host, account.Port)
 
 		var clientsCell strings.Builder
@@ -441,9 +441,9 @@ func (h *MonitoringHandler) renderOneFailedSessionDetail(w http.ResponseWriter, 
 
 	fmt.Fprint(w, `<table>`)
 	fmt.Fprintf(w, `<tr><th>ID</th><td>%s</td><th>Last Access</th><td>%s</td></tr>`, escape(session.ID), session.LastAccessTime.Format("2006-01-02 15:04:05 MST"))
-	fmt.Fprintf(w, `<tr><th>Host</th><td>%s:%d</td><th>User</th><td>%s@%s</td></tr>`, escape(account.Host), account.Port, escape(account.ClientUser), escape(account.ClientZone))
+	fmt.Fprintf(w, `<tr><th>Host</th><td>%s:%d</td><th>User</th><td>%s</td></tr>`, escape(account.Host), account.Port, escape(formatIRODSUser(account.ClientUser, account.ClientZone)))
 	fmt.Fprintf(w, `<tr><th>Status</th><td><span class="badge">%s</span></td><th>Account Key</th><td>%s</td></tr>`, escape(string(session.Status)), escape(session.AccountKey))
-	fmt.Fprintf(w, `<tr><th>Auth Scheme</th><td>%s</td><th>Proxy User</th><td>%s@%s</td></tr>`, escape(account.AuthenticationScheme), escape(account.ProxyUser), escape(account.ProxyZone))
+	fmt.Fprintf(w, `<tr><th>Auth Scheme</th><td>%s</td><th>Proxy User</th><td>%s</td></tr>`, escape(account.AuthenticationScheme), escape(formatIRODSUser(account.ProxyUser, account.ProxyZone)))
 	fmt.Fprintf(w, `<tr><th>CS Negotiation</th><td>%t / %s</td><th>Default Resource</th><td>%s</td></tr>`, account.ClientServerNegotiation, escape(account.CSNegotiationPolicy), escape(account.DefaultResource))
 	fmt.Fprintf(w, `<tr><th>Default Hash</th><td>%s</td><th>PAM TTL</th><td>%d</td></tr>`, escape(account.DefaultHashScheme), account.PAMTTL)
 	fmt.Fprint(w, `</table>`)
@@ -521,7 +521,7 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	sort.Slice(packedEntries, func(i, j int) bool { return packedEntries[i].Root < packedEntries[j].Root })
 
 	account := session.irodsAccount
-	userInfo := fmt.Sprintf("%s@%s", account.ClientUser, account.ClientZone)
+	userInfo := formatIRODSUser(account.ClientUser, account.ClientZone)
 	hostInfo := fmt.Sprintf("%s:%d", account.Host, account.Port)
 
 	// Header with back link and action buttons at top-right
@@ -848,6 +848,11 @@ func renderPackedDirectoriesTable(w io.Writer, entries []irodsfs_common_packedfs
 			pendingClass, pendingText, formatBytes(entry.SizeBytes), lastPacked)
 	}
 	fmt.Fprint(w, `</table>`)
+}
+
+// formatIRODSUser renders an iRODS user the way iRODS itself writes it, user#zone.
+func formatIRODSUser(user string, zone string) string {
+	return user + "#" + zone
 }
 
 func formatBytes(b int64) string {

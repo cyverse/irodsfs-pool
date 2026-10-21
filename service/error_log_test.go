@@ -158,7 +158,7 @@ func TestRequestErrorIsLoggedWithItsStackAndRecorded(t *testing.T) {
 		t.Fatalf("recorded %d errors (%d kept), want 1", total, len(groups))
 	}
 	group := groups[0]
-	if group.Operation != "List" || group.Count != 1 || group.Path != "/tempZone/home/alice" || group.User != "alice@tempZone" || group.SessionID != "session-1" {
+	if group.Operation != "List" || group.Count != 1 || group.Path != "/tempZone/home/alice" || group.User != "alice#tempZone" || group.SessionID != "session-1" {
 		t.Fatalf("unexpected error: %#v", group)
 	}
 	if !strings.Contains(group.Detail, "stack trace") {
@@ -176,7 +176,7 @@ func TestMonitoringListsErrorsWithTheirStackTrace(t *testing.T) {
 		server.errorLog.add(errorOccurrence{
 			time:      time.Now(),
 			sessionID: "session-1",
-			user:      "alice@tempZone",
+			user:      "alice#tempZone",
 			operation: "List",
 			path:      "/tempZone/<script>",
 			message:   "failed <b>",

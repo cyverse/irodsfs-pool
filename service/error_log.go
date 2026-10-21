@@ -171,7 +171,7 @@ func newErrorOccurrence(session *PoolSession, operation string, path string, err
 		detail:    fmt.Sprintf("%+v", err),
 	}
 	if session.irodsAccount != nil {
-		occurrence.user = fmt.Sprintf("%s@%s", session.irodsAccount.ClientUser, session.irodsAccount.ClientZone)
+		occurrence.user = formatIRODSUser(session.irodsAccount.ClientUser, session.irodsAccount.ClientZone)
 	}
 	if len(occurrence.detail) > errorLogMaxDetailLength {
 		occurrence.detail = strings.ToValidUTF8(occurrence.detail[:errorLogMaxDetailLength], "") + "\n... (truncated)"

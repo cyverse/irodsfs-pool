@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -16,6 +17,24 @@ import (
 	"github.com/cyverse/irodsfs-pool/commons"
 	log "github.com/sirupsen/logrus"
 )
+
+// serveMonitoringPages returns the given monitoring pages joined together, so a
+// test can check content that is split between the overview and a session's
+// own detail page.
+func serveMonitoringPages(t *testing.T, handler *MonitoringHandler, paths ...string) string {
+	t.Helper()
+
+	var body strings.Builder
+	for _, path := range paths {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest("GET", path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("GET %s returned %d: %s", path, recorder.Code, recorder.Body.String())
+		}
+		body.WriteString(recorder.Body.String())
+	}
+	return body.String()
+}
 
 func TestMonitoringModalClosesOnlyWithCloseButton(t *testing.T) {
 	server := &PoolServer{
@@ -55,11 +74,7 @@ func TestMonitoringSessionDetailIncludesSyncStagingAction(t *testing.T) {
 		},
 	}
 	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
-	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
-
-	body := recorder.Body.String()
+	body := serveMonitoringPages(t, handler, "/monitor/session/0123456789abcdef")
 	for _, expected := range []string{
 		`class="action-btn sync-staging-btn"`,
 		`Sync Staging`,
@@ -94,11 +109,7 @@ func TestMonitoringClientDescriptionsWrapWithinTheirTable(t *testing.T) {
 		},
 	}
 	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
-	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
-
-	body := recorder.Body.String()
+	body := serveMonitoringPages(t, handler, "/monitor/session/session-1234")
 	for _, expected := range []string{
 		`.clients-table { table-layout: fixed; }`,
 		`overflow-wrap: anywhere`,
@@ -126,15 +137,12 @@ func TestMonitoringShowsSessionsPendingRecoveryWithoutCredentials(t *testing.T) 
 
 	server := &PoolServer{sessionManager: manager}
 	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
-
-	body := recorder.Body.String()
+	body := serveMonitoringPages(t, handler, "/monitor", "/monitor/recovery-session/session-1")
 	for _, expected := range []string{
 		"Sessions Pending Recovery",
 		"session-1",
 		"account-session-1",
-		"rods@tempZone",
+		"rods#tempZone",
 		"connection-a",
 		"Session Pending Recovery",
 		"release_failed",
@@ -255,11 +263,7 @@ func TestMonitoringPathTablesWrapWithinTheSessionModal(t *testing.T) {
 	}
 
 	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
-	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
-
-	body := recorder.Body.String()
+	body := serveMonitoringPages(t, handler, "/monitor/session/session-1234")
 	for _, expected := range []string{
 		// Both path-bearing tables in the modal need the fixed layout. The
 		// staged files table only renders for a session with a live staging
@@ -311,13 +315,9 @@ func TestMonitoringSessionDetailReportsPackedDirectories(t *testing.T) {
 	}
 
 	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
-	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
-
-	body := recorder.Body.String()
+	body := serveMonitoringPages(t, handler, "/monitor/session/session-1234")
 	for _, expected := range []string{
-		`<h3>Packed Directories (0)</h3>`,
+		`<h2>Packed Directories (0)</h2>`,
 		`No packed directories.`,
 		// Both paths in this table are long, so it needs the same fixed layout
 		// that keeps the other path tables inside the modal.
@@ -454,11 +454,7 @@ func TestMonitoringEscapesSessionContent(t *testing.T) {
 	}
 
 	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
-	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
-
-	body := recorder.Body.String()
+	body := serveMonitoringPages(t, handler, "/monitor", "/monitor/session/session-1234")
 	for _, injected := range []string{
 		`<img src=x onerror=alert(1)>`,
 		`<script>alert('app')</script>`,
@@ -635,11 +631,7 @@ func TestMonitoringNamesAClientWithoutAnIDByItsConnection(t *testing.T) {
 		},
 	}
 	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
-	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/monitor", nil))
-
-	body := recorder.Body.String()
+	body := serveMonitoringPages(t, handler, "/monitor/session/session-1234")
 	if !strings.Contains(body, `<td title="connection connection-1">connection-1</td>`) {
 		t.Fatalf("monitor response does not name the client by its connection: %q", body)
 	}

@@ -101,10 +101,14 @@ tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 .bar-used { background:#0af; height:100%; }
 .bar-free { background:#555; height:100%; }
 .bar-text { position:absolute; top:0; left:8px; line-height:20px; font-size:12px; color:#fff; }
+.usage-table { table-layout: fixed; }
+.usage-table td { overflow-wrap: anywhere; }
+.usage-table col.usage-name { width: 12%; }
 .hm-bar { display:flex; height:20px; border-radius:4px; overflow:hidden; background:#222; position:relative; }
 .hm-hit { background:#4c4; height:100%; }
 .hm-miss { background:#f44; height:100%; }
 .hm-text { position:absolute; top:0; left:8px; line-height:20px; font-size:12px; color:#fff; }
+.bar-text-right { left:auto; right:8px; }
 .info { color: #888; }
 .badge { display: inline-block; background: #1e3a5f; color: #8cf; padding: 1px 6px; border-radius: 3px; font-size: 11px; margin: 1px; font-family: monospace; }
 .grace { background: #3d2600; color: #ffc875; }
@@ -144,7 +148,7 @@ func (h *MonitoringHandler) serveMainPage(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	fmt.Fprint(w, `<!DOCTYPE html><html><head><meta charset="utf-8">`)
-	fmt.Fprint(w, `<title>irodsfs-pool Monitor</title>`)
+	fmt.Fprint(w, `<title>iRODS FS Pool Server Monitor</title>`)
 	fmt.Fprint(w, `<style>`)
 	h.writeCommonCSS(w)
 	fmt.Fprint(w, `</style></head><body>`)
@@ -184,14 +188,16 @@ func (h *MonitoringHandler) renderServerInfo(w http.ResponseWriter) {
 	version := commons.GetVersion()
 	uptime := time.Since(h.startTime).Truncate(time.Second)
 
-	fmt.Fprint(w, `<h1>irodsfs-pool Monitor</h1>`)
+	fmt.Fprint(w, `<h1>iRODS FS Pool Server Monitor</h1>`)
 	fmt.Fprint(w, `<table>`)
 	fmt.Fprintf(w, `<tr><th>Version</th><td>%s</td><th>Git Commit</th><td>%s</td></tr>`, version.ServiceVersion, version.GitCommit)
-	fmt.Fprintf(w, `<tr><th>Uptime</th><td>%s</td><th>Data Root</th><td>%s</td></tr>`, formatUptime(uptime), h.config.DataRootPath)
-	fmt.Fprintf(w, `<tr><th>Endpoint</th><td colspan="3">%s</td></tr>`, h.config.GetServiceEndpoint())
+	fmt.Fprintf(w, `<tr><th>Started</th><td>%s (up %s)</td><th>Build Date</th><td>%s</td></tr>`, h.startTime.Format("2006-01-02 15:04:05 MST"), formatUptime(uptime), version.BuildDate)
+	fmt.Fprintf(w, `<tr><th>Data Root</th><td>%s</td><th>Staging Path</th><td>%s</td></tr>`, html.EscapeString(h.config.DataRootPath), html.EscapeString(h.getStagingPath()))
 	if endpoint := h.config.GetManagementServiceEndpoint(); endpoint != "" {
-		fmt.Fprintf(w, `<tr><th>Monitoring</th><td>%s/monitor</td><th>REST API</th><td>%s/api</td></tr>`, endpoint, endpoint)
-		fmt.Fprintf(w, `<tr><th>Prometheus</th><td colspan="3">%s/metrics</td></tr>`, endpoint)
+		fmt.Fprintf(w, `<tr><th>Endpoint</th><td>%s</td><th>Monitoring</th><td>%s/monitor</td></tr>`, h.config.GetServiceEndpoint(), endpoint)
+		fmt.Fprintf(w, `<tr><th>REST API</th><td>%s/api</td><th>Prometheus</th><td>%s/metrics</td></tr>`, endpoint, endpoint)
+	} else {
+		fmt.Fprintf(w, `<tr><th>Endpoint</th><td colspan="3">%s</td></tr>`, h.config.GetServiceEndpoint())
 	}
 	fmt.Fprint(w, `</table>`)
 }
@@ -211,31 +217,32 @@ func (h *MonitoringHandler) renderCacheInfo(w http.ResponseWriter) {
 
 	sysTotal, sysAvail := getSystemMemoryInfo()
 
-	fmt.Fprint(w, `<table>`)
-	if cacheMax > 0 {
-		pct := float64(cacheUsed) / float64(cacheMax) * 100
-		fmt.Fprintf(w, `<tr><th>Cache Used</th><td>%s / %s (%d entries)</td><th>Usage</th><td>%s</td></tr>`, formatBytes(cacheUsed), formatBytes(cacheMax), cacheCount, renderBar(pct))
-	} else {
-		fmt.Fprintf(w, `<tr><th>Cache Used</th><td>%s / %s (%d entries)</td><th>Usage</th><td>%s</td></tr>`, formatBytes(cacheUsed), formatBytes(cacheMax), cacheCount, renderBar(0))
+	var cacheFree int64
+	if cacheMax > cacheUsed {
+		cacheFree = cacheMax - cacheUsed
 	}
-	fmt.Fprintf(w, `<tr><th>System RAM</th><td>%s total, %s available</td></tr>`, formatBytes(int64(sysTotal)), formatBytes(int64(sysAvail)))
+
+	fmt.Fprint(w, `<table class="usage-table"><colgroup><col class="usage-name"><col></colgroup>`)
+	fmt.Fprintf(w, `<tr><th>Cache Usage</th><td>%s</td></tr>`, renderUsageBar(cacheUsed, cacheMax, fmt.Sprintf("%s free, %d entries", formatBytes(cacheFree), cacheCount)))
+	fmt.Fprintf(w, `<tr><th>RAM Usage</th><td>%s</td></tr>`, renderUsageBar(int64(sysTotal)-int64(sysAvail), int64(sysTotal), fmt.Sprintf("%s available", formatBytes(int64(sysAvail)))))
 	if isMemoryInsufficient(sysAvail, cacheUsed, cacheMax) {
-		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient memory: available %s < remaining cache %s</td></tr>`, formatBytes(int64(sysAvail)), formatBytes(cacheMax-cacheUsed))
+		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient memory: available %s &lt; remaining cache %s</td></tr>`, formatBytes(int64(sysAvail)), formatBytes(cacheMax-cacheUsed))
 	}
 	fmt.Fprint(w, `</table>`)
+}
+
+// getStagingPath returns the directory staged data is stored in
+func (h *MonitoringHandler) getStagingPath() string {
+	if len(h.config.StagingRootPath) > 0 {
+		return h.config.StagingRootPath
+	}
+	return h.config.GetDataStagingRootPath()
 }
 
 func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 	fmt.Fprint(w, `<h2>Staging</h2>`)
 
-	var stagingPath string
-	if len(h.config.StagingRootPath) > 0 {
-		stagingPath = h.config.StagingRootPath
-	} else {
-		stagingPath = h.config.GetDataStagingRootPath()
-	}
-
-	diskTotal, diskFree := getDiskInfo(stagingPath)
+	diskTotal, diskFree := getDiskInfo(h.getStagingPath())
 
 	sessions := h.poolServer.GetSessionManager().GetAllSessions()
 
@@ -259,14 +266,14 @@ func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 		totalStagedFiles += len(stagingFS.GetAll())
 	}
 
-	fmt.Fprint(w, `<table>`)
-	if stagingMax > 0 {
-		pct := float64(totalStagedSize) / float64(stagingMax) * 100
-		fmt.Fprintf(w, `<tr><th>Staging Used</th><td>%s / %s (%d files)</td><th>Usage</th><td>%s</td></tr>`, formatBytes(totalStagedSize), formatBytes(stagingMax), totalStagedFiles, renderBar(pct))
-	} else {
-		fmt.Fprintf(w, `<tr><th>Staging Used</th><td>%s / %s (%d files)</td><th>Usage</th><td>%s</td></tr>`, formatBytes(totalStagedSize), formatBytes(stagingMax), totalStagedFiles, renderBar(0))
+	var stagingFree int64
+	if stagingMax > totalStagedSize {
+		stagingFree = stagingMax - totalStagedSize
 	}
-	fmt.Fprintf(w, `<tr><th>System Disk</th><td>%s total, %s free</td><th>Staging Path</th><td>%s</td></tr>`, formatBytes(int64(diskTotal)), formatBytes(int64(diskFree)), stagingPath)
+
+	fmt.Fprint(w, `<table class="usage-table"><colgroup><col class="usage-name"><col></colgroup>`)
+	fmt.Fprintf(w, `<tr><th>Staging Usage</th><td>%s</td></tr>`, renderUsageBar(totalStagedSize, stagingMax, fmt.Sprintf("%s free, %d files", formatBytes(stagingFree), totalStagedFiles)))
+	fmt.Fprintf(w, `<tr><th>Disk Usage</th><td>%s</td></tr>`, renderUsageBar(int64(diskTotal)-int64(diskFree), int64(diskTotal), fmt.Sprintf("%s free", formatBytes(int64(diskFree)))))
 	if isDiskSpaceInsufficient(diskFree, totalStagedSize, stagingMax) {
 		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient disk space: available %s &lt; remaining staging %s</td></tr>`, formatBytes(int64(diskFree)), formatBytes(stagingMax-totalStagedSize))
 	}
@@ -684,14 +691,9 @@ func (h *MonitoringHandler) renderMetrics(w http.ResponseWriter) {
 	total := h.poolServer.GetTotalMetrics()
 	m := &total
 
-	var hitRatio float64
-	if m.CacheHit+m.CacheMiss > 0 {
-		hitRatio = float64(m.CacheHit) / float64(m.CacheHit+m.CacheMiss) * 100
-	}
-
 	fmt.Fprint(w, `<table>`)
 	fmt.Fprintf(w, `<tr><th>Bytes Sent</th><td>%s</td><th>Bytes Received</th><td>%s</td></tr>`, formatBytes(int64(m.BytesSent)), formatBytes(int64(m.BytesReceived)))
-	fmt.Fprintf(w, `<tr><th>Cache Hit / Miss</th><td>%d / %d</td><th>Hit Ratio</th><td>%s</td></tr>`, m.CacheHit, m.CacheMiss, renderHitMissBar(hitRatio))
+	fmt.Fprintf(w, `<tr><th>Cache Hit / Miss</th><td colspan="3">%s</td></tr>`, renderHitMissBar(m.CacheHit, m.CacheMiss))
 	fmt.Fprintf(w, `<tr><th>Request Failures</th><td>%d</td><th>Connection Failures</th><td>%d</td></tr>`, m.RequestFailures, m.ConnectionFailures)
 	fmt.Fprint(w, `</table>`)
 }
@@ -754,20 +756,39 @@ func renderErrorDetails(w io.Writer, groups []ErrorGroup) {
 	}
 }
 
-func renderBar(pct float64) string {
+// renderUsageBar renders a bar of used out of total, labeled with the amounts
+// on the used part and with freeLabel on the free part
+func renderUsageBar(used int64, total int64, freeLabel string) string {
+	if used < 0 {
+		used = 0
+	}
+	var pct float64
+	if total > 0 {
+		pct = float64(used) / float64(total) * 100
+	}
+	return renderLabeledBar(pct, fmt.Sprintf("%s / %s used (%.1f%%)", formatBytes(used), formatBytes(total), pct), freeLabel)
+}
+
+// renderLabeledBar renders a usage bar with a label on the used part, at the
+// left, and a label on the free part, at the right
+func renderLabeledBar(pct float64, usedLabel string, freeLabel string) string {
 	if pct > 100 {
 		pct = 100
 	}
 	freePct := 100 - pct
-	return fmt.Sprintf(`<div class="bar"><div class="bar-used" style="width:%.1f%%"></div><div class="bar-free" style="width:%.1f%%"></div><span class="bar-text">%.1f%%</span></div>`, pct, freePct, pct)
+	return fmt.Sprintf(`<div class="bar"><div class="bar-used" style="width:%.1f%%"></div><div class="bar-free" style="width:%.1f%%"></div><span class="bar-text">%s</span><span class="bar-text bar-text-right">%s</span></div>`, pct, freePct, usedLabel, freeLabel)
 }
 
-func renderHitMissBar(hitPct float64) string {
-	if hitPct > 100 {
-		hitPct = 100
+// renderHitMissBar renders a bar of cache hits against misses, labeled with
+// the counts and their percentages. The bar is empty while there has been
+// neither.
+func renderHitMissBar(hit uint64, miss uint64) string {
+	var hitPct, missPct float64
+	if hit+miss > 0 {
+		hitPct = float64(hit) / float64(hit+miss) * 100
+		missPct = 100 - hitPct
 	}
-	missPct := 100 - hitPct
-	return fmt.Sprintf(`<div class="hm-bar"><div class="hm-hit" style="width:%.1f%%"></div><div class="hm-miss" style="width:%.1f%%"></div><span class="hm-text">%.1f%% hit</span></div>`, hitPct, missPct, hitPct)
+	return fmt.Sprintf(`<div class="hm-bar"><div class="hm-hit" style="width:%.1f%%"></div><div class="hm-miss" style="width:%.1f%%"></div><span class="hm-text">%d hit (%.1f%%)</span><span class="hm-text bar-text-right">%d miss (%.1f%%)</span></div>`, hitPct, missPct, hit, hitPct, miss, missPct)
 }
 
 // stagedFileEntry is one row of the staged files table.

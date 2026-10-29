@@ -14,7 +14,40 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
+
+const (
+	// gRPC keepalive pings are HTTP/2 PING frames. They tell whether a
+	// connection is alive, not whether a session is, so they do not replace
+	// the KeepAlive call that holds a session open.
+
+	// grpcKeepaliveMinTime is the shortest interval clients may ping at. It must
+	// stay below the client's ping interval, or the server would close client
+	// connections for pinging too often.
+	grpcKeepaliveMinTime time.Duration = 10 * time.Second
+	// grpcKeepaliveTime is how long a connection is idle before the server
+	// pings the client, and grpcKeepaliveTimeout how long it waits for the
+	// answer before closing the connection to a client that is gone.
+	grpcKeepaliveTime    time.Duration = 1 * time.Minute
+	grpcKeepaliveTimeout time.Duration = 20 * time.Second
+)
+
+// grpcKeepaliveServerOptions returns the gRPC server options for keepalive
+// pings: clients may ping while they have a call in flight, or when idle, and
+// the server pings idle clients to find the ones that are gone.
+func grpcKeepaliveServerOptions() []grpc.ServerOption {
+	return []grpc.ServerOption{
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             grpcKeepaliveMinTime,
+			PermitWithoutStream: true,
+		}),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    grpcKeepaliveTime,
+			Timeout: grpcKeepaliveTimeout,
+		}),
+	}
+}
 
 // PoolService is a service object
 type PoolService struct {
@@ -78,7 +111,9 @@ func NewPoolService(config *commons.Config) (*PoolService, error) {
 		poolServer:      poolServer,
 	}
 
-	grpcServer := grpc.NewServer(grpc.StatsHandler(statHandler), grpc.UnaryInterceptor(statHandler.UnaryInterceptor), grpc.MaxConcurrentStreams(0))
+	serverOptions := []grpc.ServerOption{grpc.StatsHandler(statHandler), grpc.UnaryInterceptor(statHandler.UnaryInterceptor), grpc.MaxConcurrentStreams(0)}
+	serverOptions = append(serverOptions, grpcKeepaliveServerOptions()...)
+	grpcServer := grpc.NewServer(serverOptions...)
 	api.RegisterPoolAPIServer(grpcServer, poolServer)
 
 	service := &PoolService{

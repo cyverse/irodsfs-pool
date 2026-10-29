@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -44,6 +45,14 @@ const (
 	reconnectInitialInterval time.Duration = 1 * time.Second
 	reconnectMaxInterval     time.Duration = 1 * time.Minute
 	reconnectTimeout         time.Duration = 1 * time.Hour
+
+	// While a call is in flight and nothing has come from the server for
+	// grpcKeepaliveTime, the client pings it, and closes the connection if the
+	// answer does not come within grpcKeepaliveTimeout. A call to a server that
+	// is gone then fails as unavailable, and reconnects, instead of waiting out
+	// the operation timeout. The server must allow pings this often.
+	grpcKeepaliveTime    time.Duration = 30 * time.Second
+	grpcKeepaliveTimeout time.Duration = 10 * time.Second
 )
 
 // prefetchState manages double-buffered read-ahead for ReadOnly file handles
@@ -352,6 +361,12 @@ func (client *PoolServiceClient) newConnection() (*grpc.ClientConn, api.PoolAPIC
 		"passthrough:///"+endpoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(grpcDialer),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:    grpcKeepaliveTime,
+			Timeout: grpcKeepaliveTimeout,
+			// idle connections are kept by the session KeepAlive call
+			PermitWithoutStream: false,
+		}),
 		grpc.WithUnaryInterceptor(client.metadataUnaryInterceptor),
 		grpc.WithStreamInterceptor(client.metadataStreamInterceptor),
 	)

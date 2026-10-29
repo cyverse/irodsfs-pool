@@ -628,7 +628,7 @@ func TestMonitoringSessionsShowTheLastOperationOnly(t *testing.T) {
 	}
 
 	detail := serveMonitoringPages(t, handler, "/monitor/session/session-1234")
-	if !strings.Contains(detail, `<th>Last Access</th>`) {
+	if !strings.Contains(detail, `<th colspan="2">Last Access</th>`) {
 		t.Fatal("the session detail does not show the last access")
 	}
 }
@@ -744,7 +744,7 @@ func TestKeepAliveIsNotAnOperation(t *testing.T) {
 
 	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
 	body := serveMonitoringPages(t, handler, "/monitor/session/session-1234")
-	if !strings.Contains(body, `<th>Last Operation</th><td>never</td>`) {
+	if !strings.Contains(body, `<th colspan="2">Last Operation</th><td colspan="2">never</td>`) {
 		t.Fatal("the session detail does not say there has been no operation yet")
 	}
 

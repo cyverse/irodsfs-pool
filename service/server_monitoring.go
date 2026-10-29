@@ -104,6 +104,9 @@ tr.clickable:hover { background: #1a4a80; cursor: pointer; }
 .usage-table { table-layout: fixed; }
 .usage-table td { overflow-wrap: anywhere; }
 .usage-table col.usage-name { width: 12%; }
+.session-info-table { table-layout: fixed; }
+.session-info-table col { width: 8.333%; }
+.session-info-table th, .session-info-table td { overflow-wrap: anywhere; }
 .hm-bar { display:flex; height:20px; border-radius:4px; overflow:hidden; background:#222; position:relative; }
 .hm-hit { background:#4c4; height:100%; }
 .hm-miss { background:#f44; height:100%; }
@@ -545,10 +548,15 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	fmt.Fprint(w, `</div></div>`)
 	fmt.Fprint(w, `<div class="session-action-result" style="margin-top:10px"></div>`)
 
-	fmt.Fprint(w, `<table>`)
-	fmt.Fprintf(w, `<tr><th>ID</th><td>%s</td><th>Created</th><td>%s</td></tr>`, html.EscapeString(session.id), created.Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(w, `<tr><th>Host</th><td>%s</td><th>User</th><td>%s</td></tr>`, html.EscapeString(hostInfo), html.EscapeString(userInfo))
-	fmt.Fprintf(w, `<tr><th>Last Access</th><td>%s</td><th>Last Operation</th><td>%s</td></tr>`, lastAccess.Format("2006-01-02 15:04:05"), formatOperationTime(lastOperation, "2006-01-02 15:04:05"))
+	// twelve equal columns, so that a row splits evenly into one, two, or three
+	// fields, each a two column name and the rest for its value
+	fmt.Fprint(w, `<table class="session-info-table"><colgroup>`)
+	fmt.Fprint(w, strings.Repeat(`<col>`, 12))
+	fmt.Fprint(w, `</colgroup>`)
+	fmt.Fprintf(w, `<tr><th colspan="2">ID</th><td colspan="10">%s</td></tr>`, html.EscapeString(session.id))
+	fmt.Fprintf(w, `<tr><th colspan="2">Host</th><td colspan="4">%s</td><th colspan="2">User</th><td colspan="4">%s</td></tr>`, html.EscapeString(hostInfo), html.EscapeString(userInfo))
+	fmt.Fprintf(w, `<tr><th colspan="2">Created</th><td colspan="2">%s</td><th colspan="2">Last Operation</th><td colspan="2">%s</td><th colspan="2">Last Access</th><td colspan="2">%s</td></tr>`,
+		created.Format("2006-01-02 15:04:05"), formatOperationTime(lastOperation, "2006-01-02 15:04:05"), lastAccess.Format("2006-01-02 15:04:05"))
 	fmt.Fprint(w, `</table>`)
 
 	// Clients

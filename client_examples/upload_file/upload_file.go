@@ -44,7 +44,7 @@ func main() {
 		logger.Error(err)
 		panic(err)
 	}
-	defer poolClient.Disconnect()
+	defer poolClient.Release()
 
 	trackerCB := func(task string, processed int64, total int64) {
 		logger.Infof("%s] %d / %d", task, processed, total)

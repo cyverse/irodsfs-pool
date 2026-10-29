@@ -137,8 +137,8 @@ func TestPoolServiceClientSendsRoutingKeyWithEveryCall(t *testing.T) {
 	if _, err := session.List("/zone/home/alice"); err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if err := poolClient.Disconnect(); err != nil {
-		t.Fatalf("Disconnect: %v", err)
+	if err := poolClient.Release(); err != nil {
+		t.Fatalf("Release: %v", err)
 	}
 
 	recorder.mutex.Lock()
@@ -178,12 +178,9 @@ func TestPoolServiceClientHoldsOneSession(t *testing.T) {
 	if poolClient.GetSession() != nil {
 		t.Fatal("Release left the session in place")
 	}
-	// releasing or disconnecting again does nothing
+	// releasing again does nothing
 	if err := poolClient.Release(); err != nil {
 		t.Fatalf("second Release: %v", err)
-	}
-	if err := poolClient.Disconnect(); err != nil {
-		t.Fatalf("Disconnect after Release: %v", err)
 	}
 
 	recorder.mutex.Lock()
@@ -215,16 +212,16 @@ func TestPoolServiceClientReleaseDisconnectsOnlyWhenConnected(t *testing.T) {
 		t.Fatal("Release left the client connected")
 	}
 
-	// Release after Disconnect does not disconnect again
+	// Release after disconnect does not disconnect again
 	disconnected := NewPoolServiceClient(endpoint, 5*time.Second, false, "", newRoutingTestAccount("bob"), "test", "", nil)
 	if _, err := disconnected.Connect(); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	if err := disconnected.Disconnect(); err != nil {
-		t.Fatalf("Disconnect: %v", err)
+	if err := disconnected.disconnect(); err != nil {
+		t.Fatalf("disconnect: %v", err)
 	}
 	if err := disconnected.Release(); err != nil {
-		t.Fatalf("Release after Disconnect: %v", err)
+		t.Fatalf("Release after disconnect: %v", err)
 	}
 
 	recorder.mutex.Lock()
@@ -234,7 +231,7 @@ func TestPoolServiceClientReleaseDisconnectsOnlyWhenConnected(t *testing.T) {
 	}
 }
 
-func TestPoolServiceClientConnectAndDisconnectRepeatedly(t *testing.T) {
+func TestPoolServiceClientConnectAndReleaseRepeatedly(t *testing.T) {
 	recorder, endpoint := startMetadataRecordingServer(t)
 
 	poolClient := NewPoolServiceClient(endpoint, 5*time.Second, false, "", newRoutingTestAccount("alice"), "test", "", nil)
@@ -263,31 +260,31 @@ func TestPoolServiceClientConnectAndDisconnectRepeatedly(t *testing.T) {
 		}
 	}
 
-	// concurrent Disconnects log out once
+	// concurrent Releases log out once
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := poolClient.Disconnect(); err != nil {
-				t.Errorf("Disconnect: %v", err)
+			if err := poolClient.Release(); err != nil {
+				t.Errorf("Release: %v", err)
 			}
 		}()
 	}
 	wg.Wait()
 
-	// the client can connect again after a disconnect
+	// the client can connect again after a release
 	session, err := poolClient.Connect()
 	if err != nil {
-		t.Fatalf("Connect after Disconnect: %v", err)
+		t.Fatalf("Connect after Release: %v", err)
 	}
 	if session == nil || session == first {
-		t.Fatal("Connect after Disconnect did not log in again")
+		t.Fatal("Connect after Release did not log in again")
 	}
-	if err := poolClient.Disconnect(); err != nil {
-		t.Fatalf("Disconnect: %v", err)
+	if err := poolClient.Release(); err != nil {
+		t.Fatalf("Release: %v", err)
 	}
-	if err := poolClient.Disconnect(); err != nil {
-		t.Fatalf("second Disconnect: %v", err)
+	if err := poolClient.Release(); err != nil {
+		t.Fatalf("second Release: %v", err)
 	}
 
 	recorder.mutex.Lock()

@@ -76,7 +76,7 @@ func setupSession(t *testing.T) (irodsfs_common_irods.IRODSFSClient, func()) {
 	}
 
 	cleanup := func() {
-		poolClient.Disconnect()
+		poolClient.Release()
 	}
 
 	return session, cleanup

@@ -90,7 +90,7 @@ type PoolServiceClient struct {
 
 	reconnectSequence uint64
 	mutex             sync.RWMutex
-	lifecycleMutex    sync.Mutex // serializes Connect and Disconnect
+	lifecycleMutex    sync.Mutex // serializes Connect and disconnect
 }
 
 // PoolServiceSession is a service session
@@ -113,7 +113,7 @@ type PoolServiceSession struct {
 
 // NewPoolServiceClient creates a client of the pool service for one iRODS
 // account. A client holds exactly one session: Connect logs in with the
-// account, and Disconnect logs out.
+// account, and Release logs out.
 //
 // clientID names this client to the server for as long as it lives, across
 // reconnects, and scopes the file lock owners it reports. Callers that have an
@@ -182,7 +182,7 @@ func waitForReady(ctx context.Context, conn *grpc.ClientConn) bool {
 }
 
 // startBackgroundReconnect creates a cancellable context, stores the cancel
-// func so Disconnect() can stop the goroutine, then starts backgroundReconnect.
+// func so disconnect() can stop the goroutine, then starts backgroundReconnect.
 func (client *PoolServiceClient) startBackgroundReconnect() {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	sequence := atomic.AddUint64(&client.reconnectSequence, 1)
@@ -197,7 +197,7 @@ func (client *PoolServiceClient) startBackgroundReconnect() {
 	go client.backgroundReconnect(bgCtx, sequence)
 }
 
-// backgroundReconnect runs until ctx is cancelled (by Disconnect) or the
+// backgroundReconnect runs until ctx is cancelled (by disconnect) or the
 // connection is re-established. It uses exponential backoff capped at 1 min
 // and gives up after 1 hr. While running, reconnectingFlag == 1 and every
 // API call returns an error immediately.
@@ -433,9 +433,9 @@ func (client *PoolServiceClient) disconnectConn() {
 	}
 }
 
-// Disconnect logs out and disconnects connection from pool service. Calling it
+// disconnect logs out and disconnects connection from pool service. Calling it
 // on a client that is already disconnected does nothing.
-func (client *PoolServiceClient) Disconnect() error {
+func (client *PoolServiceClient) disconnect() error {
 	client.lifecycleMutex.Lock()
 	defer client.lifecycleMutex.Unlock()
 
@@ -464,7 +464,7 @@ func (client *PoolServiceClient) Release() error {
 
 	var err error
 	if needDisconnect {
-		err = client.Disconnect()
+		err = client.disconnect()
 	}
 
 	client.fsCache.ClearDirCache()
@@ -751,7 +751,7 @@ func (session *PoolServiceSession) doWithRelogin(f func() (interface{}, error)) 
 			}
 
 			// One immediate attempt: recreate connection and test with relogin.
-			// Use disconnectConn (not Disconnect) to preserve reconnectingFlag==1.
+			// Use disconnectConn (not disconnect) to preserve reconnectingFlag==1.
 			client.disconnectConn()
 			_ = client.connect()
 			if conn := client.getGRPCConnection(); conn != nil {

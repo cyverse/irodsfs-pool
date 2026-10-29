@@ -44,7 +44,7 @@ func main() {
 		logger.Error(err)
 		panic(err)
 	}
-	defer poolClient.Disconnect()
+	defer poolClient.Release()
 
 	entries, err := poolSession.List(inputPath)
 	if err != nil {

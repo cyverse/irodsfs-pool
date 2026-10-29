@@ -581,34 +581,47 @@ func (client *PoolServiceClient) login() error {
 				// terminate
 				return
 			case <-tickerKeepalive.C:
-				// send keep alive
-				session.mutex.RLock()
-				loggedIn := session.loggedIn
-				sessionID := session.id
-				session.mutex.RUnlock()
-
-				if loggedIn {
-					request := &api.KeepAliveRequest{
-						SessionId: sessionID,
-					}
-
-					apiClient, err := client.getAPIClient()
-					if err == nil {
-						_, err = apiClient.KeepAlive(context.Background(), request)
-					}
-					if err != nil {
-						session.mutex.Lock()
-						session.loggedIn = false
-						session.mutex.Unlock()
-
-						client.logger.Error(err)
-					}
-				}
+				session.sendKeepAlive()
 			}
 		}
 	}()
 
 	return nil
+}
+
+// sendKeepAlive sends a keepalive for the session if it is logged in, and
+// marks it logged out if the keepalive fails, so that the next call logs in
+// again. The call is bound by the operation timeout like any other, so a
+// server that stops answering cannot hold the keepalive goroutine.
+func (session *PoolServiceSession) sendKeepAlive() {
+	client := session.poolServiceClient
+
+	session.mutex.RLock()
+	loggedIn := session.loggedIn
+	sessionID := session.id
+	session.mutex.RUnlock()
+
+	if !loggedIn {
+		return
+	}
+
+	request := &api.KeepAliveRequest{
+		SessionId: sessionID,
+	}
+
+	apiClient, err := client.getAPIClient()
+	if err == nil {
+		ctx, cancel := client.getContextWithDeadline()
+		_, err = apiClient.KeepAlive(ctx, request)
+		cancel()
+	}
+	if err != nil {
+		session.mutex.Lock()
+		session.loggedIn = false
+		session.mutex.Unlock()
+
+		client.logger.Error(err)
+	}
 }
 
 // logout logs out the session of the client from pool service. It does

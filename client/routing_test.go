@@ -293,3 +293,52 @@ func TestPoolServiceClientConnectAndReleaseRepeatedly(t *testing.T) {
 		t.Fatalf("server saw %d logins and %d logouts, want 2 each", recorder.logins, recorder.logouts)
 	}
 }
+
+// hangingKeepAliveServer never answers a keepalive until the call gives up
+type hangingKeepAliveServer struct {
+	metadataRecordingServer
+}
+
+func (server *hangingKeepAliveServer) KeepAlive(ctx context.Context, _ *api.KeepAliveRequest) (*api.Empty, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestPoolServiceSessionKeepAliveGivesUpOnAHangingServer(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "pool.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("failed to listen on %q: %v", socketPath, err)
+	}
+	grpcServer := grpc.NewServer()
+	api.RegisterPoolAPIServer(grpcServer, &hangingKeepAliveServer{metadataRecordingServer{headers: map[string][]string{}}})
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	t.Cleanup(grpcServer.Stop)
+
+	operationTimeout := 200 * time.Millisecond
+	poolClient := NewPoolServiceClient("unix://"+socketPath, operationTimeout, false, "", newRoutingTestAccount("alice"), "test", "", nil)
+	if _, err := poolClient.Connect(); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	session := poolClient.session
+
+	done := make(chan struct{})
+	go func() {
+		session.sendKeepAlive()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * operationTimeout):
+		t.Fatal("keepalive to a server that does not answer did not give up")
+	}
+
+	session.mutex.RLock()
+	loggedIn := session.loggedIn
+	session.mutex.RUnlock()
+	if loggedIn {
+		t.Fatal("a failed keepalive left the session logged in")
+	}
+}

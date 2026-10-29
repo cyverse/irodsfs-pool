@@ -292,7 +292,7 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 		return
 	}
 
-	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Access</th><th>Clients</th><th>Staged Files</th><th>Staged Size</th><th>Packed Directories</th><th>File Handles</th><th>iRODS Conns</th></tr>`)
+	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Access</th><th>Last Operation</th><th>Clients</th><th>Staged Files</th><th>Staged Size</th><th>Packed Directories</th><th>File Handles</th><th>iRODS Conns</th></tr>`)
 	for _, session := range sessions {
 		session.mutex.RLock()
 		handleCount := len(session.poolFileHandles)
@@ -302,6 +302,7 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 			connEntries = append(connEntries, connEntry{id, ci.clientID, ci.appName, ci.description})
 		}
 		lastAccess := session.lastAccessTime
+		lastOperation := session.lastOperationTime
 		releasing := session.releasing
 		session.mutex.RUnlock()
 
@@ -355,10 +356,10 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 
 		// clientsCell is markup this function built from already-escaped parts,
 		// so it is the one value here that must not be escaped again.
-		fmt.Fprintf(w, `<tr class="clickable" onclick="location.href='/monitor/session/%s'"><td title="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
+		fmt.Fprintf(w, `<tr class="clickable" onclick="location.href='/monitor/session/%s'"><td title="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
 			template.JSEscapeString(session.id), html.EscapeString(session.id), html.EscapeString(displayID),
 			html.EscapeString(formatIRODSUser(account.ClientUser, account.ClientZone)), html.EscapeString(hostInfo),
-			lastAccess.Format("15:04:05"), clientsCell, stagedFiles, formatBytes(stagedSize), packedDirectories, handleCount, irodsConns)
+			lastAccess.Format("15:04:05"), formatOperationTime(lastOperation, "15:04:05"), clientsCell, stagedFiles, formatBytes(stagedSize), packedDirectories, handleCount, irodsConns)
 	}
 	fmt.Fprint(w, `</table>`)
 	fmt.Fprint(w, `<p class="info">Click a row to see staged files, sync status, and open file handles.</p>`)
@@ -496,6 +497,7 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	}
 	created := session.createdTime
 	lastAccess := session.lastAccessTime
+	lastOperation := session.lastOperationTime
 	releasing := session.releasing
 	session.mutex.RUnlock()
 
@@ -545,9 +547,9 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	fmt.Fprint(w, `<div class="session-action-result" style="margin-top:10px"></div>`)
 
 	fmt.Fprint(w, `<table>`)
-	fmt.Fprintf(w, `<tr><th>ID</th><td colspan="3">%s</td></tr>`, html.EscapeString(session.id))
+	fmt.Fprintf(w, `<tr><th>ID</th><td>%s</td><th>Created</th><td>%s</td></tr>`, html.EscapeString(session.id), created.Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(w, `<tr><th>Host</th><td>%s</td><th>User</th><td>%s</td></tr>`, html.EscapeString(hostInfo), html.EscapeString(userInfo))
-	fmt.Fprintf(w, `<tr><th>Created</th><td>%s</td><th>Last Access</th><td>%s</td></tr>`, created.Format("2006-01-02 15:04:05"), lastAccess.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(w, `<tr><th>Last Access</th><td>%s</td><th>Last Operation</th><td>%s</td></tr>`, lastAccess.Format("2006-01-02 15:04:05"), formatOperationTime(lastOperation, "2006-01-02 15:04:05"))
 	fmt.Fprint(w, `</table>`)
 
 	// Clients
@@ -906,6 +908,15 @@ func formatUptime(d time.Duration) string {
 		return fmt.Sprintf("%d Days %02d:%02d:%02d", days, hours, minutes, seconds)
 	}
 	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+}
+
+// formatOperationTime formats the time of a session's last file system call,
+// which is zero when there has been none
+func formatOperationTime(t time.Time, layout string) string {
+	if t.IsZero() {
+		return "never"
+	}
+	return t.Format(layout)
 }
 
 func getSystemMemoryInfo() (total, available uint64) {

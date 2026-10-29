@@ -1040,10 +1040,11 @@ type PoolSession struct {
 	fs       sessionFileSystem
 	fsClient irodsfs_common_irods.IRODSFSClient
 
-	connections     map[string]connInfo // connID -> client info
-	createdTime     time.Time
-	lastAccessTime  time.Time
-	poolFileHandles map[string]*PoolFileHandle
+	connections       map[string]connInfo // connID -> client info
+	createdTime       time.Time
+	lastAccessTime    time.Time // any call, keepalives included; the session timeout runs from it
+	lastOperationTime time.Time // last file system call, keepalives aside; zero until the first
+	poolFileHandles   map[string]*PoolFileHandle
 
 	backgroundWg sync.WaitGroup
 
@@ -1262,6 +1263,24 @@ func (session *PoolSession) GetLastAccessTime() time.Time {
 	defer session.mutex.RUnlock()
 
 	return session.lastAccessTime
+}
+
+// UpdateLastOperationTime records a file system call on the session, which is
+// also an access
+func (session *PoolSession) UpdateLastOperationTime() {
+	session.mutex.Lock()
+	defer session.mutex.Unlock()
+
+	now := time.Now()
+	session.lastAccessTime = now
+	session.lastOperationTime = now
+}
+
+func (session *PoolSession) GetLastOperationTime() time.Time {
+	session.mutex.RLock()
+	defer session.mutex.RUnlock()
+
+	return session.lastOperationTime
 }
 
 // releaseFileHandles closes every file handle the session holds and forgets

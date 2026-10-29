@@ -277,7 +277,7 @@ func (server *PoolServer) List(ctx context.Context, request *api.ListRequest) (*
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	entries, err := fsClient.List(request.Path)
 	if err != nil {
@@ -323,7 +323,7 @@ func (server *PoolServer) Stat(ctx context.Context, request *api.StatRequest) (*
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	entry, err := fsClient.Stat(request.Path)
 	if err != nil {
@@ -368,7 +368,7 @@ func (server *PoolServer) ExistsDir(ctx context.Context, request *api.ExistsDirR
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	exist := fsClient.ExistsDir(request.Path)
 	return &api.ExistsDirResponse{
@@ -391,7 +391,7 @@ func (server *PoolServer) ExistsFile(ctx context.Context, request *api.ExistsFil
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	exist := fsClient.ExistsFile(request.Path)
 	return &api.ExistsFileResponse{
@@ -415,7 +415,7 @@ func (server *PoolServer) RemoveFile(ctx context.Context, request *api.RemoveFil
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	err = fsClient.RemoveFile(request.Path, request.Force)
 	if err != nil {
@@ -443,7 +443,7 @@ func (server *PoolServer) RemoveDir(ctx context.Context, request *api.RemoveDirR
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	err = fsClient.RemoveDir(request.Path, request.Recurse, request.Force)
 	if err != nil {
@@ -470,7 +470,7 @@ func (server *PoolServer) MakeDir(ctx context.Context, request *api.MakeDirReque
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	err = fsClient.MakeDir(request.Path, request.Recurse)
 	if err != nil {
@@ -497,7 +497,7 @@ func (server *PoolServer) RenameDirToDir(ctx context.Context, request *api.Renam
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	err = fsClient.RenameDirToDir(request.SourcePath, request.DestinationPath)
 	if err != nil {
@@ -524,7 +524,7 @@ func (server *PoolServer) RenameFileToFile(ctx context.Context, request *api.Ren
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	err = fsClient.RenameFileToFile(request.SourcePath, request.DestinationPath)
 	if err != nil {
@@ -554,7 +554,7 @@ func (server *PoolServer) CreateFile(ctx context.Context, request *api.CreateFil
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	irodsFsFileHandle, err := fsClient.CreateFile(request.Path, request.Mode)
 	if err != nil {
@@ -609,7 +609,7 @@ func (server *PoolServer) OpenFile(ctx context.Context, request *api.OpenFileReq
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	irodsFsFileHandle, err := fsClient.OpenFile(request.Path, request.Mode)
 	if err != nil {
@@ -664,7 +664,7 @@ func (server *PoolServer) CreateFileBulk(ctx context.Context, request *api.Creat
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	irodsFsFileHandle, err := fsClient.CreateFileBulk(request.Path, request.Mode)
 	if err != nil {
@@ -719,7 +719,7 @@ func (server *PoolServer) OpenFileBulk(ctx context.Context, request *api.OpenFil
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	irodsFsFileHandle, err := fsClient.OpenFileBulk(request.Path, request.Mode)
 	if err != nil {
@@ -774,7 +774,7 @@ func (server *PoolServer) TruncateFile(ctx context.Context, request *api.Truncat
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	err = fsClient.TruncateFile(request.Path, request.Size)
 	if err != nil {
@@ -800,7 +800,7 @@ func (server *PoolServer) ReadAt(ctx context.Context, request *api.ReadAtRequest
 	sessionLogger.Debugf("ReadAt request")
 	defer sessionLogger.Debugf("ReadAt response")
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	session.backgroundWg.Add(1)
 	defer session.backgroundWg.Done()
@@ -839,7 +839,7 @@ func (server *PoolServer) WriteAt(ctx context.Context, request *api.WriteAtReque
 	sessionLogger.Debugf("WriteAt request")
 	defer sessionLogger.Debugf("WriteAt response")
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	session.backgroundWg.Add(1)
 	defer session.backgroundWg.Done()
@@ -875,7 +875,7 @@ func (server *PoolServer) GetAvailable(ctx context.Context, request *api.GetAvai
 	sessionLogger.Debugf("GetAvailable request")
 	defer sessionLogger.Debugf("GetAvailable response")
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
@@ -904,7 +904,7 @@ func (server *PoolServer) Truncate(ctx context.Context, request *api.TruncateReq
 	sessionLogger.Debugf("Truncate request")
 	defer sessionLogger.Debugf("Truncate response")
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
@@ -934,7 +934,7 @@ func (server *PoolServer) Flush(ctx context.Context, request *api.FlushRequest) 
 	sessionLogger.Debugf("Flush request")
 	defer sessionLogger.Debugf("Flush response")
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
@@ -964,7 +964,7 @@ func (server *PoolServer) Close(ctx context.Context, request *api.CloseRequest) 
 	sessionLogger.Debugf("Close request")
 	defer sessionLogger.Debugf("Close response")
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
@@ -1037,7 +1037,7 @@ func (server *PoolServer) Getlk(ctx context.Context, request *api.GetlkRequest) 
 	sessionLogger.Debugf("Getlk request")
 	defer sessionLogger.Debugf("Getlk response")
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	handle, err := session.GetPoolFileHandle(ClientIDFromContext(ctx), request.FileHandleId)
 	if err != nil {
@@ -1119,7 +1119,7 @@ func (server *PoolServer) getFileLockRequest(callerID string, request *api.Setlk
 		return nil, nil, server.logger, err
 	}
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	handle, err := session.GetPoolFileHandle(callerID, request.FileHandleId)
 	if err != nil {
@@ -1151,7 +1151,7 @@ func (server *PoolServer) ReadStream(request *api.ReadStreamRequest, stream api.
 	sessionLogger.Debugf("ReadStream request")
 	defer sessionLogger.Debugf("ReadStream response")
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	session.backgroundWg.Add(1)
 	defer session.backgroundWg.Done()
@@ -1200,7 +1200,7 @@ func (server *PoolServer) ReadStreamParallel(request *api.ReadStreamParallelRequ
 	sessionLogger.Debugf("ReadStreamParallel request")
 	defer sessionLogger.Debugf("ReadStreamParallel response")
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	session.backgroundWg.Add(1)
 	defer session.backgroundWg.Done()
@@ -1264,7 +1264,7 @@ func (server *PoolServer) WriteStream(stream api.PoolAPI_WriteStreamServer) erro
 	sessionLogger.Debugf("WriteStream request")
 	defer sessionLogger.Debugf("WriteStream response")
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	session.backgroundWg.Add(1)
 	defer session.backgroundWg.Done()
@@ -1337,7 +1337,7 @@ func (server *PoolServer) CacheFile(ctx context.Context, request *api.CacheFileR
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	if request.Async {
 		session.backgroundWg.Add(1)
@@ -1376,7 +1376,7 @@ func (server *PoolServer) Sync(ctx context.Context, request *api.SyncRequest) (*
 
 	fsClient := session.GetIRODSFSClient()
 
-	session.UpdateLastAccessTime()
+	session.UpdateLastOperationTime()
 
 	err = fsClient.Sync()
 	if err != nil {

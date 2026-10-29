@@ -15,6 +15,7 @@ import (
 	irodsfs_common_irods "github.com/cyverse/irodsfs-common/irods"
 	irodsfs_common_packedfs "github.com/cyverse/irodsfs-common/irods/packedfs"
 	"github.com/cyverse/irodsfs-pool/commons"
+	"github.com/cyverse/irodsfs-pool/service/api"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -668,5 +669,58 @@ func TestMonitoringNamesAClientWithoutAnIDByItsConnection(t *testing.T) {
 	body := serveMonitoringPages(t, handler, "/monitor/session/session-1234")
 	if !strings.Contains(body, `<td title="connection connection-1">connection-1</td>`) {
 		t.Fatalf("monitor response does not name the client by its connection: %q", body)
+	}
+}
+
+// A keepalive holds a session open but is not activity, so it moves the last
+// access time and leaves the last operation time alone. A file system call
+// moves both.
+func TestKeepAliveIsNotAnOperation(t *testing.T) {
+	session := &PoolSession{
+		id: "session-1234",
+		irodsAccount: &irodsclient_types.IRODSAccount{
+			Host:       "irods.example.org",
+			Port:       1247,
+			ClientUser: "rods",
+			ClientZone: "tempZone",
+		},
+		fsClient:        &failingListIRODSFSClient{err: errors.New("list failed")},
+		connections:     map[string]connInfo{},
+		poolFileHandles: map[string]*PoolFileHandle{},
+		logger:          log.WithField("sessionID", "session-1234"),
+	}
+	server := &PoolServer{
+		logger: log.NewEntry(log.New()),
+		sessionManager: &PoolSessionManager{
+			sessions: map[string]*PoolSession{session.id: session},
+		},
+	}
+
+	if _, err := server.KeepAlive(context.Background(), &api.KeepAliveRequest{SessionId: session.id}); err != nil {
+		t.Fatalf("KeepAlive: %v", err)
+	}
+	if session.GetLastAccessTime().IsZero() {
+		t.Fatal("KeepAlive did not record an access")
+	}
+	if !session.GetLastOperationTime().IsZero() {
+		t.Fatal("KeepAlive was recorded as an operation")
+	}
+
+	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
+	body := serveMonitoringPages(t, handler, "/monitor/session/session-1234")
+	if !strings.Contains(body, `<th>Last Operation</th><td>never</td>`) {
+		t.Fatal("the session detail does not say there has been no operation yet")
+	}
+
+	keepAliveAccess := session.GetLastAccessTime()
+	time.Sleep(time.Millisecond)
+	// the call reaching the server counts, whether or not iRODS fails it
+	_, _ = server.List(context.Background(), &api.ListRequest{SessionId: session.id, Path: "/tempZone/home/rods"})
+	lastOperation := session.GetLastOperationTime()
+	if lastOperation.IsZero() {
+		t.Fatal("List was not recorded as an operation")
+	}
+	if !session.GetLastAccessTime().Equal(lastOperation) || !lastOperation.After(keepAliveAccess) {
+		t.Fatal("List did not record an access along with the operation")
 	}
 }

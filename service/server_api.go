@@ -84,6 +84,7 @@ type SessionSummary struct {
 	ProxyUser                string    `json:"proxy_user,omitempty"`
 	ProxyZone                string    `json:"proxy_zone,omitempty"`
 	LastAccessTime           time.Time `json:"last_access_time"`
+	LastOperationTime        time.Time `json:"last_operation_time"` // zero until the first file system call
 	ClientCount              int       `json:"client_count"`
 	OpenFileHandleCount      int       `json:"open_file_handle_count"`
 	OpenIRODSConnectionCount int       `json:"open_irods_connection_count"`
@@ -527,6 +528,7 @@ func snapshotSessionSummaryLocked(session *PoolSession) SessionSummary {
 	info := SessionSummary{
 		ID:                  session.id,
 		LastAccessTime:      session.lastAccessTime,
+		LastOperationTime:   session.lastOperationTime,
 		ClientCount:         len(session.connections),
 		OpenFileHandleCount: len(session.poolFileHandles),
 		InGracePeriod:       len(session.connections) == 0 && !session.releasing,

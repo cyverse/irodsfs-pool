@@ -226,7 +226,7 @@ func (h *MonitoringHandler) renderCacheInfo(w http.ResponseWriter) {
 	fmt.Fprintf(w, `<tr><th>Cache Usage</th><td>%s</td></tr>`, renderUsageBar(cacheUsed, cacheMax, fmt.Sprintf("%s free, %d entries", formatBytes(cacheFree), cacheCount)))
 	fmt.Fprintf(w, `<tr><th>RAM Usage</th><td>%s</td></tr>`, renderUsageBar(int64(sysTotal)-int64(sysAvail), int64(sysTotal), fmt.Sprintf("%s available", formatBytes(int64(sysAvail)))))
 	if isMemoryInsufficient(sysAvail, cacheUsed, cacheMax) {
-		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient memory: available %s &lt; remaining cache %s</td></tr>`, formatBytes(int64(sysAvail)), formatBytes(cacheMax-cacheUsed))
+		renderWarningRow(w, fmt.Sprintf("Insufficient memory: available %s < remaining cache %s", formatBytes(int64(sysAvail)), formatBytes(cacheMax-cacheUsed)))
 	}
 	fmt.Fprint(w, `</table>`)
 }
@@ -275,7 +275,7 @@ func (h *MonitoringHandler) renderStagingInfo(w http.ResponseWriter) {
 	fmt.Fprintf(w, `<tr><th>Staging Usage</th><td>%s</td></tr>`, renderUsageBar(totalStagedSize, stagingMax, fmt.Sprintf("%s free, %d files", formatBytes(stagingFree), totalStagedFiles)))
 	fmt.Fprintf(w, `<tr><th>Disk Usage</th><td>%s</td></tr>`, renderUsageBar(int64(diskTotal)-int64(diskFree), int64(diskTotal), fmt.Sprintf("%s free", formatBytes(int64(diskFree)))))
 	if isDiskSpaceInsufficient(diskFree, totalStagedSize, stagingMax) {
-		fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">Insufficient disk space: available %s &lt; remaining staging %s</td></tr>`, formatBytes(int64(diskFree)), formatBytes(stagingMax-totalStagedSize))
+		renderWarningRow(w, fmt.Sprintf("Insufficient disk space: available %s < remaining staging %s", formatBytes(int64(diskFree)), formatBytes(stagingMax-totalStagedSize)))
 	}
 	fmt.Fprint(w, `</table>`)
 }
@@ -759,6 +759,12 @@ func renderErrorDetails(w io.Writer, groups []ErrorGroup) {
 		fmt.Fprintf(w, `<h3>Stack Trace</h3><pre class="stack-trace">%s</pre>`, escape(group.Detail))
 		fmt.Fprint(w, `</div>`)
 	}
+}
+
+// renderWarningRow renders a warning as a row of a usage table, the message
+// taking the whole width beside the warning sign
+func renderWarningRow(w io.Writer, message string) {
+	fmt.Fprintf(w, `<tr><th style="color:#f44;background:#3a1010">⚠ WARNING</th><td style="color:#f44">%s</td></tr>`, html.EscapeString(message))
 }
 
 // renderUsageBar renders a bar of used out of total, labeled with the amounts

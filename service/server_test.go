@@ -562,6 +562,40 @@ func TestMonitoringKeepsReleasingSessionsVisible(t *testing.T) {
 	}
 }
 
+// The sessions table and the session's detail page report how much staging
+// space the session holds next to its staged file count. A session without a
+// staging client holds none.
+func TestMonitoringSessionsShowStagedSize(t *testing.T) {
+	session := &PoolSession{
+		id: "session-1234",
+		irodsAccount: &irodsclient_types.IRODSAccount{
+			Host:       "irods.example.org",
+			Port:       1247,
+			ClientUser: "rods",
+			ClientZone: "tempZone",
+		},
+		connections:     map[string]connInfo{},
+		poolFileHandles: map[string]*PoolFileHandle{},
+	}
+	server := &PoolServer{
+		sessionManager: &PoolSessionManager{
+			sessions: map[string]*PoolSession{session.id: session},
+		},
+	}
+
+	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
+	body := serveMonitoringPages(t, handler, "/monitor", "/monitor/session/session-1234")
+	for _, expected := range []string{
+		`<th>Staged Files</th><th>Staged Size</th>`,
+		`<td>0</td><td>0 B</td>`,
+		`<h2>Staged Files (0, 0 B)</h2>`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("monitor response does not contain %q", expected)
+		}
+	}
+}
+
 // Once the release finishes the session must disappear, or the page would grow
 // a permanent row for every session the server ever had.
 func TestReleasedSessionsAreDropped(t *testing.T) {

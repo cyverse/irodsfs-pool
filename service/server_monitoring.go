@@ -292,7 +292,7 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 		return
 	}
 
-	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Access</th><th>Clients</th><th>Staged Files</th><th>Packed Directories</th><th>File Handles</th><th>iRODS Conns</th></tr>`)
+	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Access</th><th>Clients</th><th>Staged Files</th><th>Staged Size</th><th>Packed Directories</th><th>File Handles</th><th>iRODS Conns</th></tr>`)
 	for _, session := range sessions {
 		session.mutex.RLock()
 		handleCount := len(session.poolFileHandles)
@@ -307,12 +307,14 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 
 		var irodsConns int
 		var stagedFiles int
+		var stagedSize int64
 		var packedDirectories int
 		if session.fsClient != nil {
 			irodsConns = session.fsClient.GetOpenConnections()
 			if bufferedClient, ok := session.fsClient.(*irodsfs_common_irods.IRODSFSClientBuffered); ok {
 				if stagingFS := bufferedClient.GetStagingFS(); stagingFS != nil {
 					stagedFiles = len(stagingFS.GetAll())
+					stagedSize = stagingFS.GetCurrentDataSize()
 				}
 				if packedFS := bufferedClient.GetPackedFS(); packedFS != nil {
 					packedDirectories = len(packedFS.Statuses())
@@ -353,10 +355,10 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 
 		// clientsCell is markup this function built from already-escaped parts,
 		// so it is the one value here that must not be escaped again.
-		fmt.Fprintf(w, `<tr class="clickable" onclick="location.href='/monitor/session/%s'"><td title="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
+		fmt.Fprintf(w, `<tr class="clickable" onclick="location.href='/monitor/session/%s'"><td title="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
 			template.JSEscapeString(session.id), html.EscapeString(session.id), html.EscapeString(displayID),
 			html.EscapeString(formatIRODSUser(account.ClientUser, account.ClientZone)), html.EscapeString(hostInfo),
-			lastAccess.Format("15:04:05"), clientsCell, stagedFiles, packedDirectories, handleCount, irodsConns)
+			lastAccess.Format("15:04:05"), clientsCell, stagedFiles, formatBytes(stagedSize), packedDirectories, handleCount, irodsConns)
 	}
 	fmt.Fprint(w, `</table>`)
 	fmt.Fprint(w, `<p class="info">Click a row to see staged files, sync status, and open file handles.</p>`)
@@ -501,9 +503,11 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	sort.Slice(handleEntries, func(i, j int) bool { return handleEntries[i].path < handleEntries[j].path })
 
 	var stagingEntries []stagedFileEntry
+	var stagedSize int64
 	if session.fsClient != nil {
 		if bufferedClient, ok := session.fsClient.(*irodsfs_common_irods.IRODSFSClientBuffered); ok {
 			if stagingFS := bufferedClient.GetStagingFS(); stagingFS != nil {
+				stagedSize = stagingFS.GetCurrentDataSize()
 				for _, meta := range stagingFS.GetAll() {
 					stagingEntries = append(stagingEntries, stagedFileEntry{
 						path:      meta.Path,
@@ -567,7 +571,7 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 	}
 
 	// Staged Files (scrollable)
-	fmt.Fprintf(w, `<h2>Staged Files (%d)</h2>`, len(stagingEntries))
+	fmt.Fprintf(w, `<h2>Staged Files (%d, %s)</h2>`, len(stagingEntries), formatBytes(stagedSize))
 	if len(stagingEntries) > 0 {
 		fmt.Fprint(w, `<div class="scroll-section">`)
 		renderStagedFilesTable(w, stagingEntries)

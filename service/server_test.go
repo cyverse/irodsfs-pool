@@ -597,6 +597,42 @@ func TestMonitoringSessionsShowStagedSize(t *testing.T) {
 	}
 }
 
+// The sessions table shows when a session last did something; the last
+// access, which keepalives move, is left to the session's detail page.
+func TestMonitoringSessionsShowTheLastOperationOnly(t *testing.T) {
+	session := &PoolSession{
+		id: "session-1234",
+		irodsAccount: &irodsclient_types.IRODSAccount{
+			Host:       "irods.example.org",
+			Port:       1247,
+			ClientUser: "rods",
+			ClientZone: "tempZone",
+		},
+		connections:     map[string]connInfo{},
+		poolFileHandles: map[string]*PoolFileHandle{},
+		lastAccessTime:  time.Now(),
+	}
+	server := &PoolServer{
+		sessionManager: &PoolSessionManager{
+			sessions: map[string]*PoolSession{session.id: session},
+		},
+	}
+
+	handler := NewMonitoringHandler(server, commons.NewDefaultConfig())
+	overview := serveMonitoringPages(t, handler, "/monitor")
+	if !strings.Contains(overview, `<th>Host</th><th>Last Operation</th><th>Clients</th>`) || !strings.Contains(overview, `<td>never</td>`) {
+		t.Fatal("the sessions table does not show the last operation")
+	}
+	if strings.Contains(overview, `<th>Last Access</th><th>Last Operation</th>`) {
+		t.Fatal("the sessions table still shows the last access")
+	}
+
+	detail := serveMonitoringPages(t, handler, "/monitor/session/session-1234")
+	if !strings.Contains(detail, `<th>Last Access</th>`) {
+		t.Fatal("the session detail does not show the last access")
+	}
+}
+
 // Once the release finishes the session must disappear, or the page would grow
 // a permanent row for every session the server ever had.
 func TestReleasedSessionsAreDropped(t *testing.T) {

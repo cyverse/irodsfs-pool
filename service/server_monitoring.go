@@ -292,7 +292,7 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 		return
 	}
 
-	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Access</th><th>Last Operation</th><th>Clients</th><th>Staged Files</th><th>Staged Size</th><th>Packed Directories</th><th>File Handles</th><th>iRODS Conns</th></tr>`)
+	fmt.Fprint(w, `<table><tr><th>ID</th><th>User</th><th>Host</th><th>Last Operation</th><th>Clients</th><th>Staged Files</th><th>Staged Size</th><th>Packed Directories</th><th>File Handles</th><th>iRODS Conns</th></tr>`)
 	for _, session := range sessions {
 		session.mutex.RLock()
 		handleCount := len(session.poolFileHandles)
@@ -301,7 +301,6 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 		for id, ci := range session.connections {
 			connEntries = append(connEntries, connEntry{id, ci.clientID, ci.appName, ci.description})
 		}
-		lastAccess := session.lastAccessTime
 		lastOperation := session.lastOperationTime
 		releasing := session.releasing
 		session.mutex.RUnlock()
@@ -356,10 +355,10 @@ func (h *MonitoringHandler) renderSessions(w http.ResponseWriter) {
 
 		// clientsCell is markup this function built from already-escaped parts,
 		// so it is the one value here that must not be escaped again.
-		fmt.Fprintf(w, `<tr class="clickable" onclick="location.href='/monitor/session/%s'"><td title="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
+		fmt.Fprintf(w, `<tr class="clickable" onclick="location.href='/monitor/session/%s'"><td title="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td></tr>`,
 			template.JSEscapeString(session.id), html.EscapeString(session.id), html.EscapeString(displayID),
 			html.EscapeString(formatIRODSUser(account.ClientUser, account.ClientZone)), html.EscapeString(hostInfo),
-			lastAccess.Format("15:04:05"), formatOperationTime(lastOperation, "15:04:05"), clientsCell, stagedFiles, formatBytes(stagedSize), packedDirectories, handleCount, irodsConns)
+			formatOperationTime(lastOperation, "15:04:05"), clientsCell, stagedFiles, formatBytes(stagedSize), packedDirectories, handleCount, irodsConns)
 	}
 	fmt.Fprint(w, `</table>`)
 	fmt.Fprint(w, `<p class="info">Click a row to see staged files, sync status, and open file handles.</p>`)

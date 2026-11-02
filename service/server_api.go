@@ -71,6 +71,9 @@ type IOMetricsInfo struct {
 	CacheHit             uint64  `json:"cache_hit"`
 	CacheMiss            uint64  `json:"cache_miss"`
 	CacheHitRatioPercent float64 `json:"cache_hit_ratio_percent"`
+	CacheHitBytes        uint64  `json:"cache_hit_bytes"`
+	CacheMissBytes       uint64  `json:"cache_miss_bytes"`
+	CacheHitBytesPercent float64 `json:"cache_hit_bytes_percent"`
 	RequestFailures      uint64  `json:"request_failures"`
 	ConnectionFailures   uint64  `json:"connection_failures"`
 }
@@ -287,6 +290,10 @@ func (h *RESTAPIHandler) getIOMetricsInfo() IOMetricsInfo {
 	if metrics.CacheHit+metrics.CacheMiss > 0 {
 		hitRatio = float64(metrics.CacheHit) / float64(metrics.CacheHit+metrics.CacheMiss) * 100
 	}
+	var hitBytesRatio float64
+	if metrics.CacheHitBytes+metrics.CacheMissBytes > 0 {
+		hitBytesRatio = float64(metrics.CacheHitBytes) / float64(metrics.CacheHitBytes+metrics.CacheMissBytes) * 100
+	}
 
 	return IOMetricsInfo{
 		BytesSent:            metrics.BytesSent,
@@ -294,6 +301,9 @@ func (h *RESTAPIHandler) getIOMetricsInfo() IOMetricsInfo {
 		CacheHit:             metrics.CacheHit,
 		CacheMiss:            metrics.CacheMiss,
 		CacheHitRatioPercent: hitRatio,
+		CacheHitBytes:        metrics.CacheHitBytes,
+		CacheMissBytes:       metrics.CacheMissBytes,
+		CacheHitBytesPercent: hitBytesRatio,
 		RequestFailures:      metrics.RequestFailures,
 		ConnectionFailures:   metrics.ConnectionFailures,
 	}

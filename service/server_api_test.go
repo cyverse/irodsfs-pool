@@ -80,6 +80,8 @@ func TestRESTAPIGetSystemInfo(t *testing.T) {
 			BytesReceived:      200,
 			CacheHit:           3,
 			CacheMiss:          1,
+			CacheHitBytes:      30,
+			CacheMissBytes:     70,
 			RequestFailures:    4,
 			ConnectionFailures: 5,
 		},
@@ -116,6 +118,9 @@ func TestRESTAPIGetSystemInfo(t *testing.T) {
 	}
 	if info.IOMetrics.BytesSent != 100 || info.IOMetrics.BytesReceived != 200 || info.IOMetrics.CacheHitRatioPercent != 75 {
 		t.Fatalf("unexpected I/O metrics: %#v", info.IOMetrics)
+	}
+	if info.IOMetrics.CacheHitBytes != 30 || info.IOMetrics.CacheMissBytes != 70 || info.IOMetrics.CacheHitBytesPercent != 30 {
+		t.Fatalf("unexpected cache byte metrics: %#v", info.IOMetrics)
 	}
 	if info.IOMetrics.RequestFailures != 4 || info.IOMetrics.ConnectionFailures != 5 {
 		t.Fatalf("unexpected failure metrics: %#v", info.IOMetrics)

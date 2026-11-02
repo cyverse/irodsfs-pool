@@ -102,6 +102,14 @@ var (
 		Name: "irodsfs_pool_cache_miss_total",
 		Help: "The total number of cache miss",
 	})
+	promCounterForCacheHitBytes = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "irodsfs_pool_cache_hit_bytes_total",
+		Help: "The total number of bytes served from cache",
+	})
+	promCounterForCacheMissBytes = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "irodsfs_pool_cache_miss_bytes_total",
+		Help: "The total number of bytes missed in cache",
+	})
 	promGaugeForOpenFileHandles = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "irodsfs_pool_open_file_handles",
 		Help: "The number of open file handles",
@@ -158,6 +166,14 @@ var (
 	})
 )
 
+// cacheByteCounter is the optional interface implemented by
+// IRODSFSClientBuffered for the bytes behind its cache hits and misses. The
+// iRODS metrics carry only the counts.
+type cacheByteCounter interface {
+	GetCacheHitBytes() uint64
+	GetCacheMissBytes() uint64
+}
+
 // GetTotalMetrics returns the current total: accumulated (terminated sessions) + active sessions
 func (server *PoolServer) GetTotalMetrics() AccumulatedMetrics {
 	server.metricsMutex.Lock()
@@ -204,6 +220,10 @@ func (server *PoolServer) GetTotalMetrics() AccumulatedMetrics {
 		total.BytesReceived += metric.GetBytesReceived()
 		total.CacheHit += metric.GetCounterForCacheHit()
 		total.CacheMiss += metric.GetCounterForCacheMiss()
+		if counter, ok := session.fsClient.(cacheByteCounter); ok {
+			total.CacheHitBytes += counter.GetCacheHitBytes()
+			total.CacheMissBytes += counter.GetCacheMissBytes()
+		}
 		total.RequestFailures += metric.GetCounterForRequestResponseFailures()
 		total.ConnectionFailures += metric.GetCounterForConnectionFailures()
 		total.ConnectionPoolFailures += metric.GetCounterForConnectionPoolFailures()
@@ -242,6 +262,8 @@ func (server *PoolServer) CollectPrometheusMetrics() {
 	promCounterForBytesReceived.Add(float64(current.BytesReceived - last.BytesReceived))
 	promCounterForCacheHit.Add(float64(current.CacheHit - last.CacheHit))
 	promCounterForCacheMiss.Add(float64(current.CacheMiss - last.CacheMiss))
+	promCounterForCacheHitBytes.Add(float64(current.CacheHitBytes - last.CacheHitBytes))
+	promCounterForCacheMissBytes.Add(float64(current.CacheMissBytes - last.CacheMissBytes))
 	promCounterForRequestResponseFailures.Add(float64(current.RequestFailures - last.RequestFailures))
 	promCounterForConnectionFailures.Add(float64(current.ConnectionFailures - last.ConnectionFailures))
 	promCounterForConnectionPoolFailures.Add(float64(current.ConnectionPoolFailures - last.ConnectionPoolFailures))
@@ -315,6 +337,10 @@ func (server *PoolServer) CollectSessionMetrics(session *PoolSession) {
 	server.accumulatedMetrics.BytesReceived += metric.GetBytesReceived()
 	server.accumulatedMetrics.CacheHit += metric.GetCounterForCacheHit()
 	server.accumulatedMetrics.CacheMiss += metric.GetCounterForCacheMiss()
+	if counter, ok := session.fsClient.(cacheByteCounter); ok {
+		server.accumulatedMetrics.CacheHitBytes += counter.GetCacheHitBytes()
+		server.accumulatedMetrics.CacheMissBytes += counter.GetCacheMissBytes()
+	}
 	server.accumulatedMetrics.RequestFailures += metric.GetCounterForRequestResponseFailures()
 	server.accumulatedMetrics.ConnectionFailures += metric.GetCounterForConnectionFailures()
 	server.accumulatedMetrics.ConnectionPoolFailures += metric.GetCounterForConnectionPoolFailures()

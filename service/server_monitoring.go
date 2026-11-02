@@ -706,7 +706,8 @@ func (h *MonitoringHandler) renderMetrics(w http.ResponseWriter) {
 
 	fmt.Fprint(w, `<table>`)
 	fmt.Fprintf(w, `<tr><th>Bytes Sent</th><td>%s</td><th>Bytes Received</th><td>%s</td></tr>`, formatBytes(int64(m.BytesSent)), formatBytes(int64(m.BytesReceived)))
-	fmt.Fprintf(w, `<tr><th>Cache Hit / Miss</th><td colspan="3">%s</td></tr>`, renderHitMissBar(m.CacheHit, m.CacheMiss))
+	fmt.Fprintf(w, `<tr><th>Cache Hit / Miss</th><td colspan="3">%s</td></tr>`, renderHitMissBar(m.CacheHit, m.CacheMiss, formatCount))
+	fmt.Fprintf(w, `<tr><th>Cache Hit / Miss (bytes)</th><td colspan="3">%s</td></tr>`, renderHitMissBar(m.CacheHitBytes, m.CacheMissBytes, func(b uint64) string { return formatBytes(int64(b)) }))
 	fmt.Fprintf(w, `<tr><th>Request Failures</th><td>%d</td><th>Connection Failures</th><td>%d</td></tr>`, m.RequestFailures, m.ConnectionFailures)
 	fmt.Fprint(w, `</table>`)
 }
@@ -799,15 +800,19 @@ func renderLabeledBar(pct float64, usedLabel string, freeLabel string) string {
 }
 
 // renderHitMissBar renders a bar of cache hits against misses, labeled with
-// the counts and their percentages. The bar is empty while there has been
-// neither.
-func renderHitMissBar(hit uint64, miss uint64) string {
+// the amounts, as format writes them, and their percentages. The bar is empty
+// while there has been neither.
+func renderHitMissBar(hit uint64, miss uint64, format func(uint64) string) string {
 	var hitPct, missPct float64
 	if hit+miss > 0 {
 		hitPct = float64(hit) / float64(hit+miss) * 100
 		missPct = 100 - hitPct
 	}
-	return fmt.Sprintf(`<div class="hm-bar"><div class="hm-hit" style="width:%.1f%%"></div><div class="hm-miss" style="width:%.1f%%"></div><span class="hm-text">%d hit (%.1f%%)</span><span class="hm-text bar-text-right">%d miss (%.1f%%)</span></div>`, hitPct, missPct, hit, hitPct, miss, missPct)
+	return fmt.Sprintf(`<div class="hm-bar"><div class="hm-hit" style="width:%.1f%%"></div><div class="hm-miss" style="width:%.1f%%"></div><span class="hm-text">%s hit (%.1f%%)</span><span class="hm-text bar-text-right">%s miss (%.1f%%)</span></div>`, hitPct, missPct, format(hit), hitPct, format(miss), missPct)
+}
+
+func formatCount(n uint64) string {
+	return strconv.FormatUint(n, 10)
 }
 
 // stagedFileEntry is one row of the staged files table.

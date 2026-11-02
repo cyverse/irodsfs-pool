@@ -2001,11 +2001,9 @@ func (handle *PoolServiceFileHandle) ReadAt(buffer []byte, offset int64) (int, e
 	if !pf.disabled {
 		pf.bytesRead += int64(n)
 		if pf.bytesRead > prefetchCacheThreshold {
+			// The blocks already prefetched are still read from; they are
+			// released once the reads move past them
 			pf.disabled = true
-			pf.buf = nil
-			pf.nextBuf = nil
-			pf.bufSize = 0
-			pf.nextSize = 0
 			requestCache = true
 		}
 	}
@@ -2045,11 +2043,6 @@ func (handle *PoolServiceFileHandle) readWithPrefetch(buffer []byte, offset int6
 func (handle *PoolServiceFileHandle) readFromPrefetchBlock(buffer []byte, offset int64) (int, error) {
 	pf := handle.prefetch
 	pf.mu.Lock()
-
-	if pf.disabled {
-		pf.mu.Unlock()
-		return handle.readFromServer(buffer, offset)
-	}
 
 	bufEnd := pf.bufStart + int64(pf.bufSize)
 	if pf.bufSize > 0 && offset >= pf.bufStart && offset < bufEnd {
@@ -2105,6 +2098,15 @@ func (handle *PoolServiceFileHandle) readFromPrefetchBlock(buffer []byte, offset
 			return n, nil
 		}
 	}
+	if pf.disabled {
+		// Past what the prefetch held: the server-side cache serves the rest
+		pf.buf = nil
+		pf.nextBuf = nil
+		pf.bufSize = 0
+		pf.nextSize = 0
+		pf.mu.Unlock()
+		return handle.readFromServer(buffer, offset)
+	}
 	pf.mu.Unlock()
 
 	// fetch block synchronously
@@ -2148,7 +2150,7 @@ func (handle *PoolServiceFileHandle) readFromPrefetchBlock(buffer []byte, offset
 // triggerPrefetch starts background fetch of the next block. Must be called with pf.mu held.
 func (handle *PoolServiceFileHandle) triggerPrefetch(nextOffset int64) {
 	pf := handle.prefetch
-	if nextOffset >= handle.entry.Size || pf.fetching || pf.nextSize > 0 || pf.closed {
+	if nextOffset >= handle.entry.Size || pf.fetching || pf.nextSize > 0 || pf.closed || pf.disabled {
 		return
 	}
 
@@ -2171,7 +2173,9 @@ func (handle *PoolServiceFileHandle) triggerPrefetch(nextOffset int64) {
 		n, err := handle.readFromServer(nextBuffer, nextOffset)
 
 		pf.mu.Lock()
-		if !pf.closed && !pf.disabled {
+		// Published even when prefetch was disabled meanwhile, so the block
+		// it fetched is read from rather than fetched again
+		if !pf.closed {
 			pf.nextBuf = nextBuffer
 			pf.nextSize = n
 			pf.nextErr = err

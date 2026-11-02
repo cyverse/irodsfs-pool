@@ -20,6 +20,7 @@ type readAtPoolAPIClient struct {
 	activeReads    int32
 	maxActiveReads int32
 	totalReads     int32
+	totalBytes     int64
 	cacheRequests  int32
 }
 
@@ -135,6 +136,7 @@ func (client *readAtPoolAPIClient) ReadAt(_ context.Context, request *api.ReadAt
 	for i := range data {
 		data[i] = byte((request.Offset + int64(i)) % 251)
 	}
+	atomic.AddInt64(&client.totalBytes, length)
 	return &api.ReadAtResponse{Data: data}, nil
 }
 
@@ -358,8 +360,6 @@ func TestPoolServiceFileHandleCachesAfterReadThreshold(t *testing.T) {
 	handle.prefetch.mu.Lock()
 	disabled := handle.prefetch.disabled
 	bytesRead := handle.prefetch.bytesRead
-	buf := handle.prefetch.buf
-	nextBuf := handle.prefetch.nextBuf
 	handle.prefetch.mu.Unlock()
 	if !disabled {
 		t.Fatal("prefetch remained enabled after crossing read threshold")
@@ -367,14 +367,75 @@ func TestPoolServiceFileHandleCachesAfterReadThreshold(t *testing.T) {
 	if bytesRead != prefetchCacheThreshold+1 {
 		t.Fatalf("tracked read bytes: got %d, want %d", bytesRead, prefetchCacheThreshold+1)
 	}
-	if buf != nil || nextBuf != nil {
-		t.Fatal("prefetch buffers were retained after disabling prefetch")
-	}
 
+	// The block prefetched before disabling is still read from
+	reads := atomic.LoadInt32(&apiClient.totalReads)
 	if n, err := handle.ReadAt(buffer[:1], prefetchCacheThreshold+1); err != nil || n != 1 {
 		t.Fatalf("read after disabling prefetch: n=%d, err=%v", n, err)
 	}
+	if got := atomic.LoadInt32(&apiClient.totalReads); got != reads {
+		t.Fatalf("prefetched block was read from the server again: got %d RPC reads, want %d", got, reads)
+	}
 	if requests := atomic.LoadInt32(&apiClient.cacheRequests); requests != 1 {
 		t.Fatalf("cache was requested more than once: got %d requests, want 1", requests)
+	}
+}
+
+// TestPoolServiceFileHandleSequentialReadFetchesFileOnce verifies that a
+// sequential read through the prefetch threshold asks the server for each byte
+// once. Switching to the server-side cache must not drop the blocks the
+// prefetch already holds and read them again.
+func TestPoolServiceFileHandleSequentialReadFetchesFileOnce(t *testing.T) {
+	const (
+		fileSize = prefetchCacheThreshold + int64(2*prefetchBlockSize)
+		readSize = 256 * 1024
+	)
+
+	apiClient := &readAtPoolAPIClient{fileSize: fileSize}
+	poolClient := &PoolServiceClient{
+		operationTimeout: time.Minute,
+		apiClient:        apiClient,
+		connected:        true,
+	}
+	session := &PoolServiceSession{
+		id:                "test-session",
+		poolServiceClient: poolClient,
+		loggedIn:          true,
+	}
+	handle := &PoolServiceFileHandle{
+		id:                 "test-handle",
+		poolServiceClient:  poolClient,
+		poolServiceSession: session,
+		entry:              &irodsclient_fs.Entry{Path: "/zone/home/user/file", Size: fileSize},
+		prefetch: &prefetchState{
+			buf:     make([]byte, prefetchBlockSize),
+			nextBuf: make([]byte, prefetchBlockSize),
+		},
+	}
+
+	buffer := make([]byte, readSize)
+	for offset := int64(0); offset < fileSize; offset += readSize {
+		n, err := handle.ReadAt(buffer, offset)
+		if err != nil && err != io.EOF {
+			t.Fatalf("read at %d: %v", offset, err)
+		}
+		for i, value := range buffer[:n] {
+			if expected := byte((offset + int64(i)) % 251); value != expected {
+				t.Fatalf("data mismatch at offset %d: got %d, want %d", offset+int64(i), value, expected)
+			}
+		}
+	}
+
+	if fetched := atomic.LoadInt64(&apiClient.totalBytes); fetched != fileSize {
+		t.Fatalf("bytes fetched from the server: got %d, want %d", fetched, fileSize)
+	}
+
+	// Once the reads moved past the prefetched blocks, they are released
+	handle.prefetch.mu.Lock()
+	buf := handle.prefetch.buf
+	nextBuf := handle.prefetch.nextBuf
+	handle.prefetch.mu.Unlock()
+	if buf != nil || nextBuf != nil {
+		t.Fatal("prefetch buffers were retained after the reads moved past them")
 	}
 }

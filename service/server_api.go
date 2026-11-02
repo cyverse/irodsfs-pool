@@ -74,6 +74,7 @@ type IOMetricsInfo struct {
 	CacheHitBytes        uint64  `json:"cache_hit_bytes"`
 	CacheMissBytes       uint64  `json:"cache_miss_bytes"`
 	CacheHitBytesPercent float64 `json:"cache_hit_bytes_percent"`
+	PrefetchBytes        uint64  `json:"prefetch_bytes"`
 	RequestFailures      uint64  `json:"request_failures"`
 	ConnectionFailures   uint64  `json:"connection_failures"`
 }
@@ -304,6 +305,7 @@ func (h *RESTAPIHandler) getIOMetricsInfo() IOMetricsInfo {
 		CacheHitBytes:        metrics.CacheHitBytes,
 		CacheMissBytes:       metrics.CacheMissBytes,
 		CacheHitBytesPercent: hitBytesRatio,
+		PrefetchBytes:        metrics.PrefetchBytes,
 		RequestFailures:      metrics.RequestFailures,
 		ConnectionFailures:   metrics.ConnectionFailures,
 	}

@@ -708,6 +708,7 @@ func (h *MonitoringHandler) renderMetrics(w http.ResponseWriter) {
 	fmt.Fprintf(w, `<tr><th>Bytes Sent</th><td>%s</td><th>Bytes Received</th><td>%s</td></tr>`, formatBytes(int64(m.BytesSent)), formatBytes(int64(m.BytesReceived)))
 	fmt.Fprintf(w, `<tr><th>Cache Hit / Miss</th><td colspan="3">%s</td></tr>`, renderHitMissBar(m.CacheHit, m.CacheMiss, formatCount))
 	fmt.Fprintf(w, `<tr><th>Cache Hit / Miss (bytes)</th><td colspan="3">%s</td></tr>`, renderHitMissBar(m.CacheHitBytes, m.CacheMissBytes, func(b uint64) string { return formatBytes(int64(b)) }))
+	fmt.Fprintf(w, `<tr><th>Prefetched</th><td colspan="3">%s</td></tr>`, formatBytes(int64(m.PrefetchBytes)))
 	fmt.Fprintf(w, `<tr><th>Request Failures</th><td>%d</td><th>Connection Failures</th><td>%d</td></tr>`, m.RequestFailures, m.ConnectionFailures)
 	fmt.Fprint(w, `</table>`)
 }

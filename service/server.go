@@ -77,6 +77,7 @@ type AccumulatedMetrics struct {
 	CacheMiss              uint64
 	CacheHitBytes          uint64
 	CacheMissBytes         uint64
+	PrefetchBytes          uint64
 	RequestFailures        uint64
 	ConnectionFailures     uint64
 	ConnectionPoolFailures uint64

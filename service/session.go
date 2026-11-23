@@ -31,16 +31,19 @@ const (
 	sessionLogMaxAgeDays = 30
 )
 
+// clientInUseWaitTimeout bounds how long a release waits for running requests.
+const clientInUseWaitTimeout = 60 * time.Second
+
 var errSessionUnavailable = errors.New("session is not available")
 
 // PoolSessionManager manages PoolSession
 type PoolSessionManager struct {
-	config              *PoolServerConfig
-	cacheManager        *irodsfs_common_cache.MemoryCacheManager
-	sharedStagingQuota  *SharedStagingQuota
-	sessions            map[string]*PoolSession // key: account key (hash)
-	connMap             map[string]string       // key: connection id -> session id
-	logger              *log.Entry
+	config             *PoolServerConfig
+	cacheManager       *irodsfs_common_cache.MemoryCacheManager
+	sharedStagingQuota *SharedStagingQuota
+	sessions           map[string]*PoolSession // key: account key (hash)
+	connMap            map[string]string       // key: connection id -> session id
+	logger             *log.Entry
 
 	failedSessionDBPath string
 	failedSessionDB     *badger.DB
@@ -1063,6 +1066,15 @@ type PoolSession struct {
 
 	backgroundWg sync.WaitGroup
 
+	// clientInUse counts the requests that hold the session's file system
+	// client, and clientClosing is set once the release is about to close it.
+	// The release waits for the requests that already hold the client, and a
+	// request arriving after that is refused: the session is going away, so the
+	// client has to log in again rather than wait for a session that will not
+	// come back.
+	clientInUse   atomic.Int64
+	clientClosing atomic.Bool
+
 	releasing   bool
 	releaseDone chan struct{}
 
@@ -1144,6 +1156,9 @@ func (session *PoolSession) release() error {
 	// paths that release a session without one.
 	releaseErr := session.releaseFileHandles()
 
+	// Requests already running on the client finish before it is closed.
+	session.closeClientAccess()
+
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 
@@ -1197,7 +1212,47 @@ func (session *PoolSession) GetIRODSAccount() *irodsclient_types.IRODSAccount {
 }
 
 func (session *PoolSession) GetIRODSFSClient() irodsfs_common_irods.IRODSFSClient {
-	return session.fsClient
+	return session.getIRODSFSClient()
+}
+
+// AcquireIRODSFSClient hands out the session's file system client for the span
+// of one request. The caller must call the returned function once it is done
+// with the client, and must not use the client afterwards. The release of the
+// session waits for it, so the client is not closed under a running request.
+// Once the release has started to close the client, no new request gets it and
+// the error says the session is gone.
+func (session *PoolSession) AcquireIRODSFSClient() (irodsfs_common_irods.IRODSFSClient, func(), error) {
+	session.clientInUse.Add(1)
+	if session.clientClosing.Load() {
+		session.clientInUse.Add(-1)
+		return nil, nil, commons.NewSessionNotFoundError(session.id)
+	}
+
+	client := session.getIRODSFSClient()
+	if client == nil {
+		session.clientInUse.Add(-1)
+		return nil, nil, commons.NewSessionNotFoundError(session.id)
+	}
+
+	var once sync.Once
+	return client, func() { once.Do(func() { session.clientInUse.Add(-1) }) }, nil
+}
+
+// closeClientAccess stops handing out the client and waits for the requests
+// that hold it. A request stuck on iRODS must not hold the release up for good,
+// so the wait is bounded; past that the release goes on, and the request is
+// left to fail on its own.
+func (session *PoolSession) closeClientAccess() {
+	session.clientClosing.Store(true)
+
+	deadline := time.Now().Add(clientInUseWaitTimeout)
+	for session.clientInUse.Load() > 0 {
+		if time.Now().After(deadline) {
+			session.logger.Warnf("Releasing the pool session with %d request(s) still using its client", session.clientInUse.Load())
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // getIRODSFSClient reads the client under the session lock, for the release

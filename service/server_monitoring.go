@@ -482,7 +482,44 @@ func (h *MonitoringHandler) renderOneFailedSessionDetail(w http.ResponseWriter, 
 	}
 	fmt.Fprint(w, `<p class="info">Credentials, tickets, and PAM tokens are not stored.</p>`)
 
+	h.renderStagedOperations(w, session.ID)
+
 	h.writeRecoveryScripts(w)
+}
+
+// renderStagedOperations shows what a session pending recovery still has to send
+// to iRODS. An operation whose staged file is missing, or is a directory, can
+// never run, which is what blocks a recovery.
+func (h *MonitoringHandler) renderStagedOperations(w http.ResponseWriter, sessionID string) {
+	escape := html.EscapeString
+
+	operations, err := h.poolServer.GetSessionManager().GetStagedOperations(sessionID)
+	if err != nil {
+		fmt.Fprintf(w, `<h2>Staged Operations</h2><p class="info">Unavailable: %s</p>`, escape(err.Error()))
+		return
+	}
+
+	fmt.Fprintf(w, `<h2>Staged Operations (%d)</h2>`, len(operations))
+	if len(operations) == 0 {
+		fmt.Fprint(w, `<p>No staged operations.</p>`)
+		return
+	}
+
+	fmt.Fprint(w, `<table class="clients-table"><tr><th>Action</th><th>Path</th><th>State</th><th>Staged file</th><th>Failures</th><th>Depends on</th><th>Created</th></tr>`)
+	for _, op := range operations {
+		path := escape(op.Path)
+		if op.OldPath != "" {
+			path = escape(op.OldPath) + " &rarr; " + path
+		}
+		// An upload has nothing to send unless a regular file is staged.
+		cell := escape(op.LocalPath)
+		if strings.HasSuffix(op.Action, "UPLOAD") && op.LocalPath != StagedLocalPathFile {
+			cell = `<span class="dirty">` + cell + `</span>`
+		}
+		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%s</td></tr>`,
+			escape(op.Action), path, escape(op.State), cell, op.SyncFailCount, len(op.DependsOn), op.CreatedAt.Format("2006-01-02 15:04:05"))
+	}
+	fmt.Fprint(w, `</table>`)
 }
 
 func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, session *PoolSession) {

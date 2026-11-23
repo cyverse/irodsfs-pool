@@ -151,5 +151,6 @@ Run as daemon:
 | 12021 | `POST /api/sessions/{sessionID}/staging/sync` | Sync an active session's staged data to iRODS |
 | 12021 | `/api/recovery-sessions` | List interrupted, recovering, or release-failed sessions (JSON) |
 | 12021 | `/api/recovery-sessions/{sessionID}` | Get persisted recovery metadata for one session (JSON) |
+| 12021 | `/api/recovery-sessions/{sessionID}/operations` | List the staged operations a session still has to send to iRODS, with the state of each staged file (JSON) |
 
 `/api/failed-sessions` and `/api/failed-sessions/{sessionID}` remain compatibility aliases.

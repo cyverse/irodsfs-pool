@@ -168,6 +168,7 @@ func (h *RESTAPIHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{sessionID}/staging/sync", h.syncSessionStaging)
 	mux.HandleFunc("GET /api/recovery-sessions", h.listFailedSessions)
 	mux.HandleFunc("GET /api/recovery-sessions/{sessionID}", h.getFailedSession)
+	mux.HandleFunc("GET /api/recovery-sessions/{sessionID}/operations", h.getFailedSessionOperations)
 	mux.HandleFunc("POST /api/recovery-sessions/{sessionID}/recover", h.recoverSession)
 	mux.HandleFunc("POST /api/recovery-sessions/{sessionID}/force-repair", h.forceRepairSession)
 	mux.HandleFunc("POST /api/recovery-sessions/{sessionID}/discard", h.discardSessionStaging)
@@ -416,6 +417,23 @@ func (h *RESTAPIHandler) getFailedSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, session)
+}
+
+// getFailedSessionOperations lists what a session pending recovery still has to
+// send to iRODS, with the state of the staged file behind each operation.
+func (h *RESTAPIHandler) getFailedSessionOperations(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("sessionID"))
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, apiErrorResponse{Error: "session ID is required"})
+		return
+	}
+
+	operations, err := h.poolServer.GetSessionManager().GetStagedOperations(sessionID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiErrorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, operations)
 }
 
 func (h *RESTAPIHandler) recoverSession(w http.ResponseWriter, r *http.Request) {

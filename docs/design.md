@@ -152,6 +152,7 @@ A single HTTP server (default port 12021) exposes monitoring, metrics, and an ad
 | `POST /api/sessions/{sessionID}/staging/sync` | Synchronously upload an active session's staged data to iRODS |
 | `/api/recovery-sessions` | JSON list of interrupted, recovering, or release-failed sessions |
 | `/api/recovery-sessions/{sessionID}` | JSON persisted recovery metadata for one session |
+| `/api/recovery-sessions/{sessionID}/operations` | JSON list of the staged operations a session still has to send to iRODS, read from a copy of its staging database, with whether each operation's staged file is a file, a directory, or missing |
 
 The dashboard shows sessions pending recovery in a separate section and red warnings when system memory or staging disk space is insufficient. Refresh the page manually to see updated status.
 The REST API does not expose account credentials, tickets, or PAM tokens.

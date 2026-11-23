@@ -285,6 +285,11 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 	// takes it over instead of waiting for the upload below to finish.
 	manager.offerRecoveringSessionForAdoption(session)
 
+	// An operation the background sync gave up on was blocked after repeated
+	// failures. A recovery is the moment to try it once more, since what made
+	// it fail may be gone; if it fails again it stays queued with its data.
+	retryBlockedStagedOperations(session)
+
 	// Sync staged files to iRODS.
 	sessionLogger.Infof("Starting recovery sync for session %q", sessionID)
 	syncErr := manager.uploadRecoveredStaging(session, epoch)
@@ -308,6 +313,18 @@ func (manager *PoolSessionManager) doRecoverSession(sessionID string, info *Fail
 		return false, repaired, errors.Wrap(releaseErr, "release failed after recovery sync")
 	}
 	return false, repaired, nil
+}
+
+// retryBlockedStagedOperations puts the operations the background sync gave up
+// on back in the queue.
+func retryBlockedStagedOperations(session *PoolSession) {
+	bufferedClient, ok := session.getIRODSFSClient().(*irodsfs_common_irods.IRODSFSClientBuffered)
+	if !ok {
+		return
+	}
+	if stagingFS := bufferedClient.GetStagingFS(); stagingFS != nil {
+		stagingFS.ClearFailedItems()
+	}
 }
 
 // uploadRecoveredStaging empties the staging area a recovered session was built

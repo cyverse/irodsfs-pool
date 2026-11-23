@@ -569,8 +569,12 @@ func (manager *PoolSessionManager) removeConnection(connID string, loggedOut boo
 			t.Stop()
 			delete(manager.pendingReleases, sessionID)
 		}
-		t := time.AfterFunc(manager.config.sessionCloseGracePeriod, func() {
-			manager.startSessionRelease(sessionID)
+		// The callback identifies its own timer, so it can tell that it has been
+		// cancelled. It reads the pointer under manager.mutex, which is held
+		// here until the timer is registered.
+		var t *time.Timer
+		t = time.AfterFunc(manager.config.sessionCloseGracePeriod, func() {
+			manager.startSessionRelease(sessionID, &t)
 		})
 		manager.pendingReleases[sessionID] = t
 		manager.mutex.Unlock()
@@ -590,8 +594,19 @@ func (manager *PoolSessionManager) removeConnection(connID string, loggedOut boo
 // startSessionRelease is called by the grace-period timer.  It re-checks that
 // no new connection arrived during the grace period before proceeding.
 // All access to sessions and pendingReleases is protected by manager.mutex.
-func (manager *PoolSessionManager) startSessionRelease(sessionID string) {
+//
+// timer is the grace-period timer that fired. Stopping a timer does not stop a
+// callback that already fired and is waiting for manager.mutex, so a login that
+// cancelled the release meanwhile could still be hit by it: the login has been
+// handed the session but has not added its connection yet, so the session looks
+// unused. A cancelled timer is no longer in pendingReleases, and is ignored.
+func (manager *PoolSessionManager) startSessionRelease(sessionID string, timer **time.Timer) {
 	manager.mutex.Lock()
+
+	if manager.pendingReleases[sessionID] != *timer {
+		manager.mutex.Unlock()
+		return
+	}
 
 	session, ok := manager.sessions[sessionID]
 	if !ok {

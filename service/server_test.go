@@ -760,3 +760,26 @@ func TestKeepAliveIsNotAnOperation(t *testing.T) {
 		t.Fatal("List did not record an access along with the operation")
 	}
 }
+
+// A staged file that failed to sync says why on the session page.
+func TestRenderStagedFilesShowsWhyASyncFailed(t *testing.T) {
+	var buffer bytes.Buffer
+	renderStagedFilesTable(&buffer, []stagedFileEntry{{
+		path:      "/z/home/u/a.dat",
+		action:    "UPLOAD",
+		fileState: "DIRTY",
+		modified:  time.Date(2026, 9, 15, 21, 35, 15, 0, time.UTC),
+		failCount: 3,
+		lastError: "failed to upload <b>a.dat</b>: permission denied",
+	}})
+
+	body := buffer.String()
+	if strings.Contains(body, "<b>a.dat</b>") {
+		t.Fatalf("the failure reason is rendered as markup: %s", body)
+	}
+	for _, expected := range []string{"&lt;b&gt;a.dat&lt;/b&gt;: permission denied", `<span class="dirty">3</span>`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("staged files table does not contain %q: %s", expected, body)
+		}
+	}
+}

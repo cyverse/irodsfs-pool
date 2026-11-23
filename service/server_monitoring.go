@@ -488,8 +488,9 @@ func (h *MonitoringHandler) renderOneFailedSessionDetail(w http.ResponseWriter, 
 }
 
 // renderStagedOperations shows what a session pending recovery still has to send
-// to iRODS. An operation whose staged file is missing, or is a directory, can
-// never run, which is what blocks a recovery.
+// to iRODS. The operations that failed to sync come first, with the reason, since
+// they are what keeps a recovery from finishing; an operation whose staged file
+// is missing, or is a directory, can never run.
 func (h *MonitoringHandler) renderStagedOperations(w http.ResponseWriter, sessionID string) {
 	escape := html.EscapeString
 
@@ -499,11 +500,33 @@ func (h *MonitoringHandler) renderStagedOperations(w http.ResponseWriter, sessio
 		return
 	}
 
-	fmt.Fprintf(w, `<h2>Staged Operations (%d)</h2>`, len(operations))
-	if len(operations) == 0 {
-		fmt.Fprint(w, `<p>No staged operations.</p>`)
+	var failed, others []StagedOperationInfo
+	for _, op := range operations {
+		if op.SyncFailed() {
+			failed = append(failed, op)
+		} else {
+			others = append(others, op)
+		}
+	}
+
+	fmt.Fprintf(w, `<h2>Failed to Sync (%d)</h2>`, len(failed))
+	if len(failed) == 0 {
+		fmt.Fprint(w, `<p>No operation has failed to sync.</p>`)
+	} else {
+		renderStagedOperationsTable(w, failed)
+		fmt.Fprint(w, `<p class="info">Operations that depend on a failed one wait behind it, and are listed below.</p>`)
+	}
+
+	fmt.Fprintf(w, `<h2>Other Staged Operations (%d)</h2>`, len(others))
+	if len(others) == 0 {
+		fmt.Fprint(w, `<p>No other staged operations.</p>`)
 		return
 	}
+	renderStagedOperationsTable(w, others)
+}
+
+func renderStagedOperationsTable(w io.Writer, operations []StagedOperationInfo) {
+	escape := html.EscapeString
 
 	fmt.Fprint(w, `<table class="clients-table"><tr><th>Action</th><th>Path</th><th>State</th><th>Staged file</th><th>Failures</th><th>Depends on</th><th>Created</th></tr>`)
 	for _, op := range operations {
@@ -511,13 +534,21 @@ func (h *MonitoringHandler) renderStagedOperations(w http.ResponseWriter, sessio
 		if op.OldPath != "" {
 			path = escape(op.OldPath) + " &rarr; " + path
 		}
+		// Why the last attempt failed, under the path.
+		if op.LastSyncError != "" {
+			path += `<br><span class="dirty" style="font-size:11px">` + escape(op.LastSyncError) + `</span>`
+		}
 		// An upload has nothing to send unless a regular file is staged.
 		cell := escape(op.LocalPath)
 		if strings.HasSuffix(op.Action, "UPLOAD") && op.LocalPath != StagedLocalPathFile {
 			cell = `<span class="dirty">` + cell + `</span>`
 		}
-		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%s</td></tr>`,
-			escape(op.Action), path, escape(op.State), cell, op.SyncFailCount, len(op.DependsOn), op.CreatedAt.Format("2006-01-02 15:04:05"))
+		failures := fmt.Sprintf("%d", op.SyncFailCount)
+		if op.SyncFailed() {
+			failures = fmt.Sprintf(`<span class="dirty">%d</span>`, op.SyncFailCount)
+		}
+		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td></tr>`,
+			escape(op.Action), path, escape(op.State), cell, failures, len(op.DependsOn), op.CreatedAt.Format("2006-01-02 15:04:05"))
 	}
 	fmt.Fprint(w, `</table>`)
 }
@@ -557,6 +588,7 @@ func (h *MonitoringHandler) renderOneSessionDetail(w http.ResponseWriter, sessio
 						fileState: meta.FileState.String(),
 						modified:  meta.LastModifiedAt,
 						failCount: meta.SyncFailCount,
+						lastError: meta.LastSyncError,
 					})
 				}
 			}
@@ -861,6 +893,7 @@ type stagedFileEntry struct {
 	fileState string
 	modified  time.Time
 	failCount int
+	lastError string
 }
 
 // renderStagedFiles lists the files a session has staged but not yet synced.
@@ -893,9 +926,19 @@ func renderStagedFilesTable(w io.Writer, entries []stagedFileEntry) {
 				pathCell, html.EscapeString(entry.oldPath))
 		}
 
-		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td class="%s">%s</td><td>%s</td><td>%d</td></tr>`,
+		// A file that failed to sync says why, under its path.
+		if entry.lastError != "" {
+			pathCell += fmt.Sprintf("<br><span class='dirty' style='font-size:11px'>%s</span>", html.EscapeString(entry.lastError))
+		}
+
+		failCell := fmt.Sprintf("%d", entry.failCount)
+		if entry.failCount > 0 || entry.lastError != "" {
+			failCell = fmt.Sprintf(`<span class="dirty">%d</span>`, entry.failCount)
+		}
+
+		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td class="%s">%s</td><td>%s</td><td>%s</td></tr>`,
 			pathCell, html.EscapeString(entry.action), stateClass, html.EscapeString(entry.fileState),
-			entry.modified.Format("15:04:05"), entry.failCount)
+			entry.modified.Format("15:04:05"), failCell)
 	}
 	fmt.Fprint(w, `</table>`)
 }

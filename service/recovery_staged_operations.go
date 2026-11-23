@@ -25,6 +25,14 @@ const (
 	StagedLocalPathUnknown   = "unknown"
 )
 
+// SyncFailed reports whether the operation has failed to sync: it failed or was
+// blocked after failing, or it has a recorded failure.
+func (info StagedOperationInfo) SyncFailed() bool {
+	return info.SyncFailCount > 0 || info.LastSyncError != "" ||
+		info.State == string(irodsfs_common_stagingfs.OperationFailed) ||
+		info.State == string(irodsfs_common_stagingfs.OperationBlocked)
+}
+
 // StagedOperationInfo describes one operation a session still has to send to
 // iRODS. LocalPath says what the staging area holds at the operation's path,
 // which is what tells an upload that can run from one whose file is gone.
@@ -36,6 +44,7 @@ type StagedOperationInfo struct {
 	OldPath       string    `json:"old_path,omitempty"`
 	DependsOn     []string  `json:"depends_on,omitempty"`
 	SyncFailCount int       `json:"sync_fail_count"`
+	LastSyncError string    `json:"last_sync_error,omitempty"`
 	IsNew         bool      `json:"is_new"`
 	CreatedAt     time.Time `json:"created_at"`
 	LocalPath     string    `json:"local_path"`
@@ -122,6 +131,7 @@ func readStagedOperations(stagingRoot string) ([]StagedOperationInfo, error) {
 				OldPath:       op.Metadata.OldPath,
 				DependsOn:     op.Dependencies,
 				SyncFailCount: op.Metadata.SyncFailCount,
+				LastSyncError: op.Metadata.LastSyncError,
 				IsNew:         op.Metadata.IsNew,
 				CreatedAt:     op.CreatedAt,
 				LocalPath:     stagedLocalPathState(stagingRoot, op.Metadata.Path),

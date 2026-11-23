@@ -1,9 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,7 +58,7 @@ func TestReadStagedOperationsReportsLocalPathState(t *testing.T) {
 	writeStagedOperations(t, stagingRoot,
 		&irodsfs_common_stagingfs.StagingOperation{
 			ID: "op-1", CreatedAt: now, State: irodsfs_common_stagingfs.OperationFailed,
-			Metadata: &irodsfs_common_stagingfs.StagingMetadata{Path: "/zone/home/badreads.txt", Action: irodsfs_common_stagingfs.ActionUpload, SyncFailCount: 3},
+			Metadata: &irodsfs_common_stagingfs.StagingMetadata{Path: "/zone/home/badreads.txt", Action: irodsfs_common_stagingfs.ActionUpload, SyncFailCount: 3, LastSyncError: "permission denied"},
 		},
 		&irodsfs_common_stagingfs.StagingOperation{
 			ID: "op-2", CreatedAt: now.Add(time.Second), Dependencies: []string{"op-1"},
@@ -85,6 +87,9 @@ func TestReadStagedOperationsReportsLocalPathState(t *testing.T) {
 		if operations[i].OperationID != w.id || operations[i].LocalPath != w.local {
 			t.Fatalf("operations[%d] = %s/%s, want %s/%s", i, operations[i].OperationID, operations[i].LocalPath, w.id, w.local)
 		}
+	}
+	if operations[0].LastSyncError != "permission denied" || !operations[0].SyncFailed() || operations[1].SyncFailed() {
+		t.Fatalf("failure details lost: %#v", operations[:2])
 	}
 	if operations[0].SyncFailCount != 3 || operations[0].Action != "UPLOAD" || len(operations[1].DependsOn) != 1 {
 		t.Fatalf("operation details lost: %#v", operations[:2])
@@ -135,5 +140,32 @@ func TestReadStagedOperationsWithoutDatabase(t *testing.T) {
 	operations, err := readStagedOperations(t.TempDir())
 	if err != nil || len(operations) != 0 {
 		t.Fatalf("operations = %v, err = %v, want none", operations, err)
+	}
+}
+
+// The reason an operation failed is shown with it, and it is text from iRODS and
+// from users, so it is escaped.
+func TestRenderStagedOperationsShowsFailureReasonEscaped(t *testing.T) {
+	var buffer bytes.Buffer
+	renderStagedOperationsTable(&buffer, []StagedOperationInfo{{
+		OperationID:   "op-1",
+		Action:        "UPLOAD",
+		State:         "FAILED",
+		Path:          "/z/home/u/<img src=x onerror=alert(1)>.dat",
+		SyncFailCount: 2,
+		LastSyncError: "failed to upload <script>alert(2)</script>",
+		LocalPath:     StagedLocalPathDirectory,
+	}})
+
+	body := buffer.String()
+	for _, injected := range []string{"<img src=x", "<script>"} {
+		if strings.Contains(body, injected) {
+			t.Fatalf("operations table renders %q as markup", injected)
+		}
+	}
+	for _, expected := range []string{"&lt;script&gt;alert(2)&lt;/script&gt;", "&lt;img src=x", `class="dirty"`, "directory"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("operations table does not contain %q: %s", expected, body)
+		}
 	}
 }

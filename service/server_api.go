@@ -116,6 +116,7 @@ type SessionStagedFileInfo struct {
 	FileState        string    `json:"file_state"`
 	LastModifiedTime time.Time `json:"last_modified_time"`
 	SyncFailureCount int       `json:"sync_failure_count"`
+	LastSyncError    string    `json:"last_sync_error,omitempty"`
 }
 
 type SessionInfo struct {
@@ -533,6 +534,7 @@ func snapshotSessionInfo(session *PoolSession) SessionInfo {
 					FileState:        metadata.FileState.String(),
 					LastModifiedTime: metadata.LastModifiedAt,
 					SyncFailureCount: metadata.SyncFailCount,
+					LastSyncError:    metadata.LastSyncError,
 				})
 			}
 		}

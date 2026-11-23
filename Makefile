@@ -1,7 +1,7 @@
 PKG=github.com/cyverse/irodsfs-pool
 IMAGE?=cyverse/irodsfs-pool
 DOCKERFILE=kubernetes/Dockerfile
-VERSION=v0.12.10
+VERSION=v0.12.11
 GOOS?=linux
 GOARCH?=$(shell go env GOARCH)
 PLATFORM?=$(GOOS)/$(GOARCH)

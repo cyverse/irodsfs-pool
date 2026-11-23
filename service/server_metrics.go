@@ -164,6 +164,10 @@ var (
 		Name: "irodsfs_pool_grpc_requests_canceled_total",
 		Help: "The total number of GRPC requests canceled",
 	})
+	promCounterForGRPCRequestsPanicked = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "irodsfs_pool_grpc_requests_panicked_total",
+		Help: "The total number of GRPC requests that panicked and were recovered",
+	})
 	promCounterForGRPCClients = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "irodsfs_pool_grpc_clients",
 		Help: "The number of GRPC clients",

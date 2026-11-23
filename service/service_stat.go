@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 
@@ -127,6 +128,18 @@ func (handler *PoolServiceStatHandler) UnaryInterceptor(ctx context.Context, req
 
 	// Run the handler in a goroutine
 	go func() {
+		// A panic in a handler must not take the whole server down, and with it
+		// every other session: this goroutine has no caller to recover it, so an
+		// unrecovered panic here terminates the process. Fail this one request
+		// instead.
+		defer func() {
+			if r := recover(); r != nil {
+				handler.poolServer.logger.Errorf("Handler %q panicked: %v\n%s", info.FullMethod, r, debug.Stack())
+				promCounterForGRPCRequestsPanicked.Inc()
+				errChan <- status.Error(codes.Internal, "internal server error")
+			}
+		}()
+
 		resp, err := uhandler(ctx, req)
 		if err != nil {
 			errChan <- err
